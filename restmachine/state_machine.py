@@ -7,7 +7,7 @@ import json
 from typing import Any, Callable, Dict, List, Optional, Union, get_origin, get_args
 
 from .content_renderers import ContentRenderer
-from .dependencies import DependencyWrapper
+from .dependencies import DependencyWrapper, HeadersWrapper
 from .exceptions import PYDANTIC_AVAILABLE, ValidationError
 from .models import HTTPMethod, Request, Response
 
@@ -374,10 +374,54 @@ class RequestStateMachine:
             ),
         )
 
+    def _process_headers_dependencies(self) -> Dict[str, str]:
+        """Process all headers dependencies and return final headers."""
+        # Get initial headers (includes Vary header)
+        headers = self.app._dependency_cache.get("headers")
+        if headers is None:
+            headers = self.app._get_initial_headers(self.request, self.route_handler)
+            self.app._dependency_cache.set("headers", headers)
+
+        # Find all headers dependencies (route-specific first, then global)
+        headers_deps = []
+
+        # Collect route-specific headers dependencies
+        if self.route_handler and self.route_handler.headers_dependencies:
+            for dep_name, wrapper in self.route_handler.headers_dependencies.items():
+                headers_deps.append((dep_name, wrapper))
+
+        # Collect global headers dependencies
+        for dep_name, wrapper in self.app._headers_dependencies.items():
+            # Avoid duplicates if already added from route-specific
+            if not any(dep[0] == dep_name for dep in headers_deps):
+                headers_deps.append((dep_name, wrapper))
+
+        # Process each headers dependency in order
+        for dep_name, wrapper in headers_deps:
+            try:
+                # Call the headers function with dependency injection
+                updated_headers = self.app._call_with_injection(
+                    wrapper.func, self.request, self.route_handler
+                )
+                # If function returns headers, use them; otherwise assume headers modified in-place
+                if updated_headers and isinstance(updated_headers, dict):
+                    headers.update(updated_headers)
+                # Update cache with current state
+                self.app._dependency_cache.set("headers", headers)
+            except Exception:
+                # If headers dependency fails, continue with current headers
+                pass
+
+        return headers
+
     def state_execute_and_render(self) -> Response:
         """Execute the route handler and render the response."""
+        processed_headers = None
         try:
-            # First, execute the main handler to get the result
+            # Process headers dependencies first to get final headers
+            processed_headers = self._process_headers_dependencies()
+
+            # Execute the main handler to get the result
             main_result = self.app._call_with_injection(
                 self.route_handler.handler, self.request, self.route_handler
             )
@@ -389,7 +433,7 @@ class RequestStateMachine:
             # Handle different return type scenarios
             if return_annotation is None or return_annotation is type(None):
                 # Explicitly annotated as None -> return 204 No Content
-                return Response(204, request=self.request, available_content_types=self.get_available_content_types())
+                return Response(204, pre_calculated_headers=processed_headers)
             elif return_annotation != inspect.Signature.empty and PYDANTIC_AVAILABLE:
                 # Has return type annotation -> validate response
                 try:
@@ -448,8 +492,7 @@ class RequestStateMachine:
                             }
                         ),
                         content_type="application/json",
-                        request=self.request,
-                        available_content_types=self.get_available_content_types(),
+                        pre_calculated_headers=processed_headers,
                     )
                 except Exception:
                     # If validation fails for other reasons, log but don't crash
@@ -491,26 +534,23 @@ class RequestStateMachine:
                     200,
                     str(rendered_result),
                     content_type=self.chosen_renderer.media_type,
-                    request=self.request,
-                    available_content_types=self.get_available_content_types(),
+                    pre_calculated_headers=processed_headers,
                 )
             else:
                 # Use regular global renderer
                 result = main_result
 
-            # If result is already a Response, update it with request info for Vary header
+            # If result is already a Response, update it with processed headers
             if isinstance(result, Response):
                 if not result.content_type and self.chosen_renderer:
                     result.content_type = self.chosen_renderer.media_type
                     result.headers = result.headers or {}
                     result.headers["Content-Type"] = self.chosen_renderer.media_type
 
-                # Add request and content type info for Vary header if not already set
-                if not result.request:
-                    result.request = self.request
-                if not result.available_content_types:
-                    result.available_content_types = self.get_available_content_types()
-                    # Re-run __post_init__ to add Vary header
+                # Add processed headers if not already set
+                if not result.pre_calculated_headers:
+                    result.pre_calculated_headers = processed_headers
+                    # Re-run __post_init__ to apply processed headers
                     result.__post_init__()
                 return result
 
@@ -521,8 +561,7 @@ class RequestStateMachine:
                     200,
                     rendered_body,
                     content_type=self.chosen_renderer.media_type,
-                    request=self.request,
-                    available_content_types=self.get_available_content_types(),
+                    pre_calculated_headers=processed_headers,
                 )
             else:
                 # Fallback to plain text
@@ -530,23 +569,24 @@ class RequestStateMachine:
                     200,
                     str(result),
                     content_type="text/plain",
-                    request=self.request,
-                    available_content_types=self.get_available_content_types(),
+                    pre_calculated_headers=processed_headers,
                 )
         except ValidationError as e:
+            # Use processed headers if available, otherwise fallback to basic headers
+            fallback_headers = processed_headers or {}
             return Response(
                 422,
                 json.dumps({"error": "Validation failed", "details": e.json()}),
                 content_type="application/json",
-                request=self.request,
-                available_content_types=self.get_available_content_types(),
+                pre_calculated_headers=fallback_headers,
             )
         except Exception as e:
+            # Use processed headers if available, otherwise fallback to basic headers
+            fallback_headers = processed_headers or {}
             return Response(
                 500,
                 f"Internal Server Error: {str(e)}",
-                request=self.request,
-                available_content_types=self.get_available_content_types(),
+                pre_calculated_headers=fallback_headers,
             )
 
     def _get_callback(self, state_name: str) -> Optional[Callable]:

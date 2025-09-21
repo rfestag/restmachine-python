@@ -63,6 +63,15 @@ class DependencyWrapper:
         self.original_name = func.__name__
 
 
+class HeadersWrapper:
+    """Wrapper for header manipulation functions."""
+
+    def __init__(self, func: Callable, name: str):
+        self.func = func
+        self.name = name
+        self.original_name = func.__name__
+
+
 class ContentNegotiationWrapper:
     """Wrapper for content-type specific renderers."""
 

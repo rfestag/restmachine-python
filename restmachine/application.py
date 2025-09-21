@@ -29,6 +29,7 @@ from .dependencies import (
     ContentNegotiationWrapper,
     DependencyCache,
     DependencyWrapper,
+    HeadersWrapper,
     ValidationWrapper,
 )
 from .exceptions import PYDANTIC_AVAILABLE
@@ -49,6 +50,7 @@ class RouteHandler:
         # Per-route dependency tracking
         self.dependencies: Dict[str, Union[Callable, DependencyWrapper]] = {}
         self.validation_dependencies: Dict[str, ValidationWrapper] = {}
+        self.headers_dependencies: Dict[str, HeadersWrapper] = {}
 
     def _compile_path_pattern(self, path: str) -> str:
         """Convert path with {param} syntax to a pattern for matching."""
@@ -83,6 +85,7 @@ class RestApplication:
         self._routes: List[RouteHandler] = []
         self._dependencies: Dict[str, Union[Callable, DependencyWrapper]] = {}
         self._validation_dependencies: Dict[str, ValidationWrapper] = {}
+        self._headers_dependencies: Dict[str, HeadersWrapper] = {}
         self._default_callbacks: Dict[str, Callable] = {}
         self._dependency_cache = DependencyCache()
         self._content_renderers: Dict[str, ContentRenderer] = {}
@@ -138,6 +141,19 @@ class RestApplication:
             route.dependencies[func.__name__] = wrapper
         else:
             self._dependencies[func.__name__] = wrapper
+        return func
+
+    def default_headers(self, func: Callable):
+        """Decorator to register a headers manipulation function."""
+        wrapper = HeadersWrapper(func, func.__name__)
+        # Add to most recent route if it exists, otherwise add globally
+        if self._routes:
+            route = self._routes[-1]
+            route.headers_dependencies[func.__name__] = wrapper
+            route.dependencies[func.__name__] = func
+        else:
+            self._headers_dependencies[func.__name__] = wrapper
+            self._dependencies[func.__name__] = func
         return func
 
     # Content negotiation decorators
@@ -281,6 +297,14 @@ class RestApplication:
             path_params = request.path_params or {}
             self._dependency_cache.set(param_name, path_params)
             return path_params
+        elif param_name == "headers":
+            # Get or create the current headers state
+            headers = self._dependency_cache.get("headers")
+            if headers is None:
+                # Initialize headers with automatic headers already calculated
+                headers = self._get_initial_headers(request, route)
+                self._dependency_cache.set("headers", headers)
+            return headers
 
         # Check route-specific dependencies first if route is provided
         dep_or_wrapper = None
@@ -346,6 +370,32 @@ class RestApplication:
             kwargs[param_name] = resolved_value
 
         return func(**kwargs)
+
+    def _get_initial_headers(self, request: Request, route: Optional[RouteHandler]) -> Dict[str, str]:
+        """Get initial headers with Vary header pre-calculated."""
+        headers = {}
+
+        # Calculate Vary header values
+        vary_values = []
+
+        # Add "Authorization" to Vary if request has Authorization header
+        if request.headers.get("Authorization"):
+            vary_values.append("Authorization")
+
+        # Add "Accept" to Vary if endpoint accepts more than one content type
+        available_content_types = list(self._content_renderers.keys())
+        if route and route.content_renderers:
+            available_content_types.extend(route.content_renderers.keys())
+        available_content_types = list(set(available_content_types))  # Remove duplicates
+
+        if len(available_content_types) > 1:
+            vary_values.append("Accept")
+
+        # Set Vary header if we have values to include
+        if vary_values:
+            headers["Vary"] = ", ".join(vary_values)
+
+        return headers
 
     def _find_route(
         self, method: HTTPMethod, path: str

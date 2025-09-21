@@ -8,10 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Nothing yet
+- **Automatic Content-Length Header Injection**: HTTP responses now automatically include Content-Length headers based on body size
+  - 204 responses exclude Content-Length header (per HTTP spec)
+  - 200 responses with body include correct byte length
+  - 200 responses without body set Content-Length to 0
+  - Proper UTF-8 encoding support for Unicode content
+- **Automatic Vary Header Support**: Responses automatically include Vary headers for proper caching behavior
+  - `Vary: Authorization` when request contains Authorization header
+  - `Vary: Accept` when endpoint supports multiple content types
+  - Combined as `Vary: Authorization, Accept` when both conditions apply
+  - Integrated with existing content negotiation system
+- **default_headers Decorator**: New decorator for customizing response headers with dependency injection
+  - Global headers applied to all routes
+  - Route-specific headers for individual endpoints
+  - Full dependency injection support (request, body, query_params, etc.)
+  - Headers calculated per-request with proper scoping
+  - Vary header negotiated first and provided to header functions
+  - Error handling ensures failed header functions don't break responses
+  - Support for both in-place modification and return-based header updates
 
 ### Changed
-- Nothing yet
+- **Response Class Enhancement**: Enhanced Response model to support pre-calculated headers
+  - Added `pre_calculated_headers` parameter for advanced header management
+  - Maintains backward compatibility with existing header logic
+  - Improved header precedence: pre-calculated → content-type → automatic (Content-Length, Vary)
+- **State Machine Integration**: Updated request processing to handle header dependencies
+  - Headers dependencies processed before main handler execution
+  - Integrated with existing dependency injection and caching system
+  - Consistent error handling across all dependency types
 
 ### Deprecated
 - Nothing yet
