@@ -7,7 +7,7 @@ import json
 from typing import Any, Callable, Dict, List, Optional, Union, get_origin, get_args
 
 from .content_renderers import ContentRenderer
-from .dependencies import DependencyWrapper, HeadersWrapper
+from .dependencies import DependencyWrapper
 from .exceptions import PYDANTIC_AVAILABLE, ValidationError
 from .models import HTTPMethod, Request, Response
 
@@ -32,61 +32,69 @@ class RequestStateMachine:
         self.dependency_callbacks: Dict[str, DependencyWrapper] = {}
         self.handler_result: Any = None
 
-    def process_request(self, request: Request) -> Optional[Response]:
+    def process_request(self, request: Request) -> Response:
         """Process a request through the state machine."""
         self.request = request
         self.app._dependency_cache.clear()
 
+        # This should never actually be returned, but we include it here
+        # in case a bug is intorduced where we choose not to continue processing,
+        # but also fail to provide a response
+        default_response = Response(
+            500,
+            json.dumps({"error": "Unexpected error occured."}),
+            content_type="application/json",
+        )
         try:
             # State machine flow - all wrapped in try-catch for ValidationError
             result = self.state_route_exists()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             result = self.state_service_available()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             result = self.state_known_method()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             result = self.state_uri_too_long()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             result = self.state_method_allowed()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             result = self.state_malformed_request()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             result = self.state_authorized()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             result = self.state_forbidden()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             result = self.state_content_headers_valid()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             result = self.state_resource_exists()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             # Content negotiation states
             result = self.state_content_types_provided()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             result = self.state_content_types_accepted()
             if not result.continue_processing:
-                return result.response
+                return result.response or default_response
 
             return self.state_execute_and_render()
 
@@ -305,7 +313,7 @@ class RequestStateMachine:
                         self.app._dependency_cache.set(
                             wrapper.original_name, resolved_value
                         )
-                    except Exception as e:
+                    except Exception:
                         return StateMachineResult(
                             False, Response(404, "Resource Not Found")
                         )

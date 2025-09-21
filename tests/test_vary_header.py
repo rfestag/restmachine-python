@@ -2,7 +2,6 @@
 Tests for automatic Vary header injection.
 """
 
-import pytest
 
 from restmachine import HTTPMethod, Request, Response, RestApplication
 

@@ -65,15 +65,15 @@ class TestOptionalSchema:
 
         # Check field annotations and requirements
         assert "name" in fields
-        assert fields["name"].annotation == str
+        assert fields["name"].annotation is str
         assert fields["name"].is_required()
 
         assert "age" in fields
-        assert fields["age"].annotation == Optional[int]
+        assert fields["age"].annotation is Optional[int]
         assert not fields["age"].is_required()
 
         assert "email" in fields
-        assert fields["email"].annotation == Optional[str]
+        assert fields["email"].annotation is Optional[str]
         assert not fields["email"].is_required()
         assert fields["email"].default is None
 

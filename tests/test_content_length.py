@@ -2,7 +2,6 @@
 Tests for automatic Content-Length header injection.
 """
 
-import pytest
 
 from restmachine.models import Response
 

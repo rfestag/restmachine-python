@@ -11,7 +11,7 @@ This example demonstrates:
 import json
 from typing import Optional
 from pydantic import BaseModel, Field
-from restmachine import HTTPMethod, Request, Response, RestApplication
+from restmachine import HTTPMethod, Request, RestApplication
 
 # Create the application
 app = RestApplication()
