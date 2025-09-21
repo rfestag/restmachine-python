@@ -104,7 +104,7 @@ class RequestStateMachine:
             callback = self._get_callback("route_not_found")
             if callback:
                 try:
-                    response = self.app._call_with_injection(callback, self.request)
+                    response = self.app._call_with_injection(callback, self.request, self.route_handler)
                     if isinstance(response, Response):
                         return StateMachineResult(False, response)
                     return StateMachineResult(
@@ -124,9 +124,15 @@ class RequestStateMachine:
         sig = inspect.signature(self.route_handler.handler)
         self.handler_dependencies = list(sig.parameters.keys())
 
-        # Find dependency callbacks that will be used
+        # Find dependency callbacks that will be used - check route-specific first, then global
         for dep_name in self.handler_dependencies:
-            if dep_name in self.app._dependencies:
+            # Check route-specific dependencies first
+            if dep_name in self.route_handler.dependencies:
+                dep = self.route_handler.dependencies[dep_name]
+                if isinstance(dep, DependencyWrapper):
+                    self.dependency_callbacks[dep.state_name] = dep
+            # Fall back to global dependencies
+            elif dep_name in self.app._dependencies:
                 dep = self.app._dependencies[dep_name]
                 if isinstance(dep, DependencyWrapper):
                     self.dependency_callbacks[dep.state_name] = dep
@@ -138,7 +144,7 @@ class RequestStateMachine:
         callback = self._get_callback("service_available")
         if callback:
             try:
-                available = self.app._call_with_injection(callback, self.request)
+                available = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not available:
                     return StateMachineResult(
                         False, Response(503, "Service Unavailable")
@@ -154,7 +160,7 @@ class RequestStateMachine:
         callback = self._get_callback("known_method")
         if callback:
             try:
-                known = self.app._call_with_injection(callback, self.request)
+                known = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not known:
                     return StateMachineResult(False, Response(501, "Not Implemented"))
             except Exception as e:
@@ -179,7 +185,7 @@ class RequestStateMachine:
         callback = self._get_callback("uri_too_long")
         if callback:
             try:
-                too_long = self.app._call_with_injection(callback, self.request)
+                too_long = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if too_long:
                     return StateMachineResult(False, Response(414, "URI Too Long"))
             except Exception as e:
@@ -197,7 +203,7 @@ class RequestStateMachine:
         callback = self._get_callback("method_allowed")
         if callback:
             try:
-                allowed = self.app._call_with_injection(callback, self.request)
+                allowed = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not allowed:
                     return StateMachineResult(
                         False, Response(405, "Method Not Allowed")
@@ -213,7 +219,7 @@ class RequestStateMachine:
         callback = self._get_callback("malformed_request")
         if callback:
             try:
-                malformed = self.app._call_with_injection(callback, self.request)
+                malformed = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if malformed:
                     return StateMachineResult(False, Response(400, "Bad Request"))
             except Exception as e:
@@ -227,7 +233,7 @@ class RequestStateMachine:
         callback = self._get_callback("authorized")
         if callback:
             try:
-                authorized = self.app._call_with_injection(callback, self.request)
+                authorized = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not authorized:
                     return StateMachineResult(False, Response(401, "Unauthorized"))
             except Exception as e:
@@ -247,7 +253,7 @@ class RequestStateMachine:
                     wrapper = self.dependency_callbacks["forbidden"]
                     try:
                         resolved_value = self.app._call_with_injection(
-                            wrapper.func, self.request
+                            wrapper.func, self.request, self.route_handler
                         )
                         if resolved_value is None:
                             return StateMachineResult(False, Response(403, "Forbidden"))
@@ -255,7 +261,7 @@ class RequestStateMachine:
                         return StateMachineResult(False, Response(403, "Forbidden"))
                 else:
                     # Use the regular callback
-                    forbidden = self.app._call_with_injection(callback, self.request)
+                    forbidden = self.app._call_with_injection(callback, self.request, self.route_handler)
                     if forbidden:
                         return StateMachineResult(False, Response(403, "Forbidden"))
             except Exception as e:
@@ -269,7 +275,7 @@ class RequestStateMachine:
         callback = self._get_callback("content_headers_valid")
         if callback:
             try:
-                valid = self.app._call_with_injection(callback, self.request)
+                valid = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not valid:
                     return StateMachineResult(
                         False, Response(400, "Bad Request - Invalid Headers")
@@ -291,7 +297,7 @@ class RequestStateMachine:
                     wrapper = self.dependency_callbacks["resource_exists"]
                     try:
                         resolved_value = self.app._call_with_injection(
-                            wrapper.func, self.request
+                            wrapper.func, self.request, self.route_handler
                         )
                         if resolved_value is None:
                             return StateMachineResult(False, Response(404, "Not Found"))
@@ -299,13 +305,13 @@ class RequestStateMachine:
                         self.app._dependency_cache.set(
                             wrapper.original_name, resolved_value
                         )
-                    except Exception:
+                    except Exception as e:
                         return StateMachineResult(
                             False, Response(404, "Resource Not Found")
                         )
                 else:
                     # Use the regular callback
-                    exists = self.app._call_with_injection(callback, self.request)
+                    exists = self.app._call_with_injection(callback, self.request, self.route_handler)
                     if not exists:
                         return StateMachineResult(False, Response(404, "Not Found"))
             except Exception as e:
@@ -368,7 +374,7 @@ class RequestStateMachine:
         try:
             # First, execute the main handler to get the result
             main_result = self.app._call_with_injection(
-                self.route_handler.handler, self.request
+                self.route_handler.handler, self.request, self.route_handler
             )
 
             # Check return type annotation for response validation
@@ -438,7 +444,7 @@ class RequestStateMachine:
 
                 # Call the renderer with dependency injection (it will receive the handler result)
                 rendered_result = self.app._call_with_injection(
-                    wrapper.func, self.request
+                    wrapper.func, self.request, self.route_handler
                 )
 
                 # If the renderer returns a Response, use it directly
@@ -481,7 +487,7 @@ class RequestStateMachine:
         except ValidationError as e:
             return Response(
                 422,
-                json.dumps({"error": "Validation failed", "details": e.errors()}),
+                json.dumps({"error": "Validation failed", "details": e.json()}),
                 content_type="application/json",
             )
         except Exception as e:

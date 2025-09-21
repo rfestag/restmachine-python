@@ -46,6 +46,9 @@ class RouteHandler:
         self.path_pattern = self._compile_path_pattern(path)
         self.content_renderers: Dict[str, ContentNegotiationWrapper] = {}
         self.validation_wrappers: List[ValidationWrapper] = []
+        # Per-route dependency tracking
+        self.dependencies: Dict[str, Union[Callable, DependencyWrapper]] = {}
+        self.validation_dependencies: Dict[str, ValidationWrapper] = {}
 
     def _compile_path_pattern(self, path: str) -> str:
         """Convert path with {param} syntax to a pattern for matching."""
@@ -82,7 +85,6 @@ class RestApplication:
         self._validation_dependencies: Dict[str, ValidationWrapper] = {}
         self._default_callbacks: Dict[str, Callable] = {}
         self._dependency_cache = DependencyCache()
-        self._state_machine = RequestStateMachine(self)
         self._content_renderers: Dict[str, ContentRenderer] = {}
 
         # Add default content renderers
@@ -108,19 +110,34 @@ class RestApplication:
     def resource_exists(self, func: Callable):
         """Decorator to wrap a dependency with resource existence checking."""
         wrapper = DependencyWrapper(func, "resource_exists", func.__name__)
-        self._dependencies[func.__name__] = wrapper
+        # Add to most recent route if it exists, otherwise add globally
+        if self._routes:
+            route = self._routes[-1]
+            route.dependencies[func.__name__] = wrapper
+        else:
+            self._dependencies[func.__name__] = wrapper
         return func
 
     def forbidden(self, func: Callable):
         """Decorator to wrap a dependency with forbidden checking."""
         wrapper = DependencyWrapper(func, "forbidden", func.__name__)
-        self._dependencies[func.__name__] = wrapper
+        # Add to most recent route if it exists, otherwise add globally
+        if self._routes:
+            route = self._routes[-1]
+            route.dependencies[func.__name__] = wrapper
+        else:
+            self._dependencies[func.__name__] = wrapper
         return func
 
     def authorized(self, func: Callable):
         """Decorator to wrap a dependency with authorization checking."""
         wrapper = DependencyWrapper(func, "authorized", func.__name__)
-        self._dependencies[func.__name__] = wrapper
+        # Add to most recent route if it exists, otherwise add globally
+        if self._routes:
+            route = self._routes[-1]
+            route.dependencies[func.__name__] = wrapper
+        else:
+            self._dependencies[func.__name__] = wrapper
         return func
 
     # Content negotiation decorators
@@ -148,9 +165,14 @@ class RestApplication:
             raise ImportError("Pydantic is required for validation features")
 
         wrapper = ValidationWrapper(func)
-        self._validation_dependencies[func.__name__] = wrapper
-        # Also register as regular dependency for injection
-        self._dependencies[func.__name__] = func
+        # Add to most recent route if it exists, otherwise add globally
+        if self._routes:
+            route = self._routes[-1]
+            route.validation_dependencies[func.__name__] = wrapper
+            route.dependencies[func.__name__] = func
+        else:
+            self._validation_dependencies[func.__name__] = wrapper
+            self._dependencies[func.__name__] = func
         return func
 
     # Default state machine callbacks
@@ -236,7 +258,7 @@ class RestApplication:
         return decorator
 
     def _resolve_dependency(
-        self, param_name: str, param_type: Optional[Type], request: Request
+        self, param_name: str, param_type: Optional[Type], request: Request, route: Optional[RouteHandler] = None
     ) -> Any:
         """Resolve a dependency by name and type."""
         # Check cache first
@@ -260,22 +282,33 @@ class RestApplication:
             self._dependency_cache.set(param_name, path_params)
             return path_params
 
-        # Check registered dependencies
-        if param_name in self._dependencies:
-            dep_or_wrapper = self._dependencies[param_name]
+        # Check route-specific dependencies first if route is provided
+        dep_or_wrapper = None
+        validation_dependency = None
 
+        if route and param_name in route.dependencies:
+            dep_or_wrapper = route.dependencies[param_name]
+            if param_name in route.validation_dependencies:
+                validation_dependency = route.validation_dependencies[param_name]
+        elif param_name in self._dependencies:
+            # Fall back to global dependencies
+            dep_or_wrapper = self._dependencies[param_name]
+            if param_name in self._validation_dependencies:
+                validation_dependency = self._validation_dependencies[param_name]
+
+        if dep_or_wrapper is not None:
             if isinstance(dep_or_wrapper, DependencyWrapper):
                 # For wrapped dependencies, the state machine will handle the resolution
                 # and early exit logic. Here we just call the function.
-                resolved_value = self._call_with_injection(dep_or_wrapper.func, request)
+                resolved_value = self._call_with_injection(dep_or_wrapper.func, request, route)
                 self._dependency_cache.set(param_name, resolved_value)
                 return resolved_value
             else:
                 # Regular dependency - check if it's a validation dependency
-                if param_name in self._validation_dependencies:
+                if validation_dependency is not None:
                     # This is a validation function that should return a Pydantic model
                     # Call it and validate the result
-                    result = self._call_with_injection(dep_or_wrapper, request)
+                    result = self._call_with_injection(dep_or_wrapper, request, route)
 
                     # The function should return a Pydantic model
                     # If ValidationError occurs, it will be caught by the state machine
@@ -292,13 +325,13 @@ class RestApplication:
                         )
                 else:
                     # Regular dependency
-                    resolved_value = self._call_with_injection(dep_or_wrapper, request)
+                    resolved_value = self._call_with_injection(dep_or_wrapper, request, route)
                     self._dependency_cache.set(param_name, resolved_value)
                     return resolved_value
 
         raise ValueError(f"Unable to resolve dependency: {param_name}")
 
-    def _call_with_injection(self, func: Callable, request: Request) -> Any:
+    def _call_with_injection(self, func: Callable, request: Request, route: Optional[RouteHandler] = None) -> Any:
         """Call a function with dependency injection."""
         sig = inspect.signature(func)
         kwargs = {}
@@ -309,7 +342,7 @@ class RestApplication:
                 if param.annotation != inspect.Parameter.empty
                 else None
             )
-            resolved_value = self._resolve_dependency(param_name, param_type, request)
+            resolved_value = self._resolve_dependency(param_name, param_type, request, route)
             kwargs[param_name] = resolved_value
 
         return func(**kwargs)
@@ -326,7 +359,9 @@ class RestApplication:
 
     def execute(self, request: Request) -> Response:
         """Execute a request through the state machine."""
-        return self._state_machine.process_request(request)
+        # Create a new state machine for each request to avoid state pollution
+        state_machine = RequestStateMachine(self)
+        return state_machine.process_request(request)
 
     def _is_pydantic_model(self, annotation) -> bool:
         """Check if the annotation is a Pydantic model."""
@@ -613,6 +648,14 @@ class RestApplication:
             # Default fallback for other annotated types
             return {"type": "object"}
 
+        def _route_uses_validation_dependencies(route: RouteHandler) -> bool:
+            """Check if a route uses any validation dependencies that return Pydantic models."""
+            sig = inspect.signature(route.handler)
+            for param_name, param in sig.parameters.items():
+                if param_name in self._validation_dependencies:
+                    return True
+            return False
+
         def _convert_path_to_openapi(path: str) -> str:
             """Convert {param} syntax to OpenAPI {param} syntax."""
             return path
@@ -647,6 +690,27 @@ class RestApplication:
                 # Has schema -> 200 with content
                 operation["responses"]["200"] = {
                     "description": "Successful response",
+                }
+
+            # Check if this route uses validation dependencies and add 422 response
+            uses_validation = _route_uses_validation_dependencies(route)
+            if uses_validation:
+                operation["responses"]["422"] = {
+                    "description": "Validation Error",
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "error": {"type": "string"},
+                                    "details": {
+                                        "type": "array",
+                                        "items": {"type": "object"}
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
             # Add description from docstring if available

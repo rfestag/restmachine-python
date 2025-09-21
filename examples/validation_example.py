@@ -14,7 +14,7 @@ Requires: pip install restmachine[validation]
 try:
     from typing import List, Optional
 
-    from pydantic import BaseModel, Field, validator
+    from pydantic import BaseModel, Field, field_validator
 
     PYDANTIC_AVAILABLE = True
 except ImportError:
@@ -41,19 +41,13 @@ class UserCreate(BaseModel):
     bio: Optional[str] = Field(None, max_length=500, description="User's biography")
     tags: List[str] = Field(default_factory=list, description="User tags")
 
-    @validator("email")
+    @field_validator("email")
+    @classmethod
     def validate_email(cls, v):
         """Custom email validation."""
         if "@" not in v or "." not in v.split("@")[-1]:
             raise ValueError("Invalid email format")
         return v.lower()
-
-    @validator("name")
-    def validate_name(cls, v):
-        """Custom name validation."""
-        if len(v.strip()) == 0:
-            raise ValueError("Name cannot be empty")
-        return v.title()
 
 
 class UserResponse(BaseModel):
@@ -77,7 +71,8 @@ class UserUpdate(BaseModel):
     bio: Optional[str] = Field(None, max_length=500)
     tags: Optional[List[str]] = None
 
-    @validator("email")
+    @field_validator("email")
+    @classmethod
     def validate_email(cls, v):
         if v is not None:
             if "@" not in v or "." not in v.split("@")[-1]:
