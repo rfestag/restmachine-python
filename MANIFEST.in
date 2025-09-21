@@ -1,0 +1,34 @@
+# Include the README
+include README.md
+
+# Include the license
+include LICENSE
+
+# Include the changelog
+include CHANGELOG.md
+
+# Include configuration files
+include pyproject.toml
+include requirements.txt
+
+# Include all Python files in the main package
+recursive-include rest_framework *.py
+
+# Include tests
+recursive-include tests *.py
+
+# Include examples
+recursive-include examples *.py
+
+# Exclude compiled Python files
+global-exclude *.pyc
+global-exclude __pycache__
+
+# Exclude version control
+global-exclude .git*
+
+# Exclude development and build artifacts
+global-exclude .tox
+global-exclude build
+global-exclude dist
+global-exclude *.egg-info

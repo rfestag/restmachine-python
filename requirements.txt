@@ -1,0 +1,15 @@
+# Core dependencies (none required for basic functionality)
+
+# Optional dependencies for validation (install with: pip install rest-framework[validation])
+# pydantic>=2.0.0
+
+# Development dependencies (install with: pip install rest-framework[dev])
+# pytest>=6.0
+# pytest-cov
+# black
+# flake8
+# mypy
+
+# Example dependencies (install with: pip install rest-framework[examples])
+# uvicorn
+# fastapi
