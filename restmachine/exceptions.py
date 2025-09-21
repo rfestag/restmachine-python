@@ -3,14 +3,14 @@ Custom exceptions for the REST framework.
 """
 
 try:
-    from pydantic import ValidationError as PydanticValidationError
+    from pydantic import ValidationError as PydanticValidationError # type: ignore[import-not-found]
 
     PYDANTIC_AVAILABLE = True
     ValidationError = PydanticValidationError
 except ImportError:
     PYDANTIC_AVAILABLE = False
 
-    class ValidationError(Exception):
+    class MyValidationError(Exception):
         """Fallback ValidationError when Pydantic is not available."""
 
         def __init__(self, message="Validation failed"):
@@ -20,9 +20,10 @@ except ImportError:
         def errors(self):
             """Return errors in Pydantic-like format."""
             return [{"msg": self.message}]
+    ValidationError = MyValidationError
 
 
-class RestFrameworkError(Exception):
+class RestFrameworkError(BaseException):
     """Base exception for REST framework errors."""
 
     pass

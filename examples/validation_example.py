@@ -14,7 +14,7 @@ Requires: pip install restmachine[validation]
 try:
     from typing import List, Optional
 
-    from pydantic import BaseModel, EmailStr, Field, validator
+    from pydantic import BaseModel, Field, validator
 
     PYDANTIC_AVAILABLE = True
 except ImportError:

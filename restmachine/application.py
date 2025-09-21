@@ -236,7 +236,7 @@ class RestApplication:
         return decorator
 
     def _resolve_dependency(
-        self, param_name: str, param_type: Type, request: Request
+        self, param_name: str, param_type: Optional[Type], request: Request
     ) -> Any:
         """Resolve a dependency by name and type."""
         # Check cache first
@@ -626,7 +626,7 @@ class RestApplication:
             sig = inspect.signature(route.handler)
             return_annotation = sig.return_annotation
 
-            operation = {
+            operation: Dict[str, Any] = {
                 "summary": route.handler.__name__.replace("_", " ").title(),
                 "responses": {},
             }
@@ -675,7 +675,7 @@ class RestApplication:
             return operation
 
         # Build the OpenAPI specification
-        openapi_spec = {
+        openapi_spec: Dict[str, Any] = {
             "openapi": "3.0.0",
             "info": {"title": title, "version": version, "description": description},
             "paths": {},

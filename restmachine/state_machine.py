@@ -22,17 +22,17 @@ class StateMachineResult:
 
 class RequestStateMachine:
     """Webmachine-like state machine for processing HTTP requests."""
+    request: Request
+    chosen_renderer: ContentRenderer
 
     def __init__(self, app):
         self.app = app
-        self.request: Optional[Request] = None
         self.route_handler = None
         self.handler_dependencies: List[str] = []
         self.dependency_callbacks: Dict[str, DependencyWrapper] = {}
-        self.chosen_renderer: Optional[ContentRenderer] = None
         self.handler_result: Any = None
 
-    def process_request(self, request: Request) -> Response:
+    def process_request(self, request: Request) -> Optional[Response]:
         """Process a request through the state machine."""
         self.request = request
         self.app._dependency_cache.clear()
