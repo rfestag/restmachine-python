@@ -45,6 +45,8 @@ class Response:
     body: Optional[str] = None
     headers: Optional[Dict[str, str]] = None
     content_type: Optional[str] = None
+    request: Optional['Request'] = None
+    available_content_types: Optional[list] = None
 
     def __post_init__(self):
         if self.headers is None:
@@ -62,3 +64,18 @@ class Response:
                 # No body, set Content-Length to 0
                 content_length = 0
             self.headers["Content-Length"] = str(content_length)
+
+        # Automatically inject Vary header
+        vary_values = []
+
+        # Add "Authorization" to Vary if request has Authorization header
+        if self.request and self.request.headers.get("Authorization"):
+            vary_values.append("Authorization")
+
+        # Add "Accept" to Vary if endpoint accepts more than one content type
+        if self.available_content_types and len(self.available_content_types) > 1:
+            vary_values.append("Accept")
+
+        # Set Vary header if we have values to include
+        if vary_values:
+            self.headers["Vary"] = ", ".join(vary_values)

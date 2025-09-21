@@ -320,14 +320,19 @@ class RequestStateMachine:
                 )
         return StateMachineResult(True)
 
-    def state_content_types_provided(self) -> StateMachineResult:
-        """C3: Determine what content types we can provide."""
-        # Get available content types from global renderers and route-specific renderers
+    def get_available_content_types(self) -> List[str]:
+        """Get list of all available content types for this route."""
         available_types = list(self.app._content_renderers.keys())
 
         # Add route-specific content types
         if self.route_handler and self.route_handler.content_renderers:
             available_types.extend(self.route_handler.content_renderers.keys())
+
+        return list(set(available_types))  # Remove duplicates
+
+    def state_content_types_provided(self) -> StateMachineResult:
+        """C3: Determine what content types we can provide."""
+        available_types = self.get_available_content_types()
 
         if not available_types:
             return StateMachineResult(
@@ -356,9 +361,7 @@ class RequestStateMachine:
                 return StateMachineResult(True)
 
         # No acceptable content type found
-        available_types = list(self.app._content_renderers.keys())
-        if self.route_handler and self.route_handler.content_renderers:
-            available_types.extend(self.route_handler.content_renderers.keys())
+        available_types = self.get_available_content_types()
 
         return StateMachineResult(
             False,
@@ -366,6 +369,8 @@ class RequestStateMachine:
                 406,
                 f"Not Acceptable. Available types: {', '.join(set(available_types))}",
                 headers={"Content-Type": "text/plain"},
+                request=self.request,
+                available_content_types=available_types,
             ),
         )
 
@@ -382,9 +387,9 @@ class RequestStateMachine:
             return_annotation = sig.return_annotation
 
             # Handle different return type scenarios
-            if return_annotation is type(None):
+            if return_annotation is None or return_annotation is type(None):
                 # Explicitly annotated as None -> return 204 No Content
-                return Response(204)
+                return Response(204, request=self.request, available_content_types=self.get_available_content_types())
             elif return_annotation != inspect.Signature.empty and PYDANTIC_AVAILABLE:
                 # Has return type annotation -> validate response
                 try:
@@ -443,6 +448,8 @@ class RequestStateMachine:
                             }
                         ),
                         content_type="application/json",
+                        request=self.request,
+                        available_content_types=self.get_available_content_types(),
                     )
                 except Exception:
                     # If validation fails for other reasons, log but don't crash
@@ -484,36 +491,63 @@ class RequestStateMachine:
                     200,
                     str(rendered_result),
                     content_type=self.chosen_renderer.media_type,
+                    request=self.request,
+                    available_content_types=self.get_available_content_types(),
                 )
             else:
                 # Use regular global renderer
                 result = main_result
 
-            # If result is already a Response, return it
+            # If result is already a Response, update it with request info for Vary header
             if isinstance(result, Response):
                 if not result.content_type and self.chosen_renderer:
                     result.content_type = self.chosen_renderer.media_type
                     result.headers = result.headers or {}
                     result.headers["Content-Type"] = self.chosen_renderer.media_type
+
+                # Add request and content type info for Vary header if not already set
+                if not result.request:
+                    result.request = self.request
+                if not result.available_content_types:
+                    result.available_content_types = self.get_available_content_types()
+                    # Re-run __post_init__ to add Vary header
+                    result.__post_init__()
                 return result
 
             # Render the result using the chosen renderer
             if self.chosen_renderer:
                 rendered_body = self.chosen_renderer.render(result, self.request)
                 return Response(
-                    200, rendered_body, content_type=self.chosen_renderer.media_type
+                    200,
+                    rendered_body,
+                    content_type=self.chosen_renderer.media_type,
+                    request=self.request,
+                    available_content_types=self.get_available_content_types(),
                 )
             else:
                 # Fallback to plain text
-                return Response(200, str(result), content_type="text/plain")
+                return Response(
+                    200,
+                    str(result),
+                    content_type="text/plain",
+                    request=self.request,
+                    available_content_types=self.get_available_content_types(),
+                )
         except ValidationError as e:
             return Response(
                 422,
                 json.dumps({"error": "Validation failed", "details": e.json()}),
                 content_type="application/json",
+                request=self.request,
+                available_content_types=self.get_available_content_types(),
             )
         except Exception as e:
-            return Response(500, f"Internal Server Error: {str(e)}")
+            return Response(
+                500,
+                f"Internal Server Error: {str(e)}",
+                request=self.request,
+                available_content_types=self.get_available_content_types(),
+            )
 
     def _get_callback(self, state_name: str) -> Optional[Callable]:
         """Get callback for a state, preferring dependency callbacks over defaults."""
