@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Vary header negotiated first and provided to header functions
   - Error handling ensures failed header functions don't break responses
   - Support for both in-place modification and return-based header updates
+- **Driver System**: New driver architecture for deploying REST applications to different platforms
+  - Abstract `Driver` base class for implementing platform-specific adapters
+  - `AwsApiGatewayDriver` for AWS Lambda + API Gateway deployment
+  - Automatic conversion between platform events and internal Request/Response objects
+  - Support for path parameters, query parameters, headers, and request bodies
+  - Base64 encoding/decoding support for binary content
+  - Robust handling of platform-specific edge cases (null values, missing fields)
+  - Comprehensive test coverage and example implementations
 
 ### Changed
 - **Response Class Enhancement**: Enhanced Response model to support pre-calculated headers
@@ -36,6 +44,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Headers dependencies processed before main handler execution
   - Integrated with existing dependency injection and caching system
   - Consistent error handling across all dependency types
+- **Enhanced Dependency Resolution**: Improved dependency injection to support individual path parameters
+  - Path parameters can now be injected directly by name (e.g., `user_id` from `/users/{user_id}`)
+  - Maintains backward compatibility with existing `path_params` dictionary injection
+  - Automatic caching and resolution of path parameter values
 
 ### Deprecated
 - Nothing yet

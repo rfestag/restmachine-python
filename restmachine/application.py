@@ -306,6 +306,12 @@ class RestApplication:
                 self._dependency_cache.set("headers", headers)
             return headers
 
+        # Check if the parameter name is in path_params
+        if request.path_params and param_name in request.path_params:
+            path_value = request.path_params[param_name]
+            self._dependency_cache.set(param_name, path_value)
+            return path_value
+
         # Check route-specific dependencies first if route is provided
         dep_or_wrapper = None
         validation_dependency = None
