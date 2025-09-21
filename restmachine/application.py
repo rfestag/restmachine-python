@@ -31,7 +31,7 @@ from .dependencies import (
     DependencyWrapper,
     ValidationWrapper,
 )
-from .exceptions import PYDANTIC_AVAILABLE, ValidationError
+from .exceptions import PYDANTIC_AVAILABLE
 from .models import HTTPMethod, Request, Response
 from .state_machine import RequestStateMachine
 

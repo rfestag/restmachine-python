@@ -3,15 +3,11 @@ Tests for the REST framework.
 """
 
 import json
-from typing import Optional
 
 import pytest
 
 from restmachine import (
-    HTMLRenderer,
     HTTPMethod,
-    JSONRenderer,
-    PlainTextRenderer,
     Request,
     Response,
     RestApplication,

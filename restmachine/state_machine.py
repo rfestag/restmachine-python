@@ -299,7 +299,7 @@ class RequestStateMachine:
                         self.app._dependency_cache.set(
                             wrapper.original_name, resolved_value
                         )
-                    except Exception as e:
+                    except Exception:
                         return StateMachineResult(
                             False, Response(404, "Resource Not Found")
                         )

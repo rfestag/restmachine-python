@@ -13,7 +13,7 @@ This example demonstrates:
 
 import json
 import time
-from typing import Any, Dict, Optional
+from typing import Dict, Optional
 
 from restmachine import HTTPMethod, Request, Response, RestApplication
 

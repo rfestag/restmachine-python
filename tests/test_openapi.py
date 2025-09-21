@@ -10,8 +10,7 @@ from typing import List, Optional
 import pytest
 from pydantic import BaseModel, Field
 
-from restmachine import HTTPMethod, RestApplication
-from restmachine.application import RouteHandler
+from restmachine import RestApplication
 
 
 # Test models

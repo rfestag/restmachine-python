@@ -25,7 +25,7 @@ except ImportError:
 
 import json
 
-from restmachine import HTTPMethod, Request, Response, RestApplication
+from restmachine import HTTPMethod, Request, RestApplication
 
 # Create the application
 app = RestApplication()
