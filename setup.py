@@ -11,14 +11,14 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
 setup(
-    name="rest-framework",
+    name="restmachine",
     version="0.1.0",
     author="REST Framework Contributors",
-    author_email="contributors@rest-framework.example.com",
+    author_email="contributors@restmachine.example.com",
     description="A lightweight REST framework with dependency injection and webmachine-style state machine",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/yourusername/rest-framework",
+    url="https://github.com/yourusername/restmachine",
     packages=find_packages(),
     classifiers=[
         "Development Status :: 3 - Alpha",
@@ -52,8 +52,8 @@ setup(
         ],
     },
     project_urls={
-        "Bug Reports": "https://github.com/yourusername/rest-framework/issues",
-        "Source": "https://github.com/yourusername/rest-framework",
-        "Documentation": "https://rest-framework.readthedocs.io/",
+        "Bug Reports": "https://github.com/yourusername/restmachine/issues",
+        "Source": "https://github.com/yourusername/restmachine",
+        "Documentation": "https://restmachine.readthedocs.io/",
     },
 )

@@ -12,7 +12,7 @@ include pyproject.toml
 include requirements.txt
 
 # Include all Python files in the main package
-recursive-include rest_framework *.py
+recursive-include restmachine *.py
 
 # Include tests
 recursive-include tests *.py

@@ -10,17 +10,17 @@ from .models import Request
 
 class ContentRenderer:
     """Base class for content renderers."""
-    
+
     def __init__(self, media_type: str):
         self.media_type = media_type
-    
+
     def can_render(self, accept_header: str) -> bool:
         """Check if this renderer can handle the given Accept header."""
-        if accept_header == '*/*':
+        if accept_header == "*/*":
             return True
-        accept_types = [t.strip().split(';')[0] for t in accept_header.split(',')]
-        return self.media_type in accept_types or '*/*' in accept_types
-    
+        accept_types = [t.strip().split(";")[0] for t in accept_header.split(",")]
+        return self.media_type in accept_types or "*/*" in accept_types
+
     def render(self, data: Any, request: Request) -> str:
         """Render the data as this content type."""
         raise NotImplementedError
@@ -28,10 +28,10 @@ class ContentRenderer:
 
 class JSONRenderer(ContentRenderer):
     """JSON content renderer."""
-    
+
     def __init__(self):
-        super().__init__('application/json')
-    
+        super().__init__("application/json")
+
     def render(self, data: Any, request: Request) -> str:
         """Render data as JSON."""
         if isinstance(data, str):
@@ -45,16 +45,16 @@ class JSONRenderer(ContentRenderer):
 
 class HTMLRenderer(ContentRenderer):
     """HTML content renderer."""
-    
+
     def __init__(self):
-        super().__init__('text/html')
-    
+        super().__init__("text/html")
+
     def render(self, data: Any, request: Request) -> str:
         """Render data as HTML."""
-        if isinstance(data, str) and data.strip().startswith('<'):
+        if isinstance(data, str) and data.strip().startswith("<"):
             # Already HTML
             return data
-        
+
         # Simple HTML wrapper for non-HTML data
         if isinstance(data, dict):
             content = self._dict_to_html(data)
@@ -62,7 +62,7 @@ class HTMLRenderer(ContentRenderer):
             content = self._list_to_html(data)
         else:
             content = f"<p>{str(data)}</p>"
-        
+
         return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -80,7 +80,7 @@ class HTMLRenderer(ContentRenderer):
     {content}
 </body>
 </html>"""
-    
+
     def _dict_to_html(self, data: dict) -> str:
         """Convert dictionary to HTML."""
         items = []
@@ -93,7 +93,7 @@ class HTMLRenderer(ContentRenderer):
                 value_html = f'<span class="value">{str(value)}</span>'
             items.append(f'<li><span class="key">{key}:</span> {value_html}</li>')
         return f'<ul>{"".join(items)}</ul>'
-    
+
     def _list_to_html(self, data: list) -> str:
         """Convert list to HTML."""
         items = []
@@ -104,23 +104,23 @@ class HTMLRenderer(ContentRenderer):
                 item_html = self._list_to_html(item)
             else:
                 item_html = str(item)
-            items.append(f'<li>{item_html}</li>')
+            items.append(f"<li>{item_html}</li>")
         return f'<ul>{"".join(items)}</ul>'
 
 
 class PlainTextRenderer(ContentRenderer):
     """Plain text content renderer."""
-    
+
     def __init__(self):
-        super().__init__('text/plain')
-    
+        super().__init__("text/plain")
+
     def render(self, data: Any, request: Request) -> str:
         """Render data as plain text."""
         if isinstance(data, str):
             return data
         elif isinstance(data, dict):
-            return '\n'.join(f"{k}: {v}" for k, v in data.items())
+            return "\n".join(f"{k}: {v}" for k, v in data.items())
         elif isinstance(data, list):
-            return '\n'.join(str(item) for item in data)
+            return "\n".join(str(item) for item in data)
         else:
             return str(data)

@@ -1,4 +1,4 @@
-# REST Framework
+# Restmachine
 
 A lightweight REST framework with pytest-like dependency injection, webmachine-style state machine, content negotiation support, and Pydantic-based validation.
 
@@ -16,20 +16,20 @@ A lightweight REST framework with pytest-like dependency injection, webmachine-s
 ### Basic Installation
 
 ```bash
-pip install rest-framework
+pip install restmachine
 ```
 
 ### With Validation Support
 
 ```bash
-pip install rest-framework[validation]
+pip install restmachine[validation]
 ```
 
 ### Development Installation
 
 ```bash
-git clone https://github.com/yourusername/rest-framework.git
-cd rest-framework
+git clone https://github.com/yourusername/restmachine.git
+cd restmachine
 pip install -e .[dev,validation]
 ```
 
@@ -38,7 +38,7 @@ pip install -e .[dev,validation]
 ### Basic Example
 
 ```python
-from rest_framework import RestApplication, Request, HTTPMethod
+from resmachine import RestApplication, Request, HTTPMethod
 
 app = RestApplication()
 

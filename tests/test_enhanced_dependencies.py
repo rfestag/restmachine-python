@@ -2,16 +2,18 @@
 Tests for enhanced dependency injection with Pydantic model validation.
 """
 
-import pytest
 import json
 from typing import Optional
 
+import pytest
+
 from restmachine.application import RestApplication
-from restmachine.models import Request, HTTPMethod
+from restmachine.models import HTTPMethod, Request
 
 # Import Pydantic if available
 try:
     from pydantic import BaseModel, Field
+
     PYDANTIC_AVAILABLE = True
 except ImportError:
     PYDANTIC_AVAILABLE = False
@@ -29,23 +31,29 @@ class TestEnhancedDependencies:
         # Define Pydantic models for testing
         class CreateUserBody(BaseModel):
             """Request body for creating a user."""
+
             name: str = Field(..., description="User's full name")
             email: str = Field(..., description="User's email address")
             age: int = Field(..., ge=0, le=150, description="User's age")
 
         class UserQueryParams(BaseModel):
             """Query parameters for user search."""
+
             name: Optional[str] = Field(None, description="Filter by name")
             age_min: Optional[int] = Field(None, ge=0, description="Minimum age filter")
-            age_max: Optional[int] = Field(None, le=150, description="Maximum age filter")
+            age_max: Optional[int] = Field(
+                None, le=150, description="Maximum age filter"
+            )
             active: Optional[bool] = Field(None, description="Filter by active status")
 
         class UserPathParams(BaseModel):
             """Path parameters for user endpoints."""
+
             user_id: int = Field(..., description="Unique user identifier")
 
         class UpdateUserBody(BaseModel):
             """Request body for updating a user."""
+
             name: Optional[str] = Field(None, description="Updated name")
             email: Optional[str] = Field(None, description="Updated email")
 
@@ -83,54 +91,55 @@ class TestEnhancedDependencies:
             return UpdateUserBody.model_validate(data)
 
         # Test routes that use these validators
-        @app.get('/users')
+        @app.get("/users")
         def list_users(validate_user_query_params: UserQueryParams):
             """List users with optional filtering."""
-            return {
-                "users": [],
-                "filters": validate_user_query_params.model_dump()
-            }
+            return {"users": [], "filters": validate_user_query_params.model_dump()}
 
-        @app.post('/users')
+        @app.post("/users")
         def create_user(validate_create_user_body: CreateUserBody):
             """Create a new user."""
             return {
                 "message": "User created",
-                "user": validate_create_user_body.model_dump()
+                "user": validate_create_user_body.model_dump(),
             }
 
-        @app.get('/users/{user_id}')
+        @app.get("/users/{user_id}")
         def get_user(validate_user_path_params: UserPathParams):
             """Get a specific user by ID."""
             return {
                 "user_id": validate_user_path_params.user_id,
-                "user": {"name": "Test User"}
+                "user": {"name": "Test User"},
             }
 
-        @app.put('/users/{user_id}')
-        def update_user(validate_user_path_params: UserPathParams, validate_update_user_body: UpdateUserBody):
+        @app.put("/users/{user_id}")
+        def update_user(
+            validate_user_path_params: UserPathParams,
+            validate_update_user_body: UpdateUserBody,
+        ):
             """Update a user."""
             return {
                 "user_id": validate_user_path_params.user_id,
-                "updates": validate_update_user_body.model_dump(exclude_unset=True)
+                "updates": validate_update_user_body.model_dump(exclude_unset=True),
             }
 
         return app
 
     def test_body_dependency_validation(self, app):
         """Test that body dependency validation works correctly."""
-        create_user_data = {
-            "name": "John Doe",
-            "email": "john@example.com",
-            "age": 30
-        }
+        create_user_data = {"name": "John Doe", "email": "john@example.com", "age": 30}
 
-        response = app.execute(Request(
-            method=HTTPMethod.POST,
-            path='/users',
-            headers={'Accept': 'application/json', 'Content-Type': 'application/json'},
-            body=json.dumps(create_user_data)
-        ))
+        response = app.execute(
+            Request(
+                method=HTTPMethod.POST,
+                path="/users",
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                body=json.dumps(create_user_data),
+            )
+        )
 
         assert response.status_code == 200
         data = json.loads(response.body)
@@ -141,12 +150,14 @@ class TestEnhancedDependencies:
 
     def test_path_params_dependency_validation(self, app):
         """Test that path_params dependency validation works correctly."""
-        response = app.execute(Request(
-            method=HTTPMethod.GET,
-            path='/users/123',
-            headers={'Accept': 'application/json'},
-            path_params={'user_id': '123'}
-        ))
+        response = app.execute(
+            Request(
+                method=HTTPMethod.GET,
+                path="/users/123",
+                headers={"Accept": "application/json"},
+                path_params={"user_id": "123"},
+            )
+        )
 
         assert response.status_code == 200
         data = json.loads(response.body)
@@ -155,12 +166,14 @@ class TestEnhancedDependencies:
 
     def test_query_params_dependency_validation(self, app):
         """Test that query_params dependency validation works correctly."""
-        response = app.execute(Request(
-            method=HTTPMethod.GET,
-            path='/users',
-            headers={'Accept': 'application/json'},
-            query_params={'name': 'John', 'age_min': '25', 'active': 'true'}
-        ))
+        response = app.execute(
+            Request(
+                method=HTTPMethod.GET,
+                path="/users",
+                headers={"Accept": "application/json"},
+                query_params={"name": "John", "age_min": "25", "active": "true"},
+            )
+        )
 
         assert response.status_code == 200
         data = json.loads(response.body)
@@ -172,18 +185,20 @@ class TestEnhancedDependencies:
 
     def test_combined_dependencies_validation(self, app):
         """Test that combined path_params and body dependencies work correctly."""
-        update_data = {
-            "name": "John Smith",
-            "email": "johnsmith@example.com"
-        }
+        update_data = {"name": "John Smith", "email": "johnsmith@example.com"}
 
-        response = app.execute(Request(
-            method=HTTPMethod.PUT,
-            path='/users/123',
-            headers={'Accept': 'application/json', 'Content-Type': 'application/json'},
-            body=json.dumps(update_data),
-            path_params={'user_id': '123'}
-        ))
+        response = app.execute(
+            Request(
+                method=HTTPMethod.PUT,
+                path="/users/123",
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                body=json.dumps(update_data),
+                path_params={"user_id": "123"},
+            )
+        )
 
         assert response.status_code == 200
         data = json.loads(response.body)
@@ -196,26 +211,33 @@ class TestEnhancedDependencies:
         invalid_data = {
             "name": "",  # Empty name should fail validation
             "email": "invalid-email",  # Invalid email format
-            "age": -5  # Negative age should fail validation
+            "age": -5,  # Negative age should fail validation
         }
 
-        response = app.execute(Request(
-            method=HTTPMethod.POST,
-            path='/users',
-            headers={'Accept': 'application/json', 'Content-Type': 'application/json'},
-            body=json.dumps(invalid_data)
-        ))
+        response = app.execute(
+            Request(
+                method=HTTPMethod.POST,
+                path="/users",
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                body=json.dumps(invalid_data),
+            )
+        )
 
         assert response.status_code == 422  # Validation error
 
     def test_invalid_path_params_validation_error(self, app):
         """Test that invalid path params return proper validation error."""
-        response = app.execute(Request(
-            method=HTTPMethod.GET,
-            path='/users/invalid',
-            headers={'Accept': 'application/json'},
-            path_params={'user_id': 'invalid'}  # Should be int
-        ))
+        response = app.execute(
+            Request(
+                method=HTTPMethod.GET,
+                path="/users/invalid",
+                headers={"Accept": "application/json"},
+                path_params={"user_id": "invalid"},  # Should be int
+            )
+        )
 
         assert response.status_code == 422  # Validation error
 
@@ -254,15 +276,15 @@ class TestOpenAPIGeneration:
         def validate_user_path_params(path_params) -> UserPathParams:
             return UserPathParams.model_validate(path_params)
 
-        @app.get('/users')
+        @app.get("/users")
         def list_users(validate_user_query_params: UserQueryParams):
             return {"users": []}
 
-        @app.post('/users')
+        @app.post("/users")
         def create_user(validate_create_user_body: CreateUserBody):
             return {"message": "User created"}
 
-        @app.get('/users/{user_id}')
+        @app.get("/users/{user_id}")
         def get_user(validate_user_path_params: UserPathParams):
             return {"user": {}}
 
@@ -273,7 +295,7 @@ class TestOpenAPIGeneration:
         openapi_json = app.generate_openapi_json(
             title="Enhanced Dependencies Test API",
             version="1.0.0",
-            description="API demonstrating enhanced dependency support"
+            description="API demonstrating enhanced dependency support",
         )
 
         openapi_spec = json.loads(openapi_json)
@@ -288,23 +310,21 @@ class TestOpenAPIGeneration:
 
     def test_request_body_schema_generation(self, app):
         """Test that request body schemas are properly generated."""
-        openapi_json = app.generate_openapi_json(
-            title="Test API", version="1.0.0"
-        )
+        openapi_json = app.generate_openapi_json(title="Test API", version="1.0.0")
         openapi_spec = json.loads(openapi_json)
 
         # Check POST /users for request body schema
         post_users = openapi_spec["paths"]["/users"]["post"]
         assert "requestBody" in post_users
 
-        request_schema = post_users["requestBody"]["content"]["application/json"]["schema"]
+        request_schema = post_users["requestBody"]["content"]["application/json"][
+            "schema"
+        ]
         assert "$ref" in request_schema
 
     def test_query_parameters_schema_generation(self, app):
         """Test that query parameter schemas are properly generated."""
-        openapi_json = app.generate_openapi_json(
-            title="Test API", version="1.0.0"
-        )
+        openapi_json = app.generate_openapi_json(title="Test API", version="1.0.0")
         openapi_spec = json.loads(openapi_json)
 
         # Check GET /users for query parameters
@@ -320,9 +340,7 @@ class TestOpenAPIGeneration:
 
     def test_path_parameters_schema_generation(self, app):
         """Test that path parameter schemas are properly generated."""
-        openapi_json = app.generate_openapi_json(
-            title="Test API", version="1.0.0"
-        )
+        openapi_json = app.generate_openapi_json(title="Test API", version="1.0.0")
         openapi_spec = json.loads(openapi_json)
 
         # Check GET /users/{user_id} for path parameters

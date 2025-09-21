@@ -11,22 +11,22 @@ install-dev:	## Install the package with development dependencies
 	pip install -e .[dev,validation,examples]
 
 test:		## Run tests with pytest
-	pytest tests/ --cov=rest_framework --cov-report=term-missing
+	pytest tests/ --cov=restmachine --cov-report=term-missing
 
 test-all:	## Run tests across all Python versions with tox
 	tox
 
 lint:		## Run linting checks
-	black --check --diff rest_framework tests examples
-	flake8 rest_framework tests examples
-	isort --check-only --diff rest_framework tests examples
+	black --check --diff restmachine tests examples
+	flake8 restmachine tests examples
+	isort --check-only --diff restmachine tests examples
 
 format:		## Format code with black and isort
-	black rest_framework tests examples
-	isort rest_framework tests examples
+	black restmachine tests examples
+	isort restmachine tests examples
 
 type-check:	## Run type checking with mypy
-	mypy rest_framework
+	mypy restmachine
 
 docs:		## Build documentation
 	tox -e docs
@@ -90,14 +90,14 @@ ci:		## Run CI workflow (lint, type-check, test-all)
 
 # Docker targets (optional)
 docker-build:	## Build Docker image for testing
-	docker build -t rest-framework:latest .
+	docker build -t restmachine:latest .
 
 docker-test:	## Run tests in Docker
-	docker run --rm rest-framework:latest pytest
+	docker run --rm restmachine:latest pytest
 
 # Package info
 info:		## Show package information
-	@echo "Package: rest-framework"
-	@echo "Version: $$(python -c 'import rest_framework; print(rest_framework.__version__)')"
+	@echo "Package: restmachine"
+	@echo "Version: $$(python -c 'import restmachine; print(restmachine.__version__)')"
 	@echo "Python: $$(python --version)"
 	@echo "Platform: $$(python -c 'import platform; print(platform.platform())')"

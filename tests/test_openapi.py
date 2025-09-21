@@ -2,21 +2,24 @@
 Unit tests for OpenAPI specification generation features.
 """
 
-import pytest
 import json
 import os
 import tempfile
-from typing import Optional, List
+from typing import List, Optional
+
+import pytest
 from pydantic import BaseModel, Field
 
-from restmachine import RestApplication, HTTPMethod
+from restmachine import HTTPMethod, RestApplication
 from restmachine.application import RouteHandler
 
 
 # Test models
 class CreateUserRequest(BaseModel):
     name: str = Field(..., min_length=1, description="The user's name")
-    email: str = Field(..., pattern=r'^[^@]+@[^@]+\.[^@]+$', description="The user's email address")
+    email: str = Field(
+        ..., pattern=r"^[^@]+@[^@]+\.[^@]+$", description="The user's email address"
+    )
     age: Optional[int] = Field(None, ge=0, le=150, description="The user's age")
 
 
@@ -29,7 +32,9 @@ class User(BaseModel):
 
 class QueryParams(BaseModel):
     start: Optional[int] = Field(None, ge=0, description="Start index for pagination")
-    limit: Optional[int] = Field(None, ge=1, le=100, description="Maximum number of items to return")
+    limit: Optional[int] = Field(
+        None, ge=1, le=100, description="Maximum number of items to return"
+    )
     search: Optional[str] = Field(None, description="Search term to filter users")
 
 
@@ -40,15 +45,13 @@ class TestOpenAPIGeneration:
         """Test that basic OpenAPI JSON can be generated."""
         app = RestApplication()
 
-        @app.get('/users')
+        @app.get("/users")
         def list_users() -> List[User]:
             """List all users in the system."""
             return []
 
         openapi_json = app.generate_openapi_json(
-            title="Test API",
-            version="1.0.0",
-            description="A test API"
+            title="Test API", version="1.0.0", description="A test API"
         )
 
         # Parse the JSON to verify it's valid
@@ -67,7 +70,7 @@ class TestOpenAPIGeneration:
         """Test OpenAPI generation with path parameters."""
         app = RestApplication()
 
-        @app.get('/users/{user_id}')
+        @app.get("/users/{user_id}")
         def get_user() -> User:
             """Get a specific user by their ID."""
             return User(id="1", name="Test", email="test@example.com")
@@ -93,10 +96,14 @@ class TestOpenAPIGeneration:
         def validate_create_request(body) -> CreateUserRequest:
             return CreateUserRequest(**json.loads(body))
 
-        @app.post('/users')
+        @app.post("/users")
         def create_user(validate_create_request: CreateUserRequest) -> User:
             """Create a new user."""
-            return User(id="1", name=validate_create_request.name, email=validate_create_request.email)
+            return User(
+                id="1",
+                name=validate_create_request.name,
+                email=validate_create_request.email,
+            )
 
         openapi_json = app.generate_openapi_json()
         spec = json.loads(openapi_json)
@@ -124,7 +131,7 @@ class TestOpenAPIGeneration:
         def validate_query_params(query_params) -> QueryParams:
             return QueryParams(**query_params)
 
-        @app.get('/users')
+        @app.get("/users")
         def list_users(validate_query_params: QueryParams) -> List[User]:
             """List users with optional filtering and pagination."""
             return []
@@ -148,12 +155,12 @@ class TestOpenAPIGeneration:
         """Test OpenAPI generation with response schemas."""
         app = RestApplication()
 
-        @app.get('/users/{user_id}')
+        @app.get("/users/{user_id}")
         def get_user() -> User:
             """Get a specific user."""
             return User(id="1", name="Test", email="test@example.com")
 
-        @app.get('/users')
+        @app.get("/users")
         def list_users() -> List[User]:
             """List all users."""
             return []
@@ -166,13 +173,17 @@ class TestOpenAPIGeneration:
         assert "responses" in get_operation
         assert "200" in get_operation["responses"]
 
-        response_schema = get_operation["responses"]["200"]["content"]["application/json"]["schema"]
+        response_schema = get_operation["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
         assert "$ref" in response_schema
         assert response_schema["$ref"] == "#/components/schemas/User"
 
         # Verify list response
         list_operation = spec["paths"]["/users"]["get"]
-        list_response_schema = list_operation["responses"]["200"]["content"]["application/json"]["schema"]
+        list_response_schema = list_operation["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
         assert list_response_schema["type"] == "array"
         assert "$ref" in list_response_schema["items"]
         assert list_response_schema["items"]["$ref"] == "#/components/schemas/User"
@@ -181,7 +192,7 @@ class TestOpenAPIGeneration:
         """Test OpenAPI generation with None return type (204 No Content)."""
         app = RestApplication()
 
-        @app.delete('/users/{user_id}')
+        @app.delete("/users/{user_id}")
         def delete_user() -> None:
             """Delete a user."""
             pass
@@ -200,7 +211,7 @@ class TestOpenAPIGeneration:
         """Test that handler docstrings are included in OpenAPI spec."""
         app = RestApplication()
 
-        @app.get('/users')
+        @app.get("/users")
         def list_users() -> List[User]:
             """Retrieve a list of all users in the system.
 
@@ -227,17 +238,17 @@ class TestOpenAPIGeneration:
         def validate_update_request(body) -> User:
             return User(**json.loads(body))
 
-        @app.get('/users/{user_id}')
+        @app.get("/users/{user_id}")
         def get_user() -> User:
             """Get a user."""
             return User(id="1", name="Test", email="test@example.com")
 
-        @app.put('/users/{user_id}')
+        @app.put("/users/{user_id}")
         def update_user(validate_update_request: User) -> User:
             """Update a user."""
             return validate_update_request
 
-        @app.delete('/users/{user_id}')
+        @app.delete("/users/{user_id}")
         def delete_user() -> None:
             """Delete a user."""
             pass
@@ -251,7 +262,12 @@ class TestOpenAPIGeneration:
         assert "delete" in user_path
 
         # Verify each method has proper configuration
-        assert user_path["get"]["responses"]["200"]["content"]["application/json"]["schema"]["$ref"] == "#/components/schemas/User"
+        assert (
+            user_path["get"]["responses"]["200"]["content"]["application/json"][
+                "schema"
+            ]["$ref"]
+            == "#/components/schemas/User"
+        )
         assert "requestBody" in user_path["put"]
         assert user_path["delete"]["responses"]["204"]["description"] == "No Content"
 
@@ -263,9 +279,13 @@ class TestOpenAPIGeneration:
         def validate_create_request(body) -> CreateUserRequest:
             return CreateUserRequest(**json.loads(body))
 
-        @app.post('/users')
+        @app.post("/users")
         def create_user(validate_create_request: CreateUserRequest) -> User:
-            return User(id="1", name=validate_create_request.name, email=validate_create_request.email)
+            return User(
+                id="1",
+                name=validate_create_request.name,
+                email=validate_create_request.email,
+            )
 
         openapi_json = app.generate_openapi_json()
         spec = json.loads(openapi_json)
@@ -300,7 +320,7 @@ class TestOpenAPIGeneration:
         def validate_query_params(query_params) -> QueryParams:
             return QueryParams(**query_params)
 
-        @app.get('/users')
+        @app.get("/users")
         def list_users(validate_query_params: QueryParams) -> List[User]:
             return []
 
@@ -323,9 +343,13 @@ class TestOpenAPIGeneration:
         def validate_create_request(body) -> CreateUserRequest:
             return CreateUserRequest(**json.loads(body))
 
-        @app.post('/users')
+        @app.post("/users")
         def create_user(validate_create_request: CreateUserRequest) -> User:
-            return User(id="1", name=validate_create_request.name, email=validate_create_request.email)
+            return User(
+                id="1",
+                name=validate_create_request.name,
+                email=validate_create_request.email,
+            )
 
         openapi_json = app.generate_openapi_json()
         spec = json.loads(openapi_json)
@@ -344,7 +368,7 @@ class TestOpenAPIFileSaving:
         """Test saving OpenAPI JSON to default docs directory."""
         app = RestApplication()
 
-        @app.get('/test')
+        @app.get("/test")
         def test_endpoint():
             return "test"
 
@@ -355,9 +379,7 @@ class TestOpenAPIFileSaving:
 
             try:
                 file_path = app.save_openapi_json(
-                    filename="test_openapi.json",
-                    title="Test API",
-                    version="1.0.0"
+                    filename="test_openapi.json", title="Test API", version="1.0.0"
                 )
 
                 # Verify file was created
@@ -365,7 +387,7 @@ class TestOpenAPIFileSaving:
                 assert file_path.endswith("docs/test_openapi.json")
 
                 # Verify content is valid JSON
-                with open(file_path, 'r') as f:
+                with open(file_path, "r") as f:
                     spec = json.load(f)
                     assert spec["info"]["title"] == "Test API"
                     assert spec["info"]["version"] == "1.0.0"
@@ -378,7 +400,7 @@ class TestOpenAPIFileSaving:
         """Test saving OpenAPI JSON to custom directory."""
         app = RestApplication()
 
-        @app.get('/test')
+        @app.get("/test")
         def test_endpoint():
             return "test"
 
@@ -395,7 +417,7 @@ class TestOpenAPIFileSaving:
                     docs_dir="api_docs",
                     title="Custom API",
                     version="2.0.0",
-                    description="Custom API documentation"
+                    description="Custom API documentation",
                 )
 
                 # Verify file was created in custom directory
@@ -404,7 +426,7 @@ class TestOpenAPIFileSaving:
                 assert os.path.exists(custom_docs_dir)
 
                 # Verify content
-                with open(file_path, 'r') as f:
+                with open(file_path, "r") as f:
                     spec = json.load(f)
                     assert spec["info"]["title"] == "Custom API"
                     assert spec["info"]["version"] == "2.0.0"
@@ -417,7 +439,7 @@ class TestOpenAPIFileSaving:
         """Test that save_openapi_json creates docs directory if it doesn't exist."""
         app = RestApplication()
 
-        @app.get('/test')
+        @app.get("/test")
         def test_endpoint():
             return "test"
 
@@ -449,7 +471,7 @@ class TestOpenAPIEdgeCases:
         """Test handling of routes without type annotations."""
         app = RestApplication()
 
-        @app.get('/untyped')
+        @app.get("/untyped")
         def untyped_endpoint():
             """An endpoint without type annotations."""
             return {"message": "test"}
@@ -462,7 +484,7 @@ class TestOpenAPIEdgeCases:
         assert "responses" in operation
         assert "200" in operation["responses"]
         # Response should not have content schema for untyped handlers
-        assert "content" not in operation["responses"]["200"] 
+        assert "content" not in operation["responses"]["200"]
 
     def test_empty_application(self):
         """Test OpenAPI generation for application with no routes."""
@@ -481,7 +503,7 @@ class TestOpenAPIEdgeCases:
         """Test routes with complex path patterns."""
         app = RestApplication()
 
-        @app.get('/api/v1/users/{user_id}/posts/{post_id}')
+        @app.get("/api/v1/users/{user_id}/posts/{post_id}")
         def get_user_post() -> dict:
             """Get a specific post by a specific user."""
             return {}
@@ -510,7 +532,7 @@ class TestOpenAPIEdgeCases:
         def some_validator(body) -> CreateUserRequest:
             return CreateUserRequest(**json.loads(body))
 
-        @app.post('/users')
+        @app.post("/users")
         def create_user() -> User:
             """Create user without using the validator parameter."""
             return User(id="1", name="test", email="test@example.com")
