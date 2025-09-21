@@ -510,7 +510,7 @@ class RestApplication:
                 operation["responses"]["200"] = {
                     "description": "Successful response"
                 }
-            else:
+            elif response_schema:
                 # Has schema -> 200 with content
                 operation["responses"]["200"] = {
                     "description": "Successful response",
@@ -519,6 +519,11 @@ class RestApplication:
                             "schema": response_schema
                         }
                     }
+                }
+            else:
+                # Has schema -> 200 with content
+                operation["responses"]["200"] = {
+                    "description": "Successful response",
                 }
 
             # Add description from docstring if available
