@@ -7,8 +7,15 @@ from typing import Optional
 
 import pytest
 
-from restmachine import (HTMLRenderer, HTTPMethod, JSONRenderer,
-                         PlainTextRenderer, Request, Response, RestApplication)
+from restmachine import (
+    HTMLRenderer,
+    HTTPMethod,
+    JSONRenderer,
+    PlainTextRenderer,
+    Request,
+    Response,
+    RestApplication,
+)
 
 # Import Pydantic if available for validation tests
 try:
