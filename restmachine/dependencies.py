@@ -23,11 +23,29 @@ class DependencyCache:
 
 class ValidationWrapper:
     """Wrapper for validation functions that return Pydantic models."""
-    
+
     def __init__(self, func: Callable):
+        import inspect
         self.func = func
         self.name = func.__name__
         self.original_name = func.__name__
+
+        # Store return annotation and inspect function signature
+        sig = inspect.signature(func)
+        self.return_annotation = sig.return_annotation if sig.return_annotation != inspect.Signature.empty else None
+
+        # Track which built-in dependencies this validator uses
+        self.depends_on_body = False
+        self.depends_on_query_params = False
+        self.depends_on_path_params = False
+
+        for param_name, param in sig.parameters.items():
+            if param_name == 'body':
+                self.depends_on_body = True
+            elif param_name == 'query_params':
+                self.depends_on_query_params = True
+            elif param_name == 'path_params':
+                self.depends_on_path_params = True
 
 
 class DependencyWrapper:
