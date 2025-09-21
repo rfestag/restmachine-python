@@ -37,10 +37,29 @@ class JSONRenderer(ContentRenderer):
         if isinstance(data, str):
             # If it's already a string, assume it's JSON or return as-is
             return data
+
+        # Handle Pydantic models and lists of Pydantic models
+        data = self._serialize_pydantic(data)
+
         try:
             return json.dumps(data, indent=2)
         except (TypeError, ValueError):
             return json.dumps({"data": str(data)})
+
+    def _serialize_pydantic(self, data: Any) -> Any:
+        """Convert Pydantic models to dictionaries for JSON serialization."""
+        if hasattr(data, "model_dump"):
+            # Single Pydantic model
+            return data.model_dump()
+        elif isinstance(data, list):
+            # List that might contain Pydantic models
+            return [self._serialize_pydantic(item) for item in data]
+        elif isinstance(data, dict):
+            # Dictionary that might contain Pydantic models
+            return {key: self._serialize_pydantic(value) for key, value in data.items()}
+        else:
+            # Regular data, return as-is
+            return data
 
 
 class HTMLRenderer(ContentRenderer):

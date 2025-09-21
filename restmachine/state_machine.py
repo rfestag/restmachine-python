@@ -4,7 +4,7 @@ Webmachine-inspired state machine for HTTP request processing.
 
 import inspect
 import json
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any, Callable, Dict, List, Optional, Union, get_origin, get_args
 
 from .content_renderers import ContentRenderer
 from .dependencies import DependencyWrapper
@@ -395,6 +395,28 @@ class RequestStateMachine:
                         # Handle Optional[SomeType] or Union types
                         # For now, skip validation on Union types
                         pass
+                    elif (
+                        get_origin(return_annotation) is list
+                        and get_args(return_annotation)
+                        and hasattr(get_args(return_annotation)[0], "model_validate")
+                    ):
+                        # Handle list[PydanticModel] types
+                        pydantic_type = get_args(return_annotation)[0]
+                        if isinstance(main_result, list):
+                            # Convert each item to a dict if it's a Pydantic model
+                            validated_list = []
+                            for item in main_result:
+                                if hasattr(item, "model_dump"):
+                                    validated_list.append(item.model_dump())
+                                elif isinstance(item, dict):
+                                    # Validate and convert
+                                    validated_item = pydantic_type.model_validate(item)
+                                    validated_list.append(validated_item.model_dump())
+                                else:
+                                    # Try to validate the raw item
+                                    validated_item = pydantic_type.model_validate(item)
+                                    validated_list.append(validated_item.model_dump())
+                            main_result = validated_list
                     elif hasattr(return_annotation, "model_validate"):
                         # It's a Pydantic model -> validate
                         if isinstance(main_result, dict):
