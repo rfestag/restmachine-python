@@ -4,11 +4,9 @@ Tests for driver functionality.
 
 import base64
 import json
-from unittest.mock import Mock
 
-import pytest
 
-from restmachine import AwsApiGatewayDriver, HTTPMethod, Request, Response, RestApplication
+from restmachine import AwsApiGatewayDriver, HTTPMethod, Response, RestApplication
 
 
 class TestAwsApiGatewayDriver:
