@@ -9,20 +9,22 @@ This example demonstrates:
 """
 
 import json
-from pydantic import BaseModel
+from typing import Optional
+from pydantic import BaseModel, Field
 from restmachine import HTTPMethod, Request, Response, RestApplication
 
 # Create the application
 app = RestApplication()
 
 class User(BaseModel):
-    id: str
-    name: str
-    email: str
+    id: str = Field(description="Id of the user. Must be greater than 0", gt=0)
+    name: str = Field(description="User's name")
+    email: str = Field(description="user's e-mail")
+    age: Optional[int] = Field(description="Optional age of user", gt=0, default=None)
 
 class CreateUser(BaseModel):
-    name: str
-    email: str
+    name: str = Field(description="User's name")
+    email: str = Field(description="user's e-mail")
 
 # In-memory data store for this example
 users_db = {
