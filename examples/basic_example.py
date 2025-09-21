@@ -85,6 +85,10 @@ def main():
     print("REST Framework Basic Example")
     print("=" * 30)
 
+    # Render the OpenAPI schema
+    openapi_json = app.generate_openapi_json(title="Test API", version="1.0.0")
+    print(openapi_json)
+
     # Test list users endpoint
     response = app.execute(
         Request(method=HTTPMethod.GET, path="/users", headers={"Accept": "application/json"})
