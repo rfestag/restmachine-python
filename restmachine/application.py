@@ -379,9 +379,41 @@ class RestApplication:
             """Get a $ref object for a schema."""
             return {"$ref": f"#/components/schemas/{schema_name}"}
 
-        def _extract_path_parameters(path: str) -> List[Dict[str, Any]]:
+        def _extract_path_parameters(path: str, route: RouteHandler) -> List[Dict[str, Any]]:
             """Extract path parameters from a route path."""
             params = []
+
+            # First, check if there are validation dependencies that depend on path_params
+            sig = inspect.signature(route.handler)
+            path_params_from_validation = []
+
+            for param_name, param in sig.parameters.items():
+                # Check if this parameter corresponds to a validation dependency
+                if param_name in self._validation_dependencies:
+                    validation_wrapper = self._validation_dependencies[param_name]
+
+                    # Check if this validation function depends on path_params
+                    if hasattr(validation_wrapper, 'depends_on_path_params') and validation_wrapper.depends_on_path_params:
+                        # Get the return type annotation of the validation function
+                        return_annotation = inspect.signature(validation_wrapper.func).return_annotation
+                        if return_annotation and return_annotation != inspect.Parameter.empty:
+                            # Extract Pydantic model fields
+                            if self._is_pydantic_model(return_annotation):
+                                try:
+                                    model_fields = return_annotation.model_fields
+                                    for field_name, field_info in model_fields.items():
+                                        param_def = self._pydantic_field_to_openapi_param(field_name, field_info, return_annotation)
+                                        param_def["in"] = "path"  # Set to path instead of the default
+                                        path_params_from_validation.append(param_def)
+                                except (AttributeError, TypeError):
+                                    # If we can't extract fields, skip this validation function
+                                    pass
+
+            # If we found path parameters from validation dependencies, use those
+            if path_params_from_validation:
+                return path_params_from_validation
+
+            # Otherwise, fall back to extracting from path pattern (assuming strings)
             pattern = re.findall(r'\{(\w+)\}', path)
             for param_name in pattern:
                 params.append({
@@ -531,7 +563,7 @@ class RestApplication:
                 operation["description"] = route.handler.__doc__.strip()
 
             # Add path parameters
-            path_params = _extract_path_parameters(route.path)
+            path_params = _extract_path_parameters(route.path, route)
             # Add query string parameters
             query_params = _extract_query_string_parameters(route)
 
