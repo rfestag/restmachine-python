@@ -427,7 +427,6 @@ class RequestStateMachine:
                 and self.chosen_renderer.media_type
                 in self.route_handler.content_renderers
             ):
-
                 # Use route-specific content renderer
                 wrapper = self.route_handler.content_renderers[
                     self.chosen_renderer.media_type

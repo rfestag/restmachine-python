@@ -92,7 +92,7 @@ class HTMLRenderer(ContentRenderer):
             else:
                 value_html = f'<span class="value">{str(value)}</span>'
             items.append(f'<li><span class="key">{key}:</span> {value_html}</li>')
-        return f'<ul>{"".join(items)}</ul>'
+        return f"<ul>{''.join(items)}</ul>"
 
     def _list_to_html(self, data: list) -> str:
         """Convert list to HTML."""
@@ -105,7 +105,7 @@ class HTMLRenderer(ContentRenderer):
             else:
                 item_html = str(item)
             items.append(f"<li>{item_html}</li>")
-        return f'<ul>{"".join(items)}</ul>'
+        return f"<ul>{''.join(items)}</ul>"
 
 
 class PlainTextRenderer(ContentRenderer):

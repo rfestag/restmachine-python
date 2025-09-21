@@ -237,7 +237,7 @@ def post_html_renderer(get_post_detail):
     <!DOCTYPE html>
     <html>
     <head>
-        <title>{post['title']}</title>
+        <title>{post["title"]}</title>
         <style>
             body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
             .post-header {{ border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 20px; }}
@@ -248,11 +248,11 @@ def post_html_renderer(get_post_detail):
     <body>
         <article>
             <div class="post-header">
-                <h1>{post['title']}</h1>
-                <p class="author">By {author['name']}</p>
+                <h1>{post["title"]}</h1>
+                <p class="author">By {author["name"]}</p>
             </div>
             <div class="post-content">
-                <p>{post['content']}</p>
+                <p>{post["content"]}</p>
             </div>
         </article>
     </body>
