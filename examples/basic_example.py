@@ -17,7 +17,7 @@ from restmachine import HTTPMethod, Request, Response, RestApplication
 app = RestApplication()
 
 class User(BaseModel):
-    id: str = Field(description="Id of the user. Must be greater than 0", gt=0)
+    id: str = Field(description="Id of the user. Must be greater than 0")
     name: str = Field(description="User's name")
     email: str = Field(description="user's e-mail")
     age: Optional[int] = Field(description="Optional age of user", gt=0, default=None)
@@ -150,6 +150,7 @@ def main():
         Request(method=HTTPMethod.GET, path="/users", headers={"Accept": "application/json"})
     )
     print(f"GET /users: {response.status_code}")
+    print(f"Headers: {response.headers}")
     print(f"Response: {response.body}")
     print()
 

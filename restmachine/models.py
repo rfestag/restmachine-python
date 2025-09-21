@@ -51,3 +51,14 @@ class Response:
             self.headers = {}
         if self.content_type:
             self.headers["Content-Type"] = self.content_type
+
+        # Automatically inject Content-Length header
+        if self.status_code != 204:  # Do not include Content-Length for 204 responses
+            if self.body is not None:
+                # Calculate byte length of body
+                body_bytes = self.body.encode('utf-8') if isinstance(self.body, str) else self.body
+                content_length = len(body_bytes) if body_bytes else 0
+            else:
+                # No body, set Content-Length to 0
+                content_length = 0
+            self.headers["Content-Length"] = str(content_length)
