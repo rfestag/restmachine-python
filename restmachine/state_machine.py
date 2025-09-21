@@ -328,7 +328,7 @@ class RequestStateMachine:
             return_annotation = sig.return_annotation
             
             # Handle different return type scenarios
-            if return_annotation == type(None) or return_annotation is None:
+            if return_annotation == type(None):
                 # Explicitly annotated as None -> return 204 No Content
                 return Response(204)
             elif return_annotation != inspect.Signature.empty and PYDANTIC_AVAILABLE:
