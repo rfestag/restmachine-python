@@ -381,13 +381,13 @@ class RestApplication:
                 param["required"] = not is_optional and field_annotation.default is None
 
                 # Basic type mapping
-                if inner_type == str:
+                if inner_type is str:
                     param["schema"] = {"type": "string"}
-                elif inner_type == int:
+                elif inner_type is int:
                     param["schema"] = {"type": "integer"}
-                elif inner_type == float:
+                elif inner_type is float:
                     param["schema"] = {"type": "number"}
-                elif inner_type == bool:
+                elif inner_type is bool:
                     param["schema"] = {"type": "boolean"}
                 else:
                     param["schema"] = {"type": "string"}
@@ -581,7 +581,7 @@ class RestApplication:
             return_annotation = sig.return_annotation
 
             # Check if return type is explicitly None
-            if return_annotation == type(None):
+            if return_annotation is type(None):
                 return None  # No schema for 204 responses
 
             # Check if no annotation is provided
