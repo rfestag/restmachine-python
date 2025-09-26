@@ -42,6 +42,7 @@ setup(
             "pytest-cov",
             "ruff",
             "mypy",
+            "openapi-spec-validator>=0.7.0",
         ],
         "examples": ["uvicorn", "fastapi"],
     },

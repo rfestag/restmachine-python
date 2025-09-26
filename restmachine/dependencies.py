@@ -45,7 +45,7 @@ class ValidationWrapper:
         self.depends_on_path_params = False
 
         for param_name, param in sig.parameters.items():
-            if param_name == "body":
+            if param_name in ["body", "json_body", "form_body", "text_body", "multipart_body"]:
                 self.depends_on_body = True
             elif param_name == "query_params":
                 self.depends_on_query_params = True

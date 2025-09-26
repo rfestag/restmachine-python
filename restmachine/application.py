@@ -659,13 +659,71 @@ class RestApplication:
         return False, annotation
 
     def _get_pydantic_schema(self, model_class) -> Dict[str, Any]:
-        """Extract JSON schema from Pydantic model."""
+        """Extract JSON schema from Pydantic model and convert to OpenAPI 3.0 compliant format."""
         if not self._is_pydantic_model(model_class):
             return {"type": "object"}
         try:
-            return model_class.model_json_schema()
+            pydantic_schema = model_class.model_json_schema()
+            return self._convert_pydantic_schema_to_openapi(pydantic_schema)
         except (AttributeError, TypeError):
             return {"type": "object"}
+
+    def _convert_pydantic_schema_to_openapi(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert Pydantic JSON schema to OpenAPI 3.0 compliant schema."""
+        if isinstance(schema, dict):
+            converted = {}
+            for key, value in schema.items():
+                if key == "anyOf" and isinstance(value, list):
+                    # Handle anyOf patterns for optional fields
+                    converted.update(self._convert_anyof_to_nullable(value))
+                elif key == "exclusiveMinimum" and isinstance(value, (int, float)):
+                    # Convert exclusiveMinimum from number to boolean + minimum
+                    converted["minimum"] = value
+                    converted["exclusiveMinimum"] = True
+                elif key == "exclusiveMaximum" and isinstance(value, (int, float)):
+                    # Convert exclusiveMaximum from number to boolean + maximum
+                    converted["maximum"] = value
+                    converted["exclusiveMaximum"] = True
+                elif isinstance(value, dict):
+                    # Recursively convert nested schemas
+                    converted[key] = self._convert_pydantic_schema_to_openapi(value)
+                elif isinstance(value, list):
+                    # Process lists (like in anyOf, oneOf, etc.)
+                    converted[key] = [
+                        self._convert_pydantic_schema_to_openapi(item) if isinstance(item, dict) else item
+                        for item in value
+                    ]
+                else:
+                    converted[key] = value
+            return converted
+        else:
+            return schema
+
+    def _convert_anyof_to_nullable(self, anyof_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Convert anyOf with null to nullable field for OpenAPI 3.0."""
+        result = {}
+
+        # Check if this is the pattern: anyOf: [{"type": "someType"}, {"type": "null"}]
+        if len(anyof_list) == 2:
+            type_schema = None
+            has_null = False
+
+            for item in anyof_list:
+                if isinstance(item, dict):
+                    if item.get("type") == "null":
+                        has_null = True
+                    else:
+                        type_schema = item
+
+            if has_null and type_schema:
+                # Convert to nullable field
+                result.update(self._convert_pydantic_schema_to_openapi(type_schema))
+                result["nullable"] = True
+                return result
+
+        # If it's not the nullable pattern, keep as anyOf but convert each schema
+        result["anyOf"] = [self._convert_pydantic_schema_to_openapi(item) for item in anyof_list]
+        return result
 
     def _pydantic_field_to_openapi_param(
         self, field_name: str, field_info, model_class
@@ -712,6 +770,68 @@ class RestApplication:
 
         return param
 
+    def _infer_schema_from_validation_dependencies(self, param_name: str, collect_schema_func, route: Optional[RouteHandler] = None) -> Optional[Dict[str, Any]]:
+        """Infer schema from validation dependencies that might use the given parameter (e.g. json_body)."""
+        # Check route-specific validation dependencies first
+        if route and hasattr(route, 'validation_dependencies'):
+            for validation_name, validation_wrapper in route.validation_dependencies.items():
+                sig = inspect.signature(validation_wrapper.func)
+                if param_name in sig.parameters:
+                    # This validation function takes the parameter as input
+                    return_annotation = sig.return_annotation
+                    if return_annotation and return_annotation != inspect.Parameter.empty:
+                        if self._is_pydantic_model(return_annotation):
+                            # Collect the schema and return a reference
+                            schema_name = collect_schema_func(return_annotation)
+                            if schema_name:
+                                return {"$ref": f"#/components/schemas/{schema_name}"}
+
+        # Look for global validation dependencies that take the parameter as input
+        for validation_name, validation_wrapper in self._validation_dependencies.items():
+            sig = inspect.signature(validation_wrapper.func)
+            if param_name in sig.parameters:
+                # This validation function takes the parameter as input
+                return_annotation = sig.return_annotation
+                if return_annotation and return_annotation != inspect.Parameter.empty:
+                    if self._is_pydantic_model(return_annotation):
+                        # Collect the schema and return a reference
+                        schema_name = collect_schema_func(return_annotation)
+                        if schema_name:
+                            return {"$ref": f"#/components/schemas/{schema_name}"}
+        return None
+
+    def _get_primary_content_type_for_route(self, route: RouteHandler) -> Optional[str]:
+        """Get the primary content type that this route expects for request bodies."""
+        # For now, assume application/json as the primary content type
+        # In the future, this could be more sophisticated and look at accepts dependencies
+        if hasattr(route, 'accepts_dependencies') and route.accepts_dependencies:
+            # Return the first accepts dependency content type
+            return next(iter(route.accepts_dependencies.keys()))
+        elif self._accepts_dependencies:
+            # Return the first global accepts dependency content type
+            return next(iter(self._accepts_dependencies.keys()))
+        else:
+            # Default to application/json
+            return "application/json"
+
+    def _infer_basic_schema_from_type(self, type_annotation) -> Dict[str, Any]:
+        """Infer basic OpenAPI schema from Python type annotation."""
+        if type_annotation is str:
+            return {"type": "string"}
+        elif type_annotation is int:
+            return {"type": "integer"}
+        elif type_annotation is float:
+            return {"type": "number"}
+        elif type_annotation is bool:
+            return {"type": "boolean"}
+        elif type_annotation is list:
+            return {"type": "array", "items": {"type": "object"}}
+        elif type_annotation is dict:
+            return {"type": "object"}
+        else:
+            # Default fallback for unknown types
+            return {"type": "object"}
+
     def generate_openapi_json(
         self,
         title: str = "REST API",
@@ -749,10 +869,14 @@ class RestApplication:
             path_params_from_validation = []
 
             for param_name, param in sig.parameters.items():
-                # Check if this parameter corresponds to a validation dependency
-                if param_name in self._validation_dependencies:
+                # Check if this parameter corresponds to a validation dependency (route-specific first, then global)
+                validation_wrapper = None
+                if hasattr(route, 'validation_dependencies') and param_name in route.validation_dependencies:
+                    validation_wrapper = route.validation_dependencies[param_name]
+                elif param_name in self._validation_dependencies:
                     validation_wrapper = self._validation_dependencies[param_name]
 
+                if validation_wrapper:
                     # Check if this validation function depends on path_params
                     if (
                         hasattr(validation_wrapper, "depends_on_path_params")
@@ -812,10 +936,14 @@ class RestApplication:
             # Look at the route handler's parameters to find validation dependencies
             sig = inspect.signature(route.handler)
             for param_name, param in sig.parameters.items():
-                # Check if this parameter corresponds to a validation dependency
-                if param_name in self._validation_dependencies:
+                # Check if this parameter corresponds to a validation dependency (route-specific first, then global)
+                validation_wrapper = None
+                if hasattr(route, 'validation_dependencies') and param_name in route.validation_dependencies:
+                    validation_wrapper = route.validation_dependencies[param_name]
+                elif param_name in self._validation_dependencies:
                     validation_wrapper = self._validation_dependencies[param_name]
 
+                if validation_wrapper:
                     # Check if this validation function depends on query_params
                     if (
                         hasattr(validation_wrapper, "depends_on_query_params")
@@ -854,14 +982,19 @@ class RestApplication:
         def _extract_request_body_schema(
             route: RouteHandler,
         ) -> Optional[Dict[str, Any]]:
-            """Extract request body schema from validation dependencies that depend on body."""
+            """Extract request body schema from validation dependencies, built-in parsers, and custom @accepts parsers."""
             sig = inspect.signature(route.handler)
 
+            # First, check validation dependencies that depend on body
             for param_name, param in sig.parameters.items():
-                # Check if this parameter corresponds to a validation dependency
-                if param_name in self._validation_dependencies:
+                # Check if this parameter corresponds to a validation dependency (route-specific first, then global)
+                validation_wrapper = None
+                if hasattr(route, 'validation_dependencies') and param_name in route.validation_dependencies:
+                    validation_wrapper = route.validation_dependencies[param_name]
+                elif param_name in self._validation_dependencies:
                     validation_wrapper = self._validation_dependencies[param_name]
 
+                if validation_wrapper:
                     # Check if this validation function depends on body
                     if (
                         hasattr(validation_wrapper, "depends_on_body")
@@ -880,6 +1013,55 @@ class RestApplication:
                                 schema_name = _collect_schema(return_annotation)
                                 if schema_name:
                                     return _get_schema_ref(schema_name)
+
+            # Check for built-in parsers (json_body, form_body, etc.) and custom @accepts parsers
+            for param_name, param in sig.parameters.items():
+                # Check if this parameter uses built-in parsers
+                if param_name in ['json_body', 'form_body', 'text_body', 'multipart_body']:
+                    # For built-in parsers, try to infer schema from validation dependencies that use them
+                    schema_from_validation = self._infer_schema_from_validation_dependencies(param_name, _collect_schema, route)
+                    if schema_from_validation:
+                        return schema_from_validation
+
+                    # Default schemas for built-in parsers when no validation is found
+                    if param_name == 'json_body':
+                        return {"type": "object"}
+                    elif param_name == 'form_body':
+                        return {"type": "object", "description": "Form data"}
+                    elif param_name == 'text_body':
+                        return {"type": "string"}
+                    elif param_name == 'multipart_body':
+                        return {"type": "object", "description": "Multipart form data"}
+
+                # Check if this parameter might be resolved through custom @accepts parsers
+                # Look for accepts dependencies that match this route
+                content_type = self._get_primary_content_type_for_route(route)
+                if content_type:
+                    # Check route-specific accepts dependencies
+                    if hasattr(route, 'accepts_dependencies') and content_type in route.accepts_dependencies:
+                        accepts_wrapper = route.accepts_dependencies[content_type]
+                        return_annotation = inspect.signature(accepts_wrapper.func).return_annotation
+                        if return_annotation and return_annotation != inspect.Parameter.empty:
+                            if self._is_pydantic_model(return_annotation):
+                                schema_name = _collect_schema(return_annotation)
+                                if schema_name:
+                                    return _get_schema_ref(schema_name)
+                            else:
+                                # For non-Pydantic return types, infer basic schema
+                                return self._infer_basic_schema_from_type(return_annotation)
+
+                    # Check global accepts dependencies
+                    if content_type in self._accepts_dependencies:
+                        accepts_wrapper = self._accepts_dependencies[content_type]
+                        return_annotation = inspect.signature(accepts_wrapper.func).return_annotation
+                        if return_annotation and return_annotation != inspect.Parameter.empty:
+                            if self._is_pydantic_model(return_annotation):
+                                schema_name = _collect_schema(return_annotation)
+                                if schema_name:
+                                    return _get_schema_ref(schema_name)
+                            else:
+                                # For non-Pydantic return types, infer basic schema
+                                return self._infer_basic_schema_from_type(return_annotation)
 
             return None
 

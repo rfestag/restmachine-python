@@ -10,6 +10,13 @@ from typing import List, Optional
 import pytest
 from pydantic import BaseModel, Field
 
+try:
+    from openapi_spec_validator import validate_spec
+    from openapi_spec_validator.validation.exceptions import OpenAPIValidationError
+    OPENAPI_VALIDATOR_AVAILABLE = True
+except ImportError:
+    OPENAPI_VALIDATOR_AVAILABLE = False
+
 from restmachine import RestApplication
 
 
@@ -542,6 +549,207 @@ class TestOpenAPIEdgeCases:
         # Should still generate valid spec, but without request body schema
         operation = spec["paths"]["/users"]["post"]
         assert "requestBody" not in operation
+
+
+@pytest.mark.skipif(
+    not OPENAPI_VALIDATOR_AVAILABLE,
+    reason="openapi-spec-validator not available"
+)
+class TestOpenAPISchemaValidation:
+    """Test that all generated OpenAPI schemas are valid according to the OpenAPI specification."""
+
+    def test_basic_spec_validation(self):
+        """Test validation of a basic OpenAPI specification."""
+        app = RestApplication()
+
+        @app.get("/users")
+        def list_users() -> List[User]:
+            """List all users in the system."""
+            return []
+
+        openapi_json = app.generate_openapi_json(
+            title="Test API", version="1.0.0", description="A test API"
+        )
+        spec = json.loads(openapi_json)
+
+        # This should not raise an exception if the spec is valid
+        try:
+            validate_spec(spec)
+        except OpenAPIValidationError as e:
+            pytest.fail(f"Generated OpenAPI spec is invalid: {e}")
+
+    def test_comprehensive_spec_validation(self):
+        """Test validation of a comprehensive OpenAPI specification with all features."""
+        app = RestApplication()
+
+        # Test models with validation
+        @app.validates
+        def validate_create_request(body) -> CreateUserRequest:
+            return CreateUserRequest(**json.loads(body))
+
+        @app.validates
+        def validate_update_request(body) -> User:
+            return User(**json.loads(body))
+
+        @app.validates
+        def validate_query_params(query_params) -> QueryParams:
+            return QueryParams(**query_params)
+
+        # Multiple HTTP methods and endpoints
+        @app.get("/users")
+        def list_users(validate_query_params: QueryParams) -> List[User]:
+            """List users with optional filtering and pagination."""
+            return []
+
+        @app.post("/users")
+        def create_user(validate_create_request: CreateUserRequest) -> User:
+            """Create a new user."""
+            return User(
+                id="1",
+                name=validate_create_request.name,
+                email=validate_create_request.email,
+            )
+
+        @app.get("/users/{user_id}")
+        def get_user() -> User:
+            """Get a specific user by their ID."""
+            return User(id="1", name="Test", email="test@example.com")
+
+        @app.put("/users/{user_id}")
+        def update_user(validate_update_request: User) -> User:
+            """Update an existing user."""
+            return validate_update_request
+
+        @app.delete("/users/{user_id}")
+        def delete_user() -> None:
+            """Delete a user."""
+            pass
+
+        @app.get("/health")
+        def health_check() -> dict:
+            """Health check endpoint."""
+            return {"status": "healthy"}
+
+        # Generate comprehensive spec
+        openapi_json = app.generate_openapi_json(
+            title="Comprehensive Test API",
+            version="2.0.0",
+            description="A comprehensive test API with all features"
+        )
+        spec = json.loads(openapi_json)
+
+        # Validate the comprehensive spec
+        try:
+            validate_spec(spec)
+        except OpenAPIValidationError as e:
+            pytest.fail(f"Generated comprehensive OpenAPI spec is invalid: {e}")
+
+    def test_empty_application_spec_validation(self):
+        """Test validation of OpenAPI spec for empty application."""
+        app = RestApplication()
+
+        openapi_json = app.generate_openapi_json(
+            title="Empty API", version="1.0.0"
+        )
+        spec = json.loads(openapi_json)
+
+        # Even empty specs should be valid
+        try:
+            validate_spec(spec)
+        except OpenAPIValidationError as e:
+            pytest.fail(f"Generated empty OpenAPI spec is invalid: {e}")
+
+    def test_edge_cases_spec_validation(self):
+        """Test validation of OpenAPI specs with edge cases."""
+        app = RestApplication()
+
+        # Route without type annotations
+        @app.get("/untyped")
+        def untyped_endpoint():
+            """An endpoint without type annotations."""
+            return {"message": "test"}
+
+        # Complex path with multiple parameters
+        @app.get("/api/v1/users/{user_id}/posts/{post_id}/comments/{comment_id}")
+        def get_comment() -> dict:
+            """Get a specific comment."""
+            return {}
+
+        # Route with None return type
+        @app.post("/actions/reset")
+        def reset_data() -> None:
+            """Reset all data."""
+            pass
+
+        openapi_json = app.generate_openapi_json(
+            title="Edge Cases API", version="1.0.0"
+        )
+        spec = json.loads(openapi_json)
+
+        # Validate edge cases spec
+        try:
+            validate_spec(spec)
+        except OpenAPIValidationError as e:
+            pytest.fail(f"Generated edge cases OpenAPI spec is invalid: {e}")
+
+    def test_validate_existing_test_openapi_json(self):
+        """Test validation of the existing test_openapi.json file in docs."""
+        test_file_path = "/home/ryan/Code/restmachine-python/docs/test_openapi.json"
+
+        # Skip if file doesn't exist
+        if not os.path.exists(test_file_path):
+            pytest.skip("test_openapi.json file not found in docs directory")
+
+        with open(test_file_path, "r") as f:
+            spec = json.load(f)
+
+        # Validate the existing file
+        try:
+            validate_spec(spec)
+        except OpenAPIValidationError as e:
+            pytest.fail(f"Existing docs/test_openapi.json is invalid: {e}")
+
+    def test_all_test_methods_generate_valid_specs(self):
+        """Meta-test: Validate that all OpenAPI specs generated in other tests are valid."""
+        # This test creates the same specs as other tests but focuses only on validation
+        test_configs = [
+            # Basic generation test
+            {
+                "setup": lambda app: app.get("/users")(lambda: []),
+                "title": "Basic Test API"
+            },
+            # Path parameters test
+            {
+                "setup": lambda app: app.get("/users/{user_id}")(
+                    lambda: User(id="1", name="Test", email="test@example.com")
+                ),
+                "title": "Path Params API"
+            },
+            # Multiple methods test
+            {
+                "setup": lambda app: (
+                    app.get("/users/{user_id}")(
+                        lambda: User(id="1", name="Test", email="test@example.com")
+                    ),
+                    app.delete("/users/{user_id}")(lambda: None)
+                ),
+                "title": "Multi Method API"
+            }
+        ]
+
+        for i, config in enumerate(test_configs):
+            app = RestApplication()
+            config["setup"](app)
+
+            openapi_json = app.generate_openapi_json(
+                title=config["title"], version="1.0.0"
+            )
+            spec = json.loads(openapi_json)
+
+            try:
+                validate_spec(spec)
+            except OpenAPIValidationError as e:
+                pytest.fail(f"Test config {i} ({config['title']}) generated invalid spec: {e}")
 
 
 if __name__ == "__main__":
