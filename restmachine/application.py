@@ -121,6 +121,17 @@ class RestApplication:
             self._dependencies[func.__name__] = wrapper
         return func
 
+    def resource_from_request(self, func: Callable):
+        """Decorator to wrap a dependency for creating resource from request (for POST)."""
+        wrapper = DependencyWrapper(func, "resource_from_request", func.__name__)
+        # Add to most recent route if it exists, otherwise add globally
+        if self._routes:
+            route = self._routes[-1]
+            route.dependencies[func.__name__] = wrapper
+        else:
+            self._dependencies[func.__name__] = wrapper
+        return func
+
     def forbidden(self, func: Callable):
         """Decorator to wrap a dependency with forbidden checking."""
         wrapper = DependencyWrapper(func, "forbidden", func.__name__)
@@ -154,6 +165,28 @@ class RestApplication:
         else:
             self._headers_dependencies[func.__name__] = wrapper
             self._dependencies[func.__name__] = func
+        return func
+
+    def generate_etag(self, func: Callable):
+        """Decorator to wrap a dependency with ETag generation for conditional requests."""
+        wrapper = DependencyWrapper(func, "generate_etag", func.__name__)
+        # Add to most recent route if it exists, otherwise add globally
+        if self._routes:
+            route = self._routes[-1]
+            route.dependencies[func.__name__] = wrapper
+        else:
+            self._dependencies[func.__name__] = wrapper
+        return func
+
+    def last_modified(self, func: Callable):
+        """Decorator to wrap a dependency with Last-Modified date for conditional requests."""
+        wrapper = DependencyWrapper(func, "last_modified", func.__name__)
+        # Add to most recent route if it exists, otherwise add globally
+        if self._routes:
+            route = self._routes[-1]
+            route.dependencies[func.__name__] = wrapper
+        else:
+            self._dependencies[func.__name__] = wrapper
         return func
 
     # Content negotiation decorators

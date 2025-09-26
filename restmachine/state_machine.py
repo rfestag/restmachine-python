@@ -9,7 +9,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, get_origin, get_a
 from .content_renderers import ContentRenderer
 from .dependencies import DependencyWrapper
 from .exceptions import PYDANTIC_AVAILABLE, ValidationError
-from .models import HTTPMethod, Request, Response
+from .models import HTTPMethod, Request, Response, etags_match
 
 
 class StateMachineResult:
@@ -84,6 +84,23 @@ class RequestStateMachine:
                 return result.response or default_response
 
             result = self.state_resource_exists()
+            if not result.continue_processing:
+                return result.response or default_response
+
+            # Conditional request processing states
+            result = self.state_if_match()
+            if not result.continue_processing:
+                return result.response or default_response
+
+            result = self.state_if_unmodified_since()
+            if not result.continue_processing:
+                return result.response or default_response
+
+            result = self.state_if_none_match()
+            if not result.continue_processing:
+                return result.response or default_response
+
+            result = self.state_if_modified_since()
             if not result.continue_processing:
                 return result.response or default_response
 
@@ -308,12 +325,18 @@ class RequestStateMachine:
                             wrapper.func, self.request, self.route_handler
                         )
                         if resolved_value is None:
+                            # Resource doesn't exist - check if we can create it from request (for POST)
+                            if self.request.method == HTTPMethod.POST:
+                                return self._try_resource_from_request()
                             return StateMachineResult(False, Response(404, "Not Found"))
                         # Cache the resolved value for later use in the handler
                         self.app._dependency_cache.set(
                             wrapper.original_name, resolved_value
                         )
                     except Exception:
+                        # Resource doesn't exist - check if we can create it from request (for POST)
+                        if self.request.method == HTTPMethod.POST:
+                            return self._try_resource_from_request()
                         return StateMachineResult(
                             False, Response(404, "Resource Not Found")
                         )
@@ -321,12 +344,222 @@ class RequestStateMachine:
                     # Use the regular callback
                     exists = self.app._call_with_injection(callback, self.request, self.route_handler)
                     if not exists:
+                        # Resource doesn't exist - check if we can create it from request (for POST)
+                        if self.request.method == HTTPMethod.POST:
+                            return self._try_resource_from_request()
                         return StateMachineResult(False, Response(404, "Not Found"))
             except Exception as e:
+                # Resource doesn't exist - check if we can create it from request (for POST)
+                if self.request.method == HTTPMethod.POST:
+                    return self._try_resource_from_request()
                 return StateMachineResult(
                     False, Response(404, f"Resource check failed: {str(e)}")
                 )
         return StateMachineResult(True)
+
+    def _try_resource_from_request(self) -> StateMachineResult:
+        """Try to create resource from request for POST operations."""
+        # Check if there's a resource_from_request callback
+        if "resource_from_request" in self.dependency_callbacks:
+            wrapper = self.dependency_callbacks["resource_from_request"]
+            try:
+                # Call the resource_from_request function to create the resource
+                resolved_value = self.app._call_with_injection(
+                    wrapper.func, self.request, self.route_handler
+                )
+                if resolved_value is not None:
+                    # Cache the created resource value for later use in the handler
+                    # Use the same name as the resource_exists dependency
+                    if "resource_exists" in self.dependency_callbacks:
+                        resource_exists_wrapper = self.dependency_callbacks["resource_exists"]
+                        self.app._dependency_cache.set(
+                            resource_exists_wrapper.original_name, resolved_value
+                        )
+                    # Continue processing (resource now "exists" from the request)
+                    return StateMachineResult(True)
+                else:
+                    # resource_from_request returned None, can't create resource
+                    return StateMachineResult(False, Response(400, "Bad Request"))
+            except Exception as e:
+                return StateMachineResult(
+                    False, Response(400, f"Resource creation failed: {str(e)}")
+                )
+
+        # No resource_from_request callback available
+        return StateMachineResult(False, Response(404, "Not Found"))
+
+    def state_if_match(self) -> StateMachineResult:
+        """Check If-Match precondition (RFC 7232)."""
+        if_match_etags = self.request.get_if_match()
+        if not if_match_etags:
+            return StateMachineResult(True)
+
+        # Get current resource ETag
+        current_etag = self._get_resource_etag()
+        if not current_etag:
+            # If resource doesn't have an ETag, If-Match fails
+            return StateMachineResult(False, Response(412, "Precondition Failed"))
+
+        # Special case: If-Match: *
+        if "*" in if_match_etags:
+            # Resource exists (we checked earlier), so * matches
+            return StateMachineResult(True)
+
+        # Check if current ETag matches any of the requested ETags
+        for requested_etag in if_match_etags:
+            if etags_match(current_etag, requested_etag, strong_comparison=True):
+                return StateMachineResult(True)
+
+        # No ETag matches
+        return StateMachineResult(False, Response(412, "Precondition Failed"))
+
+    def state_if_unmodified_since(self) -> StateMachineResult:
+        """Check If-Unmodified-Since precondition (RFC 7232)."""
+        if_unmodified_since = self.request.get_if_unmodified_since()
+        if not if_unmodified_since:
+            return StateMachineResult(True)
+
+        # Get current resource last modified time
+        last_modified = self._get_resource_last_modified()
+        if not last_modified:
+            # If resource doesn't have a Last-Modified date, precondition fails
+            return StateMachineResult(False, Response(412, "Precondition Failed"))
+
+        # Check if resource was modified after the If-Unmodified-Since date
+        if last_modified > if_unmodified_since:
+            return StateMachineResult(False, Response(412, "Precondition Failed"))
+
+        return StateMachineResult(True)
+
+    def state_if_none_match(self) -> StateMachineResult:
+        """Check If-None-Match precondition (RFC 7232)."""
+        if_none_match_etags = self.request.get_if_none_match()
+        if not if_none_match_etags:
+            return StateMachineResult(True)
+
+        # Get current resource ETag
+        current_etag = self._get_resource_etag()
+
+        # Special case: If-None-Match: *
+        if "*" in if_none_match_etags:
+            # Resource exists, so * matches - return 304 for GET/HEAD, 412 for others
+            if self.request.method in [HTTPMethod.GET]:
+                return StateMachineResult(False, Response(304, headers={"ETag": current_etag} if current_etag else {}))
+            else:
+                return StateMachineResult(False, Response(412, "Precondition Failed"))
+
+        # If resource doesn't have an ETag, If-None-Match succeeds
+        if not current_etag:
+            return StateMachineResult(True)
+
+        # Check if current ETag matches any of the requested ETags (weak comparison for If-None-Match)
+        for requested_etag in if_none_match_etags:
+            if etags_match(current_etag, requested_etag, strong_comparison=False):
+                # ETag matches - return 304 for GET/HEAD, 412 for others
+                if self.request.method in [HTTPMethod.GET]:
+                    return StateMachineResult(False, Response(304, headers={"ETag": current_etag}))
+                else:
+                    return StateMachineResult(False, Response(412, "Precondition Failed"))
+
+        # No ETag matches, continue processing
+        return StateMachineResult(True)
+
+    def state_if_modified_since(self) -> StateMachineResult:
+        """Check If-Modified-Since precondition (RFC 7232)."""
+        # If-Modified-Since is only evaluated for GET requests
+        if self.request.method != HTTPMethod.GET:
+            return StateMachineResult(True)
+
+        if_modified_since = self.request.get_if_modified_since()
+        if not if_modified_since:
+            return StateMachineResult(True)
+
+        # Get current resource last modified time
+        last_modified = self._get_resource_last_modified()
+        if not last_modified:
+            # If resource doesn't have a Last-Modified date, assume it's been modified
+            return StateMachineResult(True)
+
+        # Check if resource was modified after the If-Modified-Since date
+        if last_modified <= if_modified_since:
+            # Resource hasn't been modified, return 304
+            headers = {}
+            if last_modified:
+                headers["Last-Modified"] = last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
+            current_etag = self._get_resource_etag()
+            if current_etag:
+                headers["ETag"] = current_etag
+            return StateMachineResult(False, Response(304, headers=headers))
+
+        return StateMachineResult(True)
+
+    def _get_resource_etag(self) -> Optional[str]:
+        """Get the current ETag for the resource.
+
+        This checks for ETag callbacks or dependencies that provide the resource ETag.
+        """
+        # Check for ETag callback
+        callback = self._get_callback("generate_etag")
+        if callback:
+            try:
+                etag = self.app._call_with_injection(callback, self.request, self.route_handler)
+                if etag:
+                    return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
+            except Exception:
+                pass
+
+        # Check for ETag dependency
+        if "generate_etag" in self.dependency_callbacks:
+            wrapper = self.dependency_callbacks["generate_etag"]
+            try:
+                etag = self.app._call_with_injection(wrapper.func, self.request, self.route_handler)
+                if etag:
+                    return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
+            except Exception:
+                pass
+
+        return None
+
+    def _get_resource_last_modified(self) -> Optional['datetime']:
+        """Get the current Last-Modified date for the resource.
+
+        This checks for Last-Modified callbacks or dependencies.
+        """
+        from datetime import datetime
+
+        # Check for Last-Modified callback
+        callback = self._get_callback("last_modified")
+        if callback:
+            try:
+                last_modified = self.app._call_with_injection(callback, self.request, self.route_handler)
+                if isinstance(last_modified, datetime):
+                    return last_modified
+                elif isinstance(last_modified, str):
+                    # Try to parse as HTTP date
+                    try:
+                        return datetime.strptime(last_modified, "%a, %d %b %Y %H:%M:%S %Z")
+                    except ValueError:
+                        pass
+            except Exception:
+                pass
+
+        # Check for Last-Modified dependency
+        if "last_modified" in self.dependency_callbacks:
+            wrapper = self.dependency_callbacks["last_modified"]
+            try:
+                last_modified = self.app._call_with_injection(wrapper.func, self.request, self.route_handler)
+                if isinstance(last_modified, datetime):
+                    return last_modified
+                elif isinstance(last_modified, str):
+                    # Try to parse as HTTP date
+                    try:
+                        return datetime.strptime(last_modified, "%a, %d %b %Y %H:%M:%S %Z")
+                    except ValueError:
+                        pass
+            except Exception:
+                pass
+
+        return None
 
     def get_available_content_types(self) -> List[str]:
         """Get list of all available content types for this route."""
@@ -433,6 +666,15 @@ class RequestStateMachine:
             main_result = self.app._call_with_injection(
                 self.route_handler.handler, self.request, self.route_handler
             )
+
+            # Add ETag and Last-Modified to processed headers if available (after handler execution)
+            current_etag = self._get_resource_etag()
+            if current_etag:
+                processed_headers["ETag"] = current_etag
+
+            current_last_modified = self._get_resource_last_modified()
+            if current_last_modified:
+                processed_headers["Last-Modified"] = current_last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
 
             # Check return type annotation for response validation
             sig = inspect.signature(self.route_handler.handler)
