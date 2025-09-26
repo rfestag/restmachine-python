@@ -6,6 +6,7 @@ import inspect
 import json
 import os
 import re
+from urllib.parse import parse_qs
 from typing import (
     Any,
     Callable,
@@ -26,13 +27,14 @@ from .content_renderers import (
     PlainTextRenderer,
 )
 from .dependencies import (
+    AcceptsWrapper,
     ContentNegotiationWrapper,
     DependencyCache,
     DependencyWrapper,
     HeadersWrapper,
     ValidationWrapper,
 )
-from .exceptions import PYDANTIC_AVAILABLE
+from .exceptions import PYDANTIC_AVAILABLE, AcceptsParsingError
 from .models import HTTPMethod, Request, Response
 from .state_machine import RequestStateMachine
 
@@ -51,6 +53,7 @@ class RouteHandler:
         self.dependencies: Dict[str, Union[Callable, DependencyWrapper]] = {}
         self.validation_dependencies: Dict[str, ValidationWrapper] = {}
         self.headers_dependencies: Dict[str, HeadersWrapper] = {}
+        self.accepts_dependencies: Dict[str, AcceptsWrapper] = {}
 
     def _compile_path_pattern(self, path: str) -> str:
         """Convert path with {param} syntax to a pattern for matching."""
@@ -86,6 +89,7 @@ class RestApplication:
         self._dependencies: Dict[str, Union[Callable, DependencyWrapper]] = {}
         self._validation_dependencies: Dict[str, ValidationWrapper] = {}
         self._headers_dependencies: Dict[str, HeadersWrapper] = {}
+        self._accepts_dependencies: Dict[str, AcceptsWrapper] = {}
         self._default_callbacks: Dict[str, Callable] = {}
         self._dependency_cache = DependencyCache()
         self._content_renderers: Dict[str, ContentRenderer] = {}
@@ -224,6 +228,23 @@ class RestApplication:
             self._dependencies[func.__name__] = func
         return func
 
+    def accepts(self, content_type: str):
+        """Decorator to register a content-type specific body parser for an endpoint."""
+
+        def decorator(func: Callable):
+            wrapper = AcceptsWrapper(func, content_type, func.__name__)
+            # Add to most recent route if it exists, otherwise add globally
+            if self._routes:
+                route = self._routes[-1]
+                route.accepts_dependencies[content_type] = wrapper
+                route.dependencies[func.__name__] = func
+            else:
+                self._accepts_dependencies[content_type] = wrapper
+                self._dependencies[func.__name__] = func
+            return func
+
+        return decorator
+
     # Default state machine callbacks
     def default_service_available(self, func: Callable):
         """Register a default service_available callback."""
@@ -338,6 +359,79 @@ class RestApplication:
                 headers = self._get_initial_headers(request, route)
                 self._dependency_cache.set("headers", headers)
             return headers
+        elif param_name == "json_body":
+            parsed_body = self._parse_body(request, route, "application/json")
+            self._dependency_cache.set(param_name, parsed_body)
+            return parsed_body
+        elif param_name == "form_body":
+            parsed_body = self._parse_body(request, route, "application/x-www-form-urlencoded")
+            self._dependency_cache.set(param_name, parsed_body)
+            return parsed_body
+        elif param_name == "multipart_body":
+            parsed_body = self._parse_body(request, route, "multipart/form-data")
+            self._dependency_cache.set(param_name, parsed_body)
+            return parsed_body
+        elif param_name == "text_body":
+            parsed_body = self._parse_body(request, route, "text/plain")
+            self._dependency_cache.set(param_name, parsed_body)
+            return parsed_body
+
+        # Check if this parameter should get the parsed body from a custom accepts parser
+        if route:
+            # Look for a content-type specific parser
+            content_type = request.get_content_type()
+            if content_type:
+                base_content_type = content_type.split(';')[0].strip().lower()
+                if base_content_type in route.accepts_dependencies:
+                    accepts_wrapper = route.accepts_dependencies[base_content_type]
+                    # If the handler parameter name matches the accepts function name
+                    if param_name == accepts_wrapper.name:
+                        try:
+                            parsed_data = self._call_with_injection(accepts_wrapper.func, request, route)
+                            self._dependency_cache.set(param_name, parsed_data)
+                            return parsed_data
+                        except Exception as e:
+                            raise AcceptsParsingError(
+                                f"Failed to parse {base_content_type} request body: {str(e)}",
+                                original_exception=e
+                            )
+                    # Or if the parameter name is a generic 'parsed_data' or 'parsed_body'
+                    elif param_name in ['parsed_data', 'parsed_body']:
+                        try:
+                            parsed_data = self._call_with_injection(accepts_wrapper.func, request, route)
+                            self._dependency_cache.set(param_name, parsed_data)
+                            return parsed_data
+                        except Exception as e:
+                            raise AcceptsParsingError(
+                                f"Failed to parse {base_content_type} request body: {str(e)}",
+                                original_exception=e
+                            )
+            # Check global accepts dependencies
+            content_type = request.get_content_type()
+            if content_type:
+                base_content_type = content_type.split(';')[0].strip().lower()
+                if base_content_type in self._accepts_dependencies:
+                    accepts_wrapper = self._accepts_dependencies[base_content_type]
+                    if param_name == accepts_wrapper.name:
+                        try:
+                            parsed_data = self._call_with_injection(accepts_wrapper.func, request, route)
+                            self._dependency_cache.set(param_name, parsed_data)
+                            return parsed_data
+                        except Exception as e:
+                            raise AcceptsParsingError(
+                                f"Failed to parse {base_content_type} request body: {str(e)}",
+                                original_exception=e
+                            )
+                    elif param_name in ['parsed_data', 'parsed_body']:
+                        try:
+                            parsed_data = self._call_with_injection(accepts_wrapper.func, request, route)
+                            self._dependency_cache.set(param_name, parsed_data)
+                            return parsed_data
+                        except Exception as e:
+                            raise AcceptsParsingError(
+                                f"Failed to parse {base_content_type} request body: {str(e)}",
+                                original_exception=e
+                            )
 
         # Check if the parameter name is in path_params
         if request.path_params and param_name in request.path_params:
@@ -435,6 +529,96 @@ class RestApplication:
             headers["Vary"] = ", ".join(vary_values)
 
         return headers
+
+    def _parse_body(self, request: Request, route: Optional[RouteHandler], expected_content_type: str) -> Any:
+        """Parse request body based on content type using accepts dependencies or built-in parsers."""
+        content_type = request.get_content_type()
+
+        if not content_type:
+            if not request.body:
+                return None
+            content_type = "application/octet-stream"
+
+        # Extract the base content type (ignore charset and other parameters)
+        base_content_type = content_type.split(';')[0].strip().lower()
+
+        # Check if we have a specific accepts parser for this content type
+        accepts_wrapper = None
+        if route and base_content_type in route.accepts_dependencies:
+            accepts_wrapper = route.accepts_dependencies[base_content_type]
+        elif base_content_type in self._accepts_dependencies:
+            accepts_wrapper = self._accepts_dependencies[base_content_type]
+
+        # If we have a custom parser, use it
+        if accepts_wrapper:
+            try:
+                return self._call_with_injection(accepts_wrapper.func, request, route)
+            except Exception as e:
+                raise AcceptsParsingError(
+                    f"Failed to parse {base_content_type} request body: {str(e)}",
+                    original_exception=e
+                )
+
+        # If the expected content type doesn't match the request content type, check if we need to return 415
+        if base_content_type != expected_content_type:
+            # Check if we have any accepts dependencies for the route or globally that support this content type
+            supported_types = set()
+            if route:
+                supported_types.update(route.accepts_dependencies.keys())
+            supported_types.update(self._accepts_dependencies.keys())
+
+            # Add built-in supported types
+            supported_types.update([
+                "application/json",
+                "application/x-www-form-urlencoded",
+                "multipart/form-data",
+                "text/plain"
+            ])
+
+            if base_content_type not in supported_types:
+                from .models import Response
+                raise ValueError("Unsupported Media Type - 415")
+
+        # Use built-in parsers
+        if not request.body:
+            return None
+
+        if expected_content_type == "application/json":
+            try:
+                return json.loads(request.body)
+            except json.JSONDecodeError as e:
+                raise AcceptsParsingError(
+                    f"Failed to parse application/json request body: Invalid JSON - {str(e)}",
+                    original_exception=e
+                )
+
+        elif expected_content_type == "application/x-www-form-urlencoded":
+            try:
+                # Parse form data, handling multiple values per key
+                parsed = parse_qs(request.body, keep_blank_values=True)
+                # Convert single-item lists to single values for convenience
+                result = {}
+                for key, values in parsed.items():
+                    if len(values) == 1:
+                        result[key] = values[0]
+                    else:
+                        result[key] = values
+                return result
+            except Exception as e:
+                raise AcceptsParsingError(
+                    f"Failed to parse application/x-www-form-urlencoded request body: Invalid form data - {str(e)}",
+                    original_exception=e
+                )
+
+        elif expected_content_type == "multipart/form-data":
+            # Basic multipart parsing - in a real implementation you'd want a proper parser
+            # For now, just return the raw body with a note that this needs proper implementation
+            return {"_raw_body": request.body, "_content_type": "multipart/form-data"}
+
+        elif expected_content_type == "text/plain":
+            return request.body
+
+        return request.body
 
     def _find_route(
         self, method: HTTPMethod, path: str

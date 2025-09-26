@@ -33,16 +33,13 @@ def get_user(user_id):
 
 
 @app.post("/users")
-def create_user(body):
+def create_user(json_body):
     """Create a new user."""
-    import json
-    data = json.loads(body)
-
     # In a real application, you would save to a database
     new_user = {
         "id": "new-user-id",
-        "name": data.get("name"),
-        "email": data.get("email"),
+        "name": json_body.get("name"),
+        "email": json_body.get("email"),
         "created": True
     }
 

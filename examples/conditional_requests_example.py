@@ -55,14 +55,8 @@ def document(request):
 
 
 @app.resource_from_request
-def new_document(request):
+def new_document(json_body):
     """Create new document from request data for POST operations."""
-    # Parse request body
-    try:
-        doc_data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return None
-
     # Generate a new document ID (in a real app, this might be a UUID or auto-increment)
     import uuid
     doc_id = str(uuid.uuid4())[:8]  # Short ID for demo
@@ -70,8 +64,8 @@ def new_document(request):
     # Create new document
     return {
         "id": doc_id,
-        "title": doc_data.get("title", "Untitled"),
-        "content": doc_data.get("content", ""),
+        "title": json_body.get("title", "Untitled"),
+        "content": json_body.get("content", ""),
         "version": 1,
         "modified": datetime.now(timezone.utc)
     }
@@ -123,21 +117,15 @@ def get_document(document, document_etag, document_last_modified, request):
 
 
 @app.put("/documents/{doc_id}")
-def update_document(document, document_etag, document_last_modified, request):
+def update_document(document, document_etag, document_last_modified, json_body):
     """Update a document. Requires If-Match or If-Unmodified-Since for safe updates."""
-    # Parse request body
-    try:
-        update_data = json.loads(request.body)
-    except json.JSONDecodeError:
-        return {"error": "Invalid JSON"}, 400
-
     # Update document and increment version
     # document contains the document data, no need for manual checks
     doc = document
-    if "title" in update_data:
-        doc["title"] = update_data["title"]
-    if "content" in update_data:
-        doc["content"] = update_data["content"]
+    if "title" in json_body:
+        doc["title"] = json_body["title"]
+    if "content" in json_body:
+        doc["content"] = json_body["content"]
 
     doc["version"] += 1
     doc["modified"] = datetime.now(timezone.utc)

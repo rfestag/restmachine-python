@@ -8,7 +8,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, get_origin, get_a
 
 from .content_renderers import ContentRenderer
 from .dependencies import DependencyWrapper
-from .exceptions import PYDANTIC_AVAILABLE, ValidationError
+from .exceptions import PYDANTIC_AVAILABLE, ValidationError, AcceptsParsingError
 from .models import HTTPMethod, Request, Response, etags_match
 
 
@@ -830,6 +830,33 @@ class RequestStateMachine:
                 content_type="application/json",
                 pre_calculated_headers=fallback_headers,
             )
+        except AcceptsParsingError as e:
+            # Handle accepts parsing errors with 422 status
+            fallback_headers = processed_headers or {}
+            return Response(
+                422,
+                json.dumps({"error": "Parsing failed", "message": e.message}),
+                content_type="application/json",
+                pre_calculated_headers=fallback_headers,
+            )
+        except ValueError as e:
+            # Handle specific ValueError cases for better HTTP status codes
+            error_message = str(e)
+            fallback_headers = processed_headers or {}
+
+            if "Unsupported Media Type - 415" in error_message:
+                return Response(
+                    415,
+                    "Unsupported Media Type",
+                    pre_calculated_headers=fallback_headers,
+                )
+            else:
+                # Other ValueError cases return 400 Bad Request
+                return Response(
+                    400,
+                    f"Bad Request: {error_message}",
+                    pre_calculated_headers=fallback_headers,
+                )
         except Exception as e:
             # Use processed headers if available, otherwise fallback to basic headers
             fallback_headers = processed_headers or {}

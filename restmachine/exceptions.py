@@ -45,3 +45,12 @@ class ContentNegotiationError(RestFrameworkError):
     """Raised when content negotiation fails."""
 
     pass
+
+
+class AcceptsParsingError(RestFrameworkError):
+    """Raised when a custom accepts parser fails to parse the request body."""
+
+    def __init__(self, message="Failed to parse request body", original_exception=None):
+        self.message = message
+        self.original_exception = original_exception
+        super().__init__(self.message)

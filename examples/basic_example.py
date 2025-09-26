@@ -40,9 +40,9 @@ def user_database():
     return users_db
 
 @app.validates
-def create_user_request(body) -> CreateUser:
+def create_user_request(json_body) -> CreateUser:
     """Validate create user request."""
-    return CreateUser.model_validate(json.loads(body))
+    return CreateUser.model_validate(json_body)
 
 
 @app.resource_exists
@@ -119,9 +119,9 @@ def main():
     new_user = {"name": "Steve", "email": "steve@example.com"}
     response = app.execute(
         Request(
-            method=HTTPMethod.POST, 
-            path="/users", 
-            headers={"Accept": "application/json"},
+            method=HTTPMethod.POST,
+            path="/users",
+            headers={"Accept": "application/json", "Content-Type": "application/json"},
             body=json.dumps(new_user),
         )
     )

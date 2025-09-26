@@ -309,98 +309,72 @@ def health_check(database_connection, config):
 
 
 @app.post("/login")
-def login(auth_service, user_service, request: Request):
+def login(auth_service, user_service, json_body):
     """User login endpoint."""
-    if not request.body:
+    email = json_body.get("email")
+    password = json_body.get("password")  # In real app, check hashed password
+
+    if not email or not password:
         return Response(
             400,
             '{"error": "Email and password required"}',
             content_type="application/json",
         )
 
-    try:
-        data = json.loads(request.body)
-        email = data.get("email")
-        password = data.get("password")  # In real app, check hashed password
-
-        if not email or not password:
-            return Response(
-                400,
-                '{"error": "Email and password required"}',
-                content_type="application/json",
-            )
-
-        user = user_service["get_by_email"](email)
-        if not user:
-            return Response(
-                401, '{"error": "Invalid credentials"}', content_type="application/json"
-            )
-
-        session_id = auth_service["create_session"](user["id"])
-
-        return {
-            "message": "Login successful",
-            "session_id": session_id,
-            "user": {"id": user["id"], "name": user["name"], "role": user["role"]},
-        }
-
-    except json.JSONDecodeError:
+    user = user_service["get_by_email"](email)
+    if not user:
         return Response(
-            400, '{"error": "Invalid JSON"}', content_type="application/json"
+            401, '{"error": "Invalid credentials"}', content_type="application/json"
         )
+
+    session_id = auth_service["create_session"](user["id"])
+
+    return {
+        "message": "Login successful",
+        "session_id": session_id,
+        "user": {"id": user["id"], "name": user["name"], "role": user["role"]},
+    }
 
 
 @app.post("/register")
-def register(user_service, request: Request):
+def register(user_service, json_body):
     """User registration endpoint."""
-    if not request.body:
-        return Response(
-            400, '{"error": "User data required"}', content_type="application/json"
-        )
+    required_fields = ["name", "email"]
 
-    try:
-        data = json.loads(request.body)
-        required_fields = ["name", "email"]
-
-        for field in required_fields:
-            if field not in data:
-                return Response(
-                    400,
-                    f'{{"error": "Missing field: {field}"}}',
-                    content_type="application/json",
-                )
-
-        # Check if user already exists
-        if user_service["get_by_email"](data["email"]):
+    for field in required_fields:
+        if field not in json_body:
             return Response(
-                409, '{"error": "User already exists"}', content_type="application/json"
+                400,
+                f'{{"error": "Missing field: {field}"}}',
+                content_type="application/json",
             )
 
-        # Set default role
-        data["role"] = "user"
-
-        user = user_service["create"](data)
-
+    # Check if user already exists
+    if user_service["get_by_email"](json_body["email"]):
         return Response(
-            201,
-            json.dumps(
-                {
-                    "message": "User created successfully",
-                    "user": {
-                        "id": user["id"],
-                        "name": user["name"],
-                        "email": user["email"],
-                        "role": user["role"],
-                    },
-                }
-            ),
-            content_type="application/json",
+            409, '{"error": "User already exists"}', content_type="application/json"
         )
 
-    except json.JSONDecodeError:
-        return Response(
-            400, '{"error": "Invalid JSON"}', content_type="application/json"
-        )
+    # Set default role
+    json_body["role"] = "user"
+
+    user = user_service["create"](json_body)
+
+    return Response(
+        201,
+        json.dumps(
+            {
+                "message": "User created successfully",
+                "user": {
+                    "id": user["id"],
+                    "name": user["name"],
+                    "email": user["email"],
+                    "role": user["role"],
+                },
+            }
+        ),
+        content_type="application/json",
+    )
 
 
 @app.get("/users")
@@ -445,27 +419,20 @@ def list_posts(post_service, user_service):
 
 
 @app.post("/posts")
-def create_post(post_service, request: Request):
+def create_post(post_service, json_body, request: Request):
     """Create a new post."""
-    if not request.body:
+    if "title" not in json_body or "content" not in json_body:
         return Response(
-            400, '{"error": "Post data required"}', content_type="application/json"
+            400,
+            '{"error": "Title and content required"}',
+            content_type="application/json",
         )
 
+    # Use current user as author
+    author_id = request.current_user_id
+
     try:
-        data = json.loads(request.body)
-
-        if "title" not in data or "content" not in data:
-            return Response(
-                400,
-                '{"error": "Title and content required"}',
-                content_type="application/json",
-            )
-
-        # Use current user as author
-        author_id = request.current_user_id
-
-        post = post_service["create"](data, author_id)
+        post = post_service["create"](json_body, author_id)
 
         return Response(
             201,
@@ -476,10 +443,6 @@ def create_post(post_service, request: Request):
     except ValueError as e:
         return Response(
             400, f'{{"error": "{str(e)}"}}', content_type="application/json"
-        )
-    except json.JSONDecodeError:
-        return Response(
-            400, '{"error": "Invalid JSON"}', content_type="application/json"
         )
 
 

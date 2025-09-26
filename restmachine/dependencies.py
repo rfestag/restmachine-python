@@ -80,3 +80,13 @@ class ContentNegotiationWrapper:
         self.content_type = content_type
         self.original_name = func.__name__
         self.handler_dependency_name = handler_dependency_name
+
+
+class AcceptsWrapper:
+    """Wrapper for content-type specific body parsers."""
+
+    def __init__(self, func: Callable, content_type: str, name: str):
+        self.func = func
+        self.content_type = content_type
+        self.name = name
+        self.original_name = func.__name__

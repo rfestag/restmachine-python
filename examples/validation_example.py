@@ -111,32 +111,16 @@ def next_id():
 
 # Validation functions
 @app.validates
-def validate_user_create(request: Request) -> UserCreate:
+def validate_user_create(json_body) -> UserCreate:
     """Validate user creation request."""
-    if not request.body:
-        raise ValueError("Request body is required")
-
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        raise ValueError("Invalid JSON in request body")
-
     # This will raise ValidationError if data is invalid
-    return UserCreate.model_validate(data)
+    return UserCreate.model_validate(json_body)
 
 
 @app.validates
-def validate_user_update(request: Request) -> UserUpdate:
+def validate_user_update(json_body) -> UserUpdate:
     """Validate user update request."""
-    if not request.body:
-        raise ValueError("Request body is required")
-
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        raise ValueError("Invalid JSON in request body")
-
-    return UserUpdate.model_validate(data)
+    return UserUpdate.model_validate(json_body)
 
 
 # Resource existence checking
