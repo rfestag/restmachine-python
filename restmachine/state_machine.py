@@ -667,6 +667,10 @@ class RequestStateMachine:
                 self.route_handler.handler, self.request, self.route_handler
             )
 
+            # Check if handler returned None (regardless of annotation) -> return 204 No Content
+            if main_result is None:
+                return Response(204, pre_calculated_headers=processed_headers)
+
             # Add ETag and Last-Modified to processed headers if available (after handler execution)
             current_etag = self._get_resource_etag()
             if current_etag:

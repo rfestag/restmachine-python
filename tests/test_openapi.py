@@ -11,7 +11,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 try:
-    from openapi_spec_validator import validate_spec
+    from openapi_spec_validator import validate
     from openapi_spec_validator.validation.exceptions import OpenAPIValidationError
     OPENAPI_VALIDATOR_AVAILABLE = True
 except ImportError:
@@ -574,7 +574,7 @@ class TestOpenAPISchemaValidation:
 
         # This should not raise an exception if the spec is valid
         try:
-            validate_spec(spec)
+            validate(spec)
         except OpenAPIValidationError as e:
             pytest.fail(f"Generated OpenAPI spec is invalid: {e}")
 
@@ -640,7 +640,7 @@ class TestOpenAPISchemaValidation:
 
         # Validate the comprehensive spec
         try:
-            validate_spec(spec)
+            validate(spec)
         except OpenAPIValidationError as e:
             pytest.fail(f"Generated comprehensive OpenAPI spec is invalid: {e}")
 
@@ -655,7 +655,7 @@ class TestOpenAPISchemaValidation:
 
         # Even empty specs should be valid
         try:
-            validate_spec(spec)
+            validate(spec)
         except OpenAPIValidationError as e:
             pytest.fail(f"Generated empty OpenAPI spec is invalid: {e}")
 
@@ -688,7 +688,7 @@ class TestOpenAPISchemaValidation:
 
         # Validate edge cases spec
         try:
-            validate_spec(spec)
+            validate(spec)
         except OpenAPIValidationError as e:
             pytest.fail(f"Generated edge cases OpenAPI spec is invalid: {e}")
 
@@ -705,7 +705,7 @@ class TestOpenAPISchemaValidation:
 
         # Validate the existing file
         try:
-            validate_spec(spec)
+            validate(spec)
         except OpenAPIValidationError as e:
             pytest.fail(f"Existing docs/test_openapi.json is invalid: {e}")
 
@@ -747,7 +747,7 @@ class TestOpenAPISchemaValidation:
             spec = json.loads(openapi_json)
 
             try:
-                validate_spec(spec)
+                validate(spec)
             except OpenAPIValidationError as e:
                 pytest.fail(f"Test config {i} ({config['title']}) generated invalid spec: {e}")
 
