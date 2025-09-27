@@ -57,23 +57,10 @@ class RouteHandler:
 
     def _compile_path_pattern(self, path: str) -> str:
         """Convert path with {param} syntax to a pattern for matching."""
-        # Replace {param} with named regex groups
         pattern = re.sub(r"\{(\w+)\}", r"(?P<\1>[^/]+)", path)
         return f"^{pattern}$"
 
-    def matches(self, method: HTTPMethod, path: str) -> Optional[Dict[str, str]]:
-        """Check if this route matches the given method and path."""
-        if self.method != method:
-            return None
-
-        match = re.match(self.path_pattern, path)
-        if match:
-            return match.groupdict()
-        return None
-
-    def add_content_renderer(
-        self, content_type: str, wrapper: ContentNegotiationWrapper
-    ):
+    def add_content_renderer(self, content_type: str, wrapper: ContentNegotiationWrapper):
         """Add a content-specific renderer for this route."""
         self.content_renderers[content_type] = wrapper
 
@@ -337,101 +324,16 @@ class RestApplication:
             return cached_value
 
         # Built-in dependencies
-        if param_name == "request" or param_type == Request:
-            self._dependency_cache.set(param_name, request)
-            return request
-        elif param_name == "body":
-            self._dependency_cache.set(param_name, request.body)
-            return request.body
-        elif param_name == "query_params":
-            query_params = request.query_params or {}
-            self._dependency_cache.set(param_name, query_params)
-            return query_params
-        elif param_name == "path_params":
-            path_params = request.path_params or {}
-            self._dependency_cache.set(param_name, path_params)
-            return path_params
-        elif param_name == "headers":
-            # Get or create the current headers state
-            headers = self._dependency_cache.get("headers")
-            if headers is None:
-                # Initialize headers with automatic headers already calculated
-                headers = self._get_initial_headers(request, route)
-                self._dependency_cache.set("headers", headers)
-            return headers
-        elif param_name == "json_body":
-            parsed_body = self._parse_body(request, route, "application/json")
-            self._dependency_cache.set(param_name, parsed_body)
-            return parsed_body
-        elif param_name == "form_body":
-            parsed_body = self._parse_body(request, route, "application/x-www-form-urlencoded")
-            self._dependency_cache.set(param_name, parsed_body)
-            return parsed_body
-        elif param_name == "multipart_body":
-            parsed_body = self._parse_body(request, route, "multipart/form-data")
-            self._dependency_cache.set(param_name, parsed_body)
-            return parsed_body
-        elif param_name == "text_body":
-            parsed_body = self._parse_body(request, route, "text/plain")
-            self._dependency_cache.set(param_name, parsed_body)
-            return parsed_body
-
-        # Check if this parameter should get the parsed body from a custom accepts parser
-        if route:
-            # Look for a content-type specific parser
-            content_type = request.get_content_type()
-            if content_type:
-                base_content_type = content_type.split(';')[0].strip().lower()
-                if base_content_type in route.accepts_dependencies:
-                    accepts_wrapper = route.accepts_dependencies[base_content_type]
-                    # If the handler parameter name matches the accepts function name
-                    if param_name == accepts_wrapper.name:
-                        try:
-                            parsed_data = self._call_with_injection(accepts_wrapper.func, request, route)
-                            self._dependency_cache.set(param_name, parsed_data)
-                            return parsed_data
-                        except Exception as e:
-                            raise AcceptsParsingError(
-                                f"Failed to parse {base_content_type} request body: {str(e)}",
-                                original_exception=e
-                            )
-                    # Or if the parameter name is a generic 'parsed_data' or 'parsed_body'
-                    elif param_name in ['parsed_data', 'parsed_body']:
-                        try:
-                            parsed_data = self._call_with_injection(accepts_wrapper.func, request, route)
-                            self._dependency_cache.set(param_name, parsed_data)
-                            return parsed_data
-                        except Exception as e:
-                            raise AcceptsParsingError(
-                                f"Failed to parse {base_content_type} request body: {str(e)}",
-                                original_exception=e
-                            )
-            # Check global accepts dependencies
-            content_type = request.get_content_type()
-            if content_type:
-                base_content_type = content_type.split(';')[0].strip().lower()
-                if base_content_type in self._accepts_dependencies:
-                    accepts_wrapper = self._accepts_dependencies[base_content_type]
-                    if param_name == accepts_wrapper.name:
-                        try:
-                            parsed_data = self._call_with_injection(accepts_wrapper.func, request, route)
-                            self._dependency_cache.set(param_name, parsed_data)
-                            return parsed_data
-                        except Exception as e:
-                            raise AcceptsParsingError(
-                                f"Failed to parse {base_content_type} request body: {str(e)}",
-                                original_exception=e
-                            )
-                    elif param_name in ['parsed_data', 'parsed_body']:
-                        try:
-                            parsed_data = self._call_with_injection(accepts_wrapper.func, request, route)
-                            self._dependency_cache.set(param_name, parsed_data)
-                            return parsed_data
-                        except Exception as e:
-                            raise AcceptsParsingError(
-                                f"Failed to parse {base_content_type} request body: {str(e)}",
-                                original_exception=e
-                            )
+        builtin_value = self._resolve_builtin_dependency(param_name, param_type, request, route)
+        if builtin_value is not None:
+            # Handle sentinel values for built-in dependencies
+            if hasattr(builtin_value, 'value'):
+                actual_value = builtin_value.value
+                self._dependency_cache.set(param_name, actual_value)
+                return actual_value
+            else:
+                self._dependency_cache.set(param_name, builtin_value)
+                return builtin_value
 
         # Check if the parameter name is in path_params
         if request.path_params and param_name in request.path_params:
@@ -439,54 +341,101 @@ class RestApplication:
             self._dependency_cache.set(param_name, path_value)
             return path_value
 
-        # Check route-specific dependencies first if route is provided
+        # Custom accepts parser resolution
+        accepts_value = self._resolve_accepts_dependency(param_name, request, route)
+        if accepts_value is not None:
+            self._dependency_cache.set(param_name, accepts_value)
+            return accepts_value
+
+        # Regular and validation dependencies
+        resolved_value = self._resolve_custom_dependency(param_name, request, route)
+        if resolved_value is not None:
+            self._dependency_cache.set(param_name, resolved_value)
+            return resolved_value
+
+        raise ValueError(f"Unable to resolve dependency: {param_name}")
+
+    def _resolve_builtin_dependency(self, param_name: str, param_type: Optional[Type], request: Request, route: Optional[RouteHandler]) -> Any:
+        """Resolve built-in framework dependencies."""
+        if param_name == "request" or param_type == Request:
+            return request
+        elif param_name == "body":
+            return request.body
+        elif param_name == "query_params":
+            return request.query_params or {}
+        elif param_name == "path_params":
+            return request.path_params or {}
+        elif param_name == "headers":
+            headers = self._dependency_cache.get("headers")
+            if headers is None:
+                headers = self._get_initial_headers(request, route)
+                self._dependency_cache.set("headers", headers)
+            return headers
+        elif param_name in ["json_body", "form_body", "multipart_body", "text_body"]:
+            # Built-in body parsers should always be resolved, even if empty/None
+            content_type_map = {
+                "json_body": "application/json",
+                "form_body": "application/x-www-form-urlencoded",
+                "multipart_body": "multipart/form-data",
+                "text_body": "text/plain"
+            }
+            # Use a sentinel to distinguish from "not found"
+            class _BuiltinResolved:
+                def __init__(self, value):
+                    self.value = value
+            return _BuiltinResolved(self._parse_body(request, route, content_type_map[param_name]))
+        return None
+
+    def _resolve_accepts_dependency(self, param_name: str, request: Request, route: Optional[RouteHandler]) -> Any:
+        """Resolve accepts parser dependencies."""
+        content_type = request.get_content_type()
+        if not content_type:
+            return None
+
+        base_content_type = content_type.split(';')[0].strip().lower()
+
+        # Check route-specific accepts dependencies first
+        accepts_wrapper = None
+        if route and base_content_type in route.accepts_dependencies:
+            accepts_wrapper = route.accepts_dependencies[base_content_type]
+        elif base_content_type in self._accepts_dependencies:
+            accepts_wrapper = self._accepts_dependencies[base_content_type]
+
+        if accepts_wrapper and (param_name == accepts_wrapper.name or param_name in ['parsed_data', 'parsed_body']):
+            try:
+                return self._call_with_injection(accepts_wrapper.func, request, route)
+            except Exception as e:
+                raise AcceptsParsingError(
+                    f"Failed to parse {base_content_type} request body: {str(e)}",
+                    original_exception=e
+                )
+        return None
+
+    def _resolve_custom_dependency(self, param_name: str, request: Request, route: Optional[RouteHandler]) -> Any:
+        """Resolve custom registered dependencies."""
+        # Check route-specific dependencies first
         dep_or_wrapper = None
         validation_dependency = None
 
         if route and param_name in route.dependencies:
             dep_or_wrapper = route.dependencies[param_name]
-            if param_name in route.validation_dependencies:
-                validation_dependency = route.validation_dependencies[param_name]
+            validation_dependency = route.validation_dependencies.get(param_name)
         elif param_name in self._dependencies:
-            # Fall back to global dependencies
             dep_or_wrapper = self._dependencies[param_name]
-            if param_name in self._validation_dependencies:
-                validation_dependency = self._validation_dependencies[param_name]
+            validation_dependency = self._validation_dependencies.get(param_name)
 
         if dep_or_wrapper is not None:
             if isinstance(dep_or_wrapper, DependencyWrapper):
-                # For wrapped dependencies, the state machine will handle the resolution
-                # and early exit logic. Here we just call the function.
-                resolved_value = self._call_with_injection(dep_or_wrapper.func, request, route)
-                self._dependency_cache.set(param_name, resolved_value)
-                return resolved_value
-            else:
-                # Regular dependency - check if it's a validation dependency
-                if validation_dependency is not None:
-                    # This is a validation function that should return a Pydantic model
-                    # Call it and validate the result
-                    result = self._call_with_injection(dep_or_wrapper, request, route)
-
-                    # The function should return a Pydantic model
-                    # If ValidationError occurs, it will be caught by the state machine
-                    if hasattr(result, "model_validate") or hasattr(
-                        result, "model_dump"
-                    ):
-                        # It's already a Pydantic model, cache and return
-                        self._dependency_cache.set(param_name, result)
-                        return result
-                    else:
-                        # If it's not a Pydantic model, something went wrong
-                        raise ValueError(
-                            f"Validation function {param_name} must return a Pydantic model"
-                        )
+                return self._call_with_injection(dep_or_wrapper.func, request, route)
+            elif validation_dependency is not None:
+                result = self._call_with_injection(dep_or_wrapper, request, route)
+                if hasattr(result, "model_validate") or hasattr(result, "model_dump"):
+                    return result
                 else:
-                    # Regular dependency
-                    resolved_value = self._call_with_injection(dep_or_wrapper, request, route)
-                    self._dependency_cache.set(param_name, resolved_value)
-                    return resolved_value
-
-        raise ValueError(f"Unable to resolve dependency: {param_name}")
+                    raise ValueError(f"Validation function {param_name} must return a Pydantic model")
+            else:
+                return self._call_with_injection(dep_or_wrapper, request, route)
+        return None
 
     def _call_with_injection(self, func: Callable, request: Request, route: Optional[RouteHandler] = None) -> Any:
         """Call a function with dependency injection."""
@@ -506,50 +455,31 @@ class RestApplication:
 
     def _get_initial_headers(self, request: Request, route: Optional[RouteHandler]) -> Dict[str, str]:
         """Get initial headers with Vary header pre-calculated."""
-        headers = {}
-
-        # Calculate Vary header values
         vary_values = []
 
-        # Add "Authorization" to Vary if request has Authorization header
         if request.headers.get("Authorization"):
             vary_values.append("Authorization")
 
-        # Add "Accept" to Vary if endpoint accepts more than one content type
-        available_content_types = list(self._content_renderers.keys())
+        # Check if multiple content types are available
+        available_types = set(self._content_renderers.keys())
         if route and route.content_renderers:
-            available_content_types.extend(route.content_renderers.keys())
-        available_content_types = list(set(available_content_types))  # Remove duplicates
+            available_types.update(route.content_renderers.keys())
 
-        if len(available_content_types) > 1:
+        if len(available_types) > 1:
             vary_values.append("Accept")
 
-        # Set Vary header if we have values to include
-        if vary_values:
-            headers["Vary"] = ", ".join(vary_values)
-
-        return headers
+        return {"Vary": ", ".join(vary_values)} if vary_values else {}
 
     def _parse_body(self, request: Request, route: Optional[RouteHandler], expected_content_type: str) -> Any:
         """Parse request body based on content type using accepts dependencies or built-in parsers."""
-        content_type = request.get_content_type()
+        if not request.body:
+            return None
 
-        if not content_type:
-            if not request.body:
-                return None
-            content_type = "application/octet-stream"
-
-        # Extract the base content type (ignore charset and other parameters)
+        content_type = request.get_content_type() or "application/octet-stream"
         base_content_type = content_type.split(';')[0].strip().lower()
 
-        # Check if we have a specific accepts parser for this content type
-        accepts_wrapper = None
-        if route and base_content_type in route.accepts_dependencies:
-            accepts_wrapper = route.accepts_dependencies[base_content_type]
-        elif base_content_type in self._accepts_dependencies:
-            accepts_wrapper = self._accepts_dependencies[base_content_type]
-
-        # If we have a custom parser, use it
+        # Check for custom accepts parser first
+        accepts_wrapper = self._get_accepts_wrapper(base_content_type, route)
         if accepts_wrapper:
             try:
                 return self._call_with_injection(accepts_wrapper.func, request, route)
@@ -559,75 +489,73 @@ class RestApplication:
                     original_exception=e
                 )
 
-        # If the expected content type doesn't match the request content type, check if we need to return 415
+        # Validate content type is supported
         if base_content_type != expected_content_type:
-            # Check if we have any accepts dependencies for the route or globally that support this content type
-            supported_types = set()
-            if route:
-                supported_types.update(route.accepts_dependencies.keys())
-            supported_types.update(self._accepts_dependencies.keys())
-
-            # Add built-in supported types
-            supported_types.update([
-                "application/json",
-                "application/x-www-form-urlencoded",
-                "multipart/form-data",
-                "text/plain"
-            ])
-
+            supported_types = self._get_supported_content_types(route)
             if base_content_type not in supported_types:
-                from .models import Response
                 raise ValueError("Unsupported Media Type - 415")
 
         # Use built-in parsers
-        if not request.body:
-            return None
+        return self._parse_with_builtin_parser(request.body, expected_content_type)
 
-        if expected_content_type == "application/json":
-            try:
-                return json.loads(request.body)
-            except json.JSONDecodeError as e:
+    def _get_accepts_wrapper(self, content_type: str, route: Optional[RouteHandler]):
+        """Get accepts wrapper for content type, checking route-specific first."""
+        if route and content_type in route.accepts_dependencies:
+            return route.accepts_dependencies[content_type]
+        return self._accepts_dependencies.get(content_type)
+
+    def _get_supported_content_types(self, route: Optional[RouteHandler]) -> set:
+        """Get all supported content types for validation."""
+        supported_types = set(self._accepts_dependencies.keys())
+        if route:
+            supported_types.update(route.accepts_dependencies.keys())
+        supported_types.update([
+            "application/json",
+            "application/x-www-form-urlencoded",
+            "multipart/form-data",
+            "text/plain"
+        ])
+        return supported_types
+
+    def _parse_with_builtin_parser(self, body: str, content_type: str) -> Any:
+        """Parse body using built-in parsers."""
+        try:
+            if content_type == "application/json":
+                return json.loads(body)
+            elif content_type == "application/x-www-form-urlencoded":
+                parsed = parse_qs(body, keep_blank_values=True)
+                return {key: values[0] if len(values) == 1 else values for key, values in parsed.items()}
+            elif content_type == "multipart/form-data":
+                return {"_raw_body": body, "_content_type": "multipart/form-data"}
+            elif content_type == "text/plain":
+                return body
+            return body
+        except json.JSONDecodeError as e:
+            raise AcceptsParsingError(
+                f"Failed to parse {content_type} request body: Invalid JSON - {str(e)}",
+                original_exception=e
+            )
+        except Exception as e:
+            if content_type == "application/x-www-form-urlencoded":
                 raise AcceptsParsingError(
-                    f"Failed to parse application/json request body: Invalid JSON - {str(e)}",
+                    f"Failed to parse {content_type} request body: Invalid form data - {str(e)}",
                     original_exception=e
                 )
-
-        elif expected_content_type == "application/x-www-form-urlencoded":
-            try:
-                # Parse form data, handling multiple values per key
-                parsed = parse_qs(request.body, keep_blank_values=True)
-                # Convert single-item lists to single values for convenience
-                result = {}
-                for key, values in parsed.items():
-                    if len(values) == 1:
-                        result[key] = values[0]
-                    else:
-                        result[key] = values
-                return result
-            except Exception as e:
+            else:
                 raise AcceptsParsingError(
-                    f"Failed to parse application/x-www-form-urlencoded request body: Invalid form data - {str(e)}",
+                    f"Failed to parse {content_type} request body: {str(e)}",
                     original_exception=e
                 )
-
-        elif expected_content_type == "multipart/form-data":
-            # Basic multipart parsing - in a real implementation you'd want a proper parser
-            # For now, just return the raw body with a note that this needs proper implementation
-            return {"_raw_body": request.body, "_content_type": "multipart/form-data"}
-
-        elif expected_content_type == "text/plain":
-            return request.body
-
-        return request.body
 
     def _find_route(
         self, method: HTTPMethod, path: str
     ) -> Optional[Tuple[RouteHandler, Dict[str, str]]]:
         """Find a matching route for the given method and path."""
         for route in self._routes:
-            path_params = route.matches(method, path)
-            if path_params is not None:
-                return route, path_params
+            if route.method == method:
+                match = re.match(route.path_pattern, path)
+                if match:
+                    return route, match.groupdict()
         return None
 
     def execute(self, request: Request) -> Response:
