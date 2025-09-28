@@ -3,7 +3,7 @@ Test framework for RESTful API testing using 4-layer architecture.
 """
 
 from .dsl import RestApiDsl, HttpRequest, HttpResponse
-from .drivers import RestMachineDriver, AwsLambdaDriver, HttpDriver, MockDriver
+from .drivers import RestMachineDriver, AwsLambdaDriver, HttpDriver, MockDriver, EnhancedAwsDriver
 
 __all__ = [
     'RestApiDsl',
@@ -12,5 +12,6 @@ __all__ = [
     'RestMachineDriver',
     'AwsLambdaDriver',
     'HttpDriver',
-    'MockDriver'
+    'MockDriver',
+    'EnhancedAwsDriver'
 ]

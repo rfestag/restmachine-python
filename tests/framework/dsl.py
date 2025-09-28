@@ -10,6 +10,9 @@ This is the second layer in Dave Farley's 4-layer testing architecture:
 
 from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass, field
+import json
+import tempfile
+import os
 
 
 @dataclass
@@ -89,9 +92,9 @@ class HttpResponse:
         """Get header value."""
         return self.headers.get(name)
 
-    def get_json_body(self) -> Dict[str, Any]:
-        """Get response body as JSON object."""
-        if isinstance(self.body, dict):
+    def get_json_body(self):
+        """Get response body as JSON object or list."""
+        if isinstance(self.body, (dict, list)):
             return self.body
         if isinstance(self.body, str):
             import json
@@ -281,3 +284,82 @@ class RestApiDsl:
     def expect_no_content(self, response: HttpResponse):
         """Assert no content response."""
         assert response.status_code == 204, f"Expected 204, got {response.status_code}"
+
+    # OpenAPI testing helpers
+    def generate_openapi_spec(self) -> Dict[str, Any]:
+        """Generate OpenAPI specification from the application."""
+        if hasattr(self._driver, 'get_openapi_spec'):
+            return self._driver.get_openapi_spec()
+        elif hasattr(self._driver, 'app') and hasattr(self._driver.app, 'generate_openapi'):
+            return self._driver.app.generate_openapi()
+        else:
+            raise NotImplementedError("Driver does not support OpenAPI generation")
+
+    def save_openapi_spec(self, directory: str = "docs", filename: str = "openapi.json") -> str:
+        """Save OpenAPI specification to file and return the path."""
+        spec = self.generate_openapi_spec()
+        os.makedirs(directory, exist_ok=True)
+        filepath = os.path.join(directory, filename)
+        with open(filepath, 'w') as f:
+            json.dump(spec, f, indent=2)
+        return filepath
+
+    def validate_openapi_spec(self, spec: Dict[str, Any] = None) -> bool:
+        """Validate OpenAPI specification."""
+        try:
+            from openapi_spec_validator import validate
+        except ImportError:
+            # Skip validation if openapi-spec-validator is not available
+            return True
+
+        if spec is None:
+            spec = self.generate_openapi_spec()
+
+        try:
+            validate(spec)
+            return True
+        except Exception:
+            return False
+
+    def assert_openapi_valid(self, spec: Dict[str, Any] = None):
+        """Assert that OpenAPI spec is valid."""
+        if spec is None:
+            spec = self.generate_openapi_spec()
+        assert self.validate_openapi_spec(spec), "OpenAPI specification is invalid"
+
+    def assert_has_path(self, spec: Dict[str, Any], path: str, method: str):
+        """Assert that OpenAPI spec has a specific path and method."""
+        assert "paths" in spec, "OpenAPI spec missing paths"
+        assert path in spec["paths"], f"Path {path} not found in OpenAPI spec"
+        assert method.lower() in spec["paths"][path], f"Method {method} not found for path {path}"
+
+    def assert_has_schema(self, spec: Dict[str, Any], schema_name: str):
+        """Assert that OpenAPI spec has a specific schema."""
+        assert "components" in spec, "OpenAPI spec missing components"
+        assert "schemas" in spec["components"], "OpenAPI spec missing schemas"
+        assert schema_name in spec["components"]["schemas"], f"Schema {schema_name} not found"
+
+    def get_path_operation(self, spec: Dict[str, Any], path: str, method: str) -> Dict[str, Any]:
+        """Get path operation from OpenAPI spec."""
+        return spec["paths"][path][method.lower()]
+
+    def assert_request_body_schema(self, spec: Dict[str, Any], path: str, method: str, expected_schema: str):
+        """Assert that path operation has expected request body schema."""
+        operation = self.get_path_operation(spec, path, method)
+        assert "requestBody" in operation, f"Path {path} {method} missing request body"
+        content = operation["requestBody"]["content"]
+        assert "application/json" in content, "Request body missing JSON content type"
+        schema_ref = content["application/json"]["schema"]["$ref"]
+        assert expected_schema in schema_ref, f"Expected schema {expected_schema} in request body"
+
+    def assert_response_schema(self, spec: Dict[str, Any], path: str, method: str, status_code: str, expected_schema: str):
+        """Assert that path operation has expected response schema."""
+        operation = self.get_path_operation(spec, path, method)
+        assert "responses" in operation, f"Path {path} {method} missing responses"
+        assert status_code in operation["responses"], f"Status {status_code} not found in responses"
+        response = operation["responses"][status_code]
+        if "content" in response:
+            content = response["content"]
+            assert "application/json" in content, "Response missing JSON content type"
+            schema_ref = content["application/json"]["schema"]["$ref"]
+            assert expected_schema in schema_ref, f"Expected schema {expected_schema} in response"
