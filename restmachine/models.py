@@ -198,9 +198,9 @@ class Response:
         if self.body is None:
             return
 
-        # Generate MD5 hash of content
+        # Generate SHA-256 hash of content for ETag
         content_bytes = self.body.encode('utf-8') if isinstance(self.body, str) else self.body
-        etag = hashlib.md5(content_bytes).hexdigest()
+        etag = hashlib.sha256(content_bytes).hexdigest()
         self.set_etag(etag, weak)
 
 
