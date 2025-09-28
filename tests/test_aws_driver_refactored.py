@@ -6,7 +6,6 @@ base64 encoding, edge cases, and AWS-specific features.
 """
 
 import base64
-import json
 
 import pytest
 

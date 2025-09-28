@@ -7,7 +7,7 @@ Tests for OpenAPI specification generation, validation, and edge cases.
 import os
 import tempfile
 import json
-from typing import Optional, List
+from typing import Optional
 
 import pytest
 

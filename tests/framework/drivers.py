@@ -8,7 +8,7 @@ Drivers know how to translate DSL requests into actual system calls.
 import json
 import base64
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Union, Optional
+from typing import Dict, Any, Optional
 
 from restmachine import RestApplication, HTTPMethod, Request as RestMachineRequest, AwsApiGatewayDriver
 from .dsl import HttpRequest, HttpResponse
