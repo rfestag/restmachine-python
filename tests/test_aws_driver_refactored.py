@@ -10,7 +10,7 @@ import base64
 import pytest
 
 from restmachine import RestApplication
-from tests.framework import RestApiDsl, AwsLambdaDriver, EnhancedAwsDriver
+from tests.framework import RestApiDsl, AwsLambdaDriver
 
 
 class TestBasicAwsDriverFunctionality:
@@ -64,7 +64,7 @@ class TestAwsEventConversion:
             source = query_params.get("source", "api") if query_params else "api"
             return {"id": 123, "name": json_body["name"], "source": source}
 
-        driver = EnhancedAwsDriver(app)
+        driver = AwsLambdaDriver(app, enable_debugging=True)
         return RestApiDsl(driver), driver
 
     def test_aws_event_conversion_basic(self, enhanced_api):
@@ -155,7 +155,7 @@ class TestAwsBase64Encoding:
             # Handle any body type (text or binary)
             return {"received_length": len(body) if body else 0}
 
-        driver = EnhancedAwsDriver(app)
+        driver = AwsLambdaDriver(app, enable_debugging=True)
         return RestApiDsl(driver), driver
 
     def test_base64_encoded_body(self, enhanced_api):
@@ -219,7 +219,7 @@ class TestAwsEdgeCases:
         def echo_endpoint(json_body):
             return json_body or {"empty": True}
 
-        driver = EnhancedAwsDriver(app)
+        driver = AwsLambdaDriver(app, enable_debugging=True)
         return RestApiDsl(driver), driver
 
     def test_event_with_missing_fields(self, enhanced_api):

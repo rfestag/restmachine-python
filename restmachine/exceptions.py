@@ -1,7 +1,11 @@
 """
 Custom exceptions for the REST framework.
 """
+import logging
 from typing import Any, List, Dict
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 try:
     from pydantic import ValidationError as PydanticValidationError # type: ignore[import-not-found]

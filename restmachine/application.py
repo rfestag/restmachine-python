@@ -4,6 +4,7 @@ Main application class for the REST framework.
 
 import inspect
 import json
+import logging
 import os
 import re
 from urllib.parse import parse_qs
@@ -37,6 +38,9 @@ from .dependencies import (
 from .exceptions import PYDANTIC_AVAILABLE, AcceptsParsingError
 from .models import HTTPMethod, Request, Response
 from .state_machine import RequestStateMachine
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 
 class RouteHandler:
@@ -560,9 +564,17 @@ class RestApplication:
 
     def execute(self, request: Request) -> Response:
         """Execute a request through the state machine."""
-        # Create a new state machine for each request to avoid state pollution
-        state_machine = RequestStateMachine(self)
-        return state_machine.process_request(request)
+        try:
+            # Create a new state machine for each request to avoid state pollution
+            state_machine = RequestStateMachine(self)
+            return state_machine.process_request(request)
+        except Exception as e:
+            logger.error(f"Unhandled exception processing {request.method.value} {request.path}: {e}")
+            return Response(
+                500,
+                json.dumps({"error": "Internal server error"}),
+                content_type="application/json"
+            )
 
     def _is_pydantic_model(self, annotation) -> bool:
         """Check if the annotation is a Pydantic model."""

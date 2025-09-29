@@ -4,6 +4,7 @@ Webmachine-inspired state machine for HTTP request processing.
 
 import inspect
 import json
+import logging
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Union, get_origin, get_args
 
@@ -11,6 +12,9 @@ from .content_renderers import ContentRenderer
 from .dependencies import DependencyWrapper
 from .exceptions import PYDANTIC_AVAILABLE, ValidationError, AcceptsParsingError
 from .models import HTTPMethod, Request, Response, etags_match
+
+# Set up logger for this module
+logger = logging.getLogger(__name__)
 
 
 class StateMachineResult:
@@ -38,6 +42,14 @@ class RequestStateMachine:
         self.request = request
         self.app._dependency_cache.clear()
 
+        logger.debug(f"Starting state machine processing for {request.method.value} {request.path}")
+
+        def log_state_transition(state_name: str, result: StateMachineResult):
+            """Helper to log state transitions with debug info."""
+            status = "CONTINUE" if result.continue_processing else "STOP"
+            response_code = result.response.status_code if result.response else "None"
+            logger.debug(f"State {state_name}: {status} (response: {response_code})")
+
         # This should never actually be returned, but we include it here
         # in case a bug is intorduced where we choose not to continue processing,
         # but also fail to provide a response
@@ -49,74 +61,92 @@ class RequestStateMachine:
         try:
             # State machine flow - all wrapped in try-catch for ValidationError
             result = self.state_route_exists()
+            log_state_transition("route_exists", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_service_available()
+            log_state_transition("service_available", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_known_method()
+            log_state_transition("known_method", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_uri_too_long()
+            log_state_transition("uri_too_long", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_method_allowed()
+            log_state_transition("method_allowed", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_malformed_request()
+            log_state_transition("malformed_request", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_authorized()
+            log_state_transition("authorized", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_forbidden()
+            log_state_transition("forbidden", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_content_headers_valid()
+            log_state_transition("content_headers_valid", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_resource_exists()
+            log_state_transition("resource_exists", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             # Conditional request processing states
             result = self.state_if_match()
+            log_state_transition("if_match", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_if_unmodified_since()
+            log_state_transition("if_unmodified_since", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_if_none_match()
+            log_state_transition("if_none_match", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_if_modified_since()
+            log_state_transition("if_modified_since", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             # Content negotiation states
             result = self.state_content_types_provided()
+            log_state_transition("content_types_provided", result)
             if not result.continue_processing:
                 return result.response or default_response
 
             result = self.state_content_types_accepted()
+            log_state_transition("content_types_accepted", result)
             if not result.continue_processing:
                 return result.response or default_response
 
+            logger.debug("All state checks passed, executing handler and rendering response")
             return self.state_execute_and_render()
 
         except ValidationError as e:
+            logger.warning(f"Validation error in request processing: {e}")
             return Response(
                 422,
                 json.dumps({"error": "Validation failed", "details": e.errors()}),
@@ -137,6 +167,7 @@ class RequestStateMachine:
                         False, Response(404, str(response) if response else "Not Found")
                     )
                 except Exception as e:
+                    logger.error(f"Error in route_not_found callback for {self.request.method.value} {self.request.path}: {e}")
                     return StateMachineResult(
                         False,
                         Response(500, f"Error in route_not_found callback: {str(e)}"),
@@ -261,8 +292,10 @@ class RequestStateMachine:
             try:
                 authorized = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not authorized:
+                    logger.error(f"Authorization failed for {self.request.method.value} {self.request.path}")
                     return StateMachineResult(False, Response(401, "Unauthorized"))
             except Exception as e:
+                logger.error(f"Authorization check exception for {self.request.method.value} {self.request.path}: {e}")
                 return StateMachineResult(
                     False, Response(401, f"Authorization check failed: {str(e)}")
                 )
@@ -282,15 +315,19 @@ class RequestStateMachine:
                             wrapper.func, self.request, self.route_handler
                         )
                         if resolved_value is None:
+                            logger.error(f"Access forbidden for {self.request.method.value} {self.request.path}")
                             return StateMachineResult(False, Response(403, "Forbidden"))
-                    except Exception:
+                    except Exception as e:
+                        logger.error(f"Forbidden check exception for {self.request.method.value} {self.request.path}: {e}")
                         return StateMachineResult(False, Response(403, "Forbidden"))
                 else:
                     # Use the regular callback
                     forbidden = self.app._call_with_injection(callback, self.request, self.route_handler)
                     if forbidden:
+                        logger.error(f"Access forbidden for {self.request.method.value} {self.request.path}")
                         return StateMachineResult(False, Response(403, "Forbidden"))
             except Exception as e:
+                logger.error(f"Permission check exception for {self.request.method.value} {self.request.path}: {e}")
                 return StateMachineResult(
                     False, Response(403, f"Permission check failed: {str(e)}")
                 )
@@ -506,8 +543,9 @@ class RequestStateMachine:
                 etag = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if etag:
                     return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
-            except Exception:  # nosec B110
+            except Exception as e:  # nosec B110
                 # ETag generation failed, continue gracefully without ETag
+                logger.warning(f"ETag generation callback failed: {e}")
                 pass
 
         # Check for ETag dependency
@@ -517,8 +555,9 @@ class RequestStateMachine:
                 etag = self.app._call_with_injection(wrapper.func, self.request, self.route_handler)
                 if etag:
                     return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
-            except Exception:  # nosec B110
+            except Exception as e:  # nosec B110
                 # ETag dependency injection failed, continue gracefully without ETag
+                logger.warning(f"ETag dependency injection failed: {e}")
                 pass
 
         return None
@@ -542,8 +581,9 @@ class RequestStateMachine:
                         return datetime.strptime(last_modified, "%a, %d %b %Y %H:%M:%S %Z")
                     except ValueError:
                         pass
-            except Exception:  # nosec B110
+            except Exception as e:  # nosec B110
                 # Last-Modified callback failed, continue gracefully without Last-Modified
+                logger.warning(f"Last-Modified generation callback failed: {e}")
                 pass
 
         # Check for Last-Modified dependency
@@ -559,8 +599,9 @@ class RequestStateMachine:
                         return datetime.strptime(last_modified, "%a, %d %b %Y %H:%M:%S %Z")
                     except ValueError:
                         pass
-            except Exception:  # nosec B110
+            except Exception as e:  # nosec B110
                 # Last-Modified dependency injection failed, continue gracefully without Last-Modified
+                logger.warning(f"Last-Modified dependency injection failed: {e}")
                 pass
 
         return None
@@ -580,6 +621,7 @@ class RequestStateMachine:
         available_types = self.get_available_content_types()
 
         if not available_types:
+            logger.error(f"No content renderers available for {self.request.method.value} {self.request.path}")
             return StateMachineResult(
                 False, Response(500, "No content renderers available")
             )
@@ -653,8 +695,9 @@ class RequestStateMachine:
                     headers.update(updated_headers)
                 # Update cache with current state
                 self.app._dependency_cache.set("headers", headers)
-            except Exception:  # nosec B110
+            except Exception as e:  # nosec B110
                 # If headers dependency fails, continue with current headers
+                logger.warning(f"Headers dependency injection failed: {e}")
                 pass
 
         return headers
@@ -752,8 +795,9 @@ class RequestStateMachine:
                         content_type="application/json",
                         pre_calculated_headers=processed_headers,
                     )
-                except Exception:  # nosec B110
+                except Exception as e:  # nosec B110
                     # If validation fails for other reasons, log but don't crash
+                    logger.warning(f"Validation dependency execution failed: {e}")
                     pass
 
             # Check if we should use a route-specific renderer
