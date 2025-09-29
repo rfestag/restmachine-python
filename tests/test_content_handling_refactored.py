@@ -130,7 +130,7 @@ class TestCustomContentParsers:
         response = api.execute(request)
 
         # Then the custom parser should be used
-        result = api.expect_successful_creation(response)
+        api.expect_successful_creation(response)
         # The parsed_data from @accepts should be injected as 'parsed_data'
         # This tests the accepts parser dependency injection
 
@@ -206,7 +206,7 @@ class TestContentTypeValidation:
         response = api.execute(request)
 
         # Then it should be processed (defaulting to appropriate parser)
-        result = api.expect_successful_creation(response)
+        api.expect_successful_creation(response)
         # The behavior depends on how the library handles missing content-type
 
 

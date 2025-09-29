@@ -42,7 +42,7 @@ class TestBasicDefaultHeaders:
     def test_default_headers_applied_to_get(self, api):
         """Test that default headers are applied to GET responses."""
         response = api.get_resource("/test")
-        data = api.expect_successful_retrieval(response)
+        api.expect_successful_retrieval(response)
 
         # Check default headers
         assert response.get_header("X-API-Version") == "1.0"
@@ -54,7 +54,7 @@ class TestBasicDefaultHeaders:
         """Test that default headers are applied to POST responses."""
         test_data = {"name": "test"}
         response = api.create_resource("/create", test_data)
-        data = api.expect_successful_creation(response)
+        api.expect_successful_creation(response)
 
         # Check default headers
         assert response.get_header("X-API-Version") == "1.0"
@@ -396,7 +396,7 @@ class TestHeaderErrorHandling:
         # Request should still succeed despite header function failure
         # (implementation might log error but continue)
         if response.status_code == 200:
-            data = api.expect_successful_retrieval(response)
+            api.expect_successful_retrieval(response)
             # Headers might be missing due to exception
             assert response.get_header("X-Success") is None
         else:

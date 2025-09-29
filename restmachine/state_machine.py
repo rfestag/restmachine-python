@@ -4,6 +4,7 @@ Webmachine-inspired state machine for HTTP request processing.
 
 import inspect
 import json
+from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Union, get_origin, get_args
 
 from .content_renderers import ContentRenderer
@@ -505,7 +506,8 @@ class RequestStateMachine:
                 etag = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if etag:
                     return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
-            except Exception:
+            except Exception:  # nosec B110
+                # ETag generation failed, continue gracefully without ETag
                 pass
 
         # Check for ETag dependency
@@ -515,7 +517,8 @@ class RequestStateMachine:
                 etag = self.app._call_with_injection(wrapper.func, self.request, self.route_handler)
                 if etag:
                     return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
-            except Exception:
+            except Exception:  # nosec B110
+                # ETag dependency injection failed, continue gracefully without ETag
                 pass
 
         return None
@@ -525,7 +528,6 @@ class RequestStateMachine:
 
         This checks for Last-Modified callbacks or dependencies.
         """
-        from datetime import datetime
 
         # Check for Last-Modified callback
         callback = self._get_callback("last_modified")
@@ -540,7 +542,8 @@ class RequestStateMachine:
                         return datetime.strptime(last_modified, "%a, %d %b %Y %H:%M:%S %Z")
                     except ValueError:
                         pass
-            except Exception:
+            except Exception:  # nosec B110
+                # Last-Modified callback failed, continue gracefully without Last-Modified
                 pass
 
         # Check for Last-Modified dependency
@@ -556,7 +559,8 @@ class RequestStateMachine:
                         return datetime.strptime(last_modified, "%a, %d %b %Y %H:%M:%S %Z")
                     except ValueError:
                         pass
-            except Exception:
+            except Exception:  # nosec B110
+                # Last-Modified dependency injection failed, continue gracefully without Last-Modified
                 pass
 
         return None
@@ -649,7 +653,7 @@ class RequestStateMachine:
                     headers.update(updated_headers)
                 # Update cache with current state
                 self.app._dependency_cache.set("headers", headers)
-            except Exception:
+            except Exception:  # nosec B110
                 # If headers dependency fails, continue with current headers
                 pass
 
@@ -748,7 +752,7 @@ class RequestStateMachine:
                         content_type="application/json",
                         pre_calculated_headers=processed_headers,
                     )
-                except Exception:
+                except Exception:  # nosec B110
                     # If validation fails for other reasons, log but don't crash
                     pass
 

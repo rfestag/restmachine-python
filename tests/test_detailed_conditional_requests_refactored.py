@@ -612,7 +612,7 @@ class TestConditionalRequestsAcrossDrivers:
     def test_etag_generation_across_drivers(self, api):
         """Test ETag generation works across drivers."""
         response = api.get_resource("/documents/doc1")
-        data = api.expect_successful_retrieval(response)
+        api.expect_successful_retrieval(response)
 
         etag = response.get_header("ETag")
         assert etag is not None

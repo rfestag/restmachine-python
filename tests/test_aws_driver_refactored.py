@@ -72,7 +72,7 @@ class TestAwsEventConversion:
         api, driver = enhanced_api
 
         response = api.get_resource("/users/42")
-        data = api.expect_successful_retrieval(response)
+        api.expect_successful_retrieval(response)
 
         # Check that AWS event was created correctly
         last_event = driver.get_last_event()

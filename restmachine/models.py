@@ -173,6 +173,9 @@ class Response:
             etag: The ETag value (without quotes)
             weak: Whether this is a weak ETag (prefixed with W/)
         """
+        if self.headers is None:
+            self.headers = {}
+
         if weak:
             self.headers["ETag"] = f'W/"{etag}"'
         else:
@@ -186,6 +189,8 @@ class Response:
             last_modified: The last modified datetime
         """
         # Format as HTTP date: "Mon, 01 Jan 2024 00:00:00 GMT"
+        if self.headers is None:
+            self.headers = {}
         self.headers["Last-Modified"] = last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
         self.last_modified = last_modified
 

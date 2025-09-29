@@ -9,7 +9,7 @@ import pytest
 from typing import Optional, List
 
 try:
-    from pydantic import BaseModel, Field, ValidationError
+    from pydantic import BaseModel, Field
     PYDANTIC_AVAILABLE = True
 
     # Test models for validation

@@ -177,7 +177,7 @@ class TestFrameworkDemo:
                   .with_header("X-Custom", "value")
                   .accepts("application/json"))
 
-        response = api.execute(request)
+        api.execute(request)
 
         # Verify the request was built correctly
         recorded_request = mock.get_requests()[0]

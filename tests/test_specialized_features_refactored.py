@@ -139,7 +139,7 @@ class TestDefaultHeaders:
     def test_default_headers_applied(self, api):
         """Test that default headers are applied to responses."""
         response = api.get_resource("/test")
-        data = api.expect_successful_retrieval(response)
+        api.expect_successful_retrieval(response)
 
         # Check for default headers
         assert response.get_header("X-API-Version") == "1.0"
@@ -242,7 +242,7 @@ class TestETagAndConditionalRequests:
     def test_etag_generation(self, api):
         """Test that ETags are generated correctly."""
         response = api.get_resource("/documents/doc1")
-        data = api.expect_successful_retrieval(response)
+        api.expect_successful_retrieval(response)
 
         etag = response.get_header("ETag")
         assert etag is not None

@@ -1,6 +1,7 @@
 """
 Custom exceptions for the REST framework.
 """
+from typing import Any, List, Dict
 
 try:
     from pydantic import ValidationError as PydanticValidationError # type: ignore[import-not-found]
@@ -17,10 +18,16 @@ except ImportError:
             self.message = message
             super().__init__(self.message)
 
-        def errors(self):
+        def errors(self) -> List[Dict[str, Any]]:
             """Return errors in Pydantic-like format."""
             return [{"msg": self.message}]
-    ValidationError = MyValidationError
+
+        def json(self) -> str:
+            """Return JSON representation for compatibility."""
+            import json
+            return json.dumps({"detail": [{"msg": self.message}]})
+
+    ValidationError = MyValidationError  # type: ignore[misc,assignment]
 
 
 class RestFrameworkError(BaseException):
