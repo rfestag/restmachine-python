@@ -1,2 +1,2 @@
--e .[dev,validation]
+-e .[dev,validation,server]
 tox

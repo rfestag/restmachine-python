@@ -5,7 +5,6 @@ This file sets up automatic parametrization for test classes that inherit from
 MultiDriverTestBase.
 """
 
-import pytest
 from tests.framework.multi_driver_base import MultiDriverTestBase
 
 

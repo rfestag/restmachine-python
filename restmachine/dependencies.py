@@ -43,6 +43,8 @@ class ValidationWrapper:
         self.depends_on_body = False
         self.depends_on_query_params = False
         self.depends_on_path_params = False
+        self.depends_on_request_headers = False
+        self.depends_on_response_headers = False
 
         for param_name, param in sig.parameters.items():
             if param_name in ["body", "json_body", "form_body", "text_body", "multipart_body"]:
@@ -51,6 +53,10 @@ class ValidationWrapper:
                 self.depends_on_query_params = True
             elif param_name == "path_params":
                 self.depends_on_path_params = True
+            elif param_name in ["request_headers", "headers"]:  # headers for backwards compatibility
+                self.depends_on_request_headers = True
+            elif param_name == "response_headers":
+                self.depends_on_response_headers = True
 
 
 class DependencyWrapper:

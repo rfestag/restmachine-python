@@ -18,6 +18,20 @@ from .drivers import AwsApiGatewayDriver, Driver
 from .exceptions import ValidationError
 from .models import HTTPMethod, Request, Response
 
+# Server functionality (optional imports)
+try:
+    from .servers import (  # noqa: F401
+        HypercornDriver,
+        ServerDriver,
+        UvicornDriver,
+        serve,
+        serve_hypercorn,
+        serve_uvicorn,
+    )
+    _SERVER_AVAILABLE = True
+except ImportError:
+    _SERVER_AVAILABLE = False
+
 __version__ = "0.1.0"
 __author__ = "REST Framework Contributors"
 __license__ = "MIT"
@@ -35,3 +49,14 @@ __all__ = [
     "Driver",
     "AwsApiGatewayDriver",
 ]
+
+# Add server exports if available
+if _SERVER_AVAILABLE:
+    __all__.extend([
+        "ServerDriver",
+        "UvicornDriver",
+        "HypercornDriver",
+        "serve",
+        "serve_uvicorn",
+        "serve_hypercorn",
+    ])

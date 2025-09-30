@@ -5,7 +5,6 @@ This test file defines a single app in create_app() and automatically runs
 each test method against all enabled drivers.
 """
 
-import pytest
 from restmachine import RestApplication, Response
 from tests.framework import (
     MultiDriverTestBase,
@@ -149,7 +148,12 @@ class TestBasicApiWithAllDrivers(MultiDriverTestBase):
 
     @only_drivers('direct', 'aws_lambda')
     def test_only_certain_drivers(self, api):
-        """This test only runs on direct and aws_lambda drivers."""
+        """
+        This test only runs on direct and aws_lambda drivers.
+
+        This demonstrates the @only_drivers decorator. HTTP driver variants
+        will be intentionally skipped to show selective test execution.
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/")

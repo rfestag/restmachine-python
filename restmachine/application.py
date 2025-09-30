@@ -369,12 +369,20 @@ class RestApplication:
             return request.query_params or {}
         elif param_name == "path_params":
             return request.path_params or {}
-        elif param_name == "headers":
-            headers = self._dependency_cache.get("headers")
+        elif param_name == "request_headers":
+            # Return the actual request headers from the HTTP request
+            return request.headers
+        elif param_name == "response_headers":
+            # Return pre-calculated response headers (e.g., Vary header)
+            headers = self._dependency_cache.get("response_headers")
             if headers is None:
                 headers = self._get_initial_headers(request, route)
-                self._dependency_cache.set("headers", headers)
+                self._dependency_cache.set("response_headers", headers)
             return headers
+        elif param_name == "headers":
+            # Deprecated: for backwards compatibility, return request headers
+            # Users should migrate to request_headers or response_headers
+            return request.headers
         elif param_name in ["json_body", "form_body", "multipart_body", "text_body"]:
             # Built-in body parsers should always be resolved, even if empty/None
             content_type_map = {

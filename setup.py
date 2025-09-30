@@ -37,12 +37,20 @@ setup(
     install_requires=requirements,
     extras_require={
         "validation": ["pydantic>=2.0.0"],
+        "server": [
+            "uvicorn[standard]>=0.20.0",
+            "hypercorn>=0.14.0",
+        ],
+        "uvicorn": ["uvicorn[standard]>=0.20.0"],
+        "hypercorn": ["hypercorn>=0.14.0"],
         "dev": [
             "pytest>=6.0",
             "pytest-cov",
             "ruff",
             "mypy",
             "openapi-spec-validator>=0.7.0",
+            "uvicorn[standard]>=0.20.0",
+            "hypercorn>=0.14.0",
         ],
         "examples": ["uvicorn", "fastapi"],
     },

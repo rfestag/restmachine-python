@@ -11,6 +11,20 @@ from .multi_driver_base import (
     only_drivers
 )
 
+# HTTP server drivers (optional)
+try:
+    from .http_drivers import (  # noqa: F401
+        UvicornHttpDriver,
+        HypercornHttpDriver,
+        UvicornHttp1Driver,
+        UvicornHttp2Driver,
+        HypercornHttp1Driver,
+        HypercornHttp2Driver,
+    )
+    _HTTP_DRIVERS_AVAILABLE = True
+except ImportError:
+    _HTTP_DRIVERS_AVAILABLE = False
+
 __all__ = [
     'RestApiDsl',
     'HttpRequest',
@@ -24,3 +38,14 @@ __all__ = [
     'skip_driver',
     'only_drivers'
 ]
+
+# Add HTTP drivers if available
+if _HTTP_DRIVERS_AVAILABLE:
+    __all__.extend([
+        'UvicornHttpDriver',
+        'HypercornHttpDriver',
+        'UvicornHttp1Driver',
+        'UvicornHttp2Driver',
+        'HypercornHttp1Driver',
+        'HypercornHttp2Driver',
+    ])

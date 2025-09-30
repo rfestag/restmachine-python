@@ -36,11 +36,18 @@ class Request:
 
     def get_accept_header(self) -> str:
         """Get the Accept header, defaulting to */* if not present."""
-        return self.headers.get("Accept", "*/*")
+        # Try lowercase first (from ASGI), fall back to title case (from test drivers)
+        return self.headers.get("accept") or self.headers.get("Accept", "*/*")
 
     def get_content_type(self) -> Optional[str]:
         """Get the Content-Type header."""
-        return self.headers.get("Content-Type")
+        # Try lowercase first (from ASGI), fall back to title case (from test drivers)
+        return self.headers.get("content-type") or self.headers.get("Content-Type")
+
+    def get_authorization_header(self) -> Optional[str]:
+        """Get the Authorization header."""
+        # Try lowercase first (from ASGI), fall back to title case (from test drivers)
+        return self.headers.get("authorization") or self.headers.get("Authorization")
 
     def get_if_match(self) -> Optional[List[str]]:
         """Get the If-Match header values as a list of ETags."""

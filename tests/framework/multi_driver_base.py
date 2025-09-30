@@ -6,7 +6,7 @@ Each test file should inherit from MultiDriverTestBase and define a single creat
 """
 
 import pytest
-from typing import List, Dict, Any, Type
+from typing import List
 from abc import ABC, abstractmethod
 
 from restmachine import RestApplication
@@ -29,8 +29,12 @@ class MultiDriverTestBase(ABC):
 
     # Override this in subclasses to control which drivers to test
     ENABLED_DRIVERS = [
-        'direct',
-        'aws_lambda'
+        'direct',           # Direct driver: calls RestMachine directly
+        'aws_lambda',       # AWS Lambda driver: simulates AWS API Gateway events
+        'uvicorn-http1',    # HTTP/1.1 driver via Uvicorn server
+        'hypercorn-http1',  # HTTP/1.1 driver via Hypercorn server
+        'uvicorn-http2',    # HTTP/2 driver via Uvicorn server
+        'hypercorn-http2',  # HTTP/2 driver via Hypercorn server
     ]
 
     # Optional: Override to exclude specific drivers for certain test files
@@ -63,8 +67,25 @@ class MultiDriverTestBase(ABC):
             'mock': lambda app: MockDriver()  # Note: MockDriver doesn't use app
         }
 
+        # Try to import HTTP drivers (may not be available)
+        try:
+            from .http_drivers import (
+                UvicornHttp1Driver,
+                UvicornHttp2Driver,
+                HypercornHttp1Driver,
+                HypercornHttp2Driver,
+            )
+            driver_map.update({
+                'uvicorn-http1': lambda app: UvicornHttp1Driver(app),
+                'uvicorn-http2': lambda app: UvicornHttp2Driver(app),
+                'hypercorn-http1': lambda app: HypercornHttp1Driver(app),
+                'hypercorn-http2': lambda app: HypercornHttp2Driver(app),
+            })
+        except ImportError:
+            pass  # HTTP drivers not available
+
         if driver_name not in driver_map:
-            raise ValueError(f"Unknown driver: {driver_name}. Available: {list(driver_map.keys())}")
+            pytest.skip(f"Driver '{driver_name}' not available. Available: {list(driver_map.keys())}")
 
         return driver_map[driver_name](app)
 
@@ -78,7 +99,16 @@ class MultiDriverTestBase(ABC):
         driver_name = request.param
         app = self.create_app()
         driver = self.create_driver(driver_name, app)
-        return RestApiDsl(driver), driver_name
+
+        # HTTP drivers need to be started/stopped with context manager
+        if driver_name.startswith('uvicorn-') or driver_name.startswith('hypercorn-'):
+            with driver as active_driver:
+                import time
+                time.sleep(0.1)  # Give server time to start
+                yield RestApiDsl(active_driver), driver_name
+        else:
+            # Direct and Lambda drivers don't need context manager
+            yield RestApiDsl(driver), driver_name
 
 
 def multi_driver_test_class(enabled_drivers: List[str] = None,

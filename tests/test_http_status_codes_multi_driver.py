@@ -5,8 +5,7 @@ This demonstrates how to refactor existing tests to use the MultiDriverTestBase
 where each test class defines a single app and runs against all drivers.
 """
 
-import pytest
-from restmachine import RestApplication, Response
+from restmachine import RestApplication
 from tests.framework import MultiDriverTestBase
 
 
@@ -61,14 +60,14 @@ class TestAuthenticationAndAuthorization(MultiDriverTestBase):
 
         @app.default_authorized
         def authorized(request):
-            auth_header = request.headers.get("Authorization", "")
+            auth_header = request.get_authorization_header() or ""
             if request.path == "/public":
                 return True
             return auth_header.startswith("Bearer valid")
 
         @app.default_forbidden
         def forbidden(request):
-            auth_header = request.headers.get("Authorization", "")
+            auth_header = request.get_authorization_header() or ""
             if request.path == "/admin" and "admin" not in auth_header:
                 return True
             return False

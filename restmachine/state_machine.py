@@ -543,7 +543,7 @@ class RequestStateMachine:
                 etag = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if etag:
                     return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
-            except Exception as e:  # nosec B110
+            except Exception as e:
                 # ETag generation failed, continue gracefully without ETag
                 logger.warning(f"ETag generation callback failed: {e}")
                 pass
@@ -555,7 +555,7 @@ class RequestStateMachine:
                 etag = self.app._call_with_injection(wrapper.func, self.request, self.route_handler)
                 if etag:
                     return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
-            except Exception as e:  # nosec B110
+            except Exception as e:
                 # ETag dependency injection failed, continue gracefully without ETag
                 logger.warning(f"ETag dependency injection failed: {e}")
                 pass
@@ -581,7 +581,7 @@ class RequestStateMachine:
                         return datetime.strptime(last_modified, "%a, %d %b %Y %H:%M:%S %Z")
                     except ValueError:
                         pass
-            except Exception as e:  # nosec B110
+            except Exception as e:
                 # Last-Modified callback failed, continue gracefully without Last-Modified
                 logger.warning(f"Last-Modified generation callback failed: {e}")
                 pass
@@ -599,7 +599,7 @@ class RequestStateMachine:
                         return datetime.strptime(last_modified, "%a, %d %b %Y %H:%M:%S %Z")
                     except ValueError:
                         pass
-            except Exception as e:  # nosec B110
+            except Exception as e:
                 # Last-Modified dependency injection failed, continue gracefully without Last-Modified
                 logger.warning(f"Last-Modified dependency injection failed: {e}")
                 pass
@@ -695,7 +695,7 @@ class RequestStateMachine:
                     headers.update(updated_headers)
                 # Update cache with current state
                 self.app._dependency_cache.set("headers", headers)
-            except Exception as e:  # nosec B110
+            except Exception as e:
                 # If headers dependency fails, continue with current headers
                 logger.warning(f"Headers dependency injection failed: {e}")
                 pass
@@ -795,7 +795,7 @@ class RequestStateMachine:
                         content_type="application/json",
                         pre_calculated_headers=processed_headers,
                     )
-                except Exception as e:  # nosec B110
+                except Exception as e:
                     # If validation fails for other reasons, log but don't crash
                     logger.warning(f"Validation dependency execution failed: {e}")
                     pass
