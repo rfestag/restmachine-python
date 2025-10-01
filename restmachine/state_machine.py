@@ -126,9 +126,9 @@ class RequestStateMachine:
         try:
             request_id = self.app._resolve_builtin_dependency("request_id", None, self.request, self.route_handler)
             trace_id = self.app._resolve_builtin_dependency("trace_id", None, self.request, self.route_handler)
-        except Exception:
+        except Exception as e:
             # If dependency resolution fails, continue without IDs
-            pass
+            logger.warning(f"Failed to resolve request_id/trace_id for error response: {e}")
 
         # Determine if client wants JSON
         prefers_json = False
@@ -284,8 +284,8 @@ class RequestStateMachine:
             try:
                 request_id = self.app._resolve_builtin_dependency("request_id", None, self.request, self.route_handler)
                 trace_id = self.app._resolve_builtin_dependency("trace_id", None, self.request, self.route_handler)
-            except Exception:
-                pass
+            except Exception as dep_error:
+                logger.warning(f"Failed to resolve request_id/trace_id for validation error: {dep_error}")
 
             error_response = ErrorResponse.from_validation_error(
                 e,

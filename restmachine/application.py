@@ -322,7 +322,8 @@ class RestApplication:
             *status_codes: HTTP status codes this handler handles.
                           If empty, this becomes the default handler for all errors.
 
-        Example:
+        Example::
+
             @app.handles_error(404)
             def custom_404(request):
                 return {"error": "Resource not found", "code": "NOT_FOUND"}
@@ -352,7 +353,8 @@ class RestApplication:
         Args:
             content_type: The content type this error handler produces
 
-        Example:
+        Example::
+
             @app.error_renders("text/html")
             @app.handles_error(404)
             def custom_404_html(request):
@@ -384,7 +386,8 @@ class RestApplication:
         The decorated function should accept a Request object and return a string.
         If not provided, a default UUID-based generator will be used.
 
-        Example:
+        Example::
+
             @app.request_id
             def generate_request_id(request):
                 # Check for existing request ID in headers
@@ -399,7 +402,8 @@ class RestApplication:
         The decorated function should accept a Request object and return a string.
         If not provided, a default UUID-based generator will be used.
 
-        Example:
+        Example::
+
             @app.trace_id
             def generate_trace_id(request):
                 # Check for existing trace ID in headers
