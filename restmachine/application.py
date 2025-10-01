@@ -43,6 +43,30 @@ from .state_machine import RequestStateMachine
 logger = logging.getLogger(__name__)
 
 
+class ErrorHandler:
+    """Represents a custom error handler."""
+
+    def __init__(self, handler: Callable, status_codes: Tuple[int, ...], content_type: Optional[str] = None):
+        self.handler = handler
+        self.status_codes = status_codes  # Empty tuple means default handler
+        self.content_type = content_type  # None means default for that status code
+
+    def handles_status(self, status_code: int) -> bool:
+        """Check if this handler handles the given status code."""
+        if not self.status_codes:  # Default handler handles all codes
+            return True
+        return status_code in self.status_codes
+
+    def matches_accept(self, accept_header: str) -> bool:
+        """Check if this handler matches the Accept header."""
+        if not self.content_type:  # Default handler matches all
+            return True
+        if not accept_header:
+            return False
+        # Simple check for content type in Accept header
+        return self.content_type in accept_header or "*/*" in accept_header
+
+
 class RouteHandler:
     """Represents a registered route and its handler."""
 
@@ -84,6 +108,7 @@ class RestApplication:
         self._default_callbacks: Dict[str, Callable] = {}
         self._dependency_cache = DependencyCache()
         self._content_renderers: Dict[str, ContentRenderer] = {}
+        self._error_handlers: List[ErrorHandler] = []
 
         # Add default content renderers
         self.add_content_renderer(JSONRenderer())
@@ -287,6 +312,69 @@ class RestApplication:
         self._default_callbacks["route_not_found"] = func
         return func
 
+    # Error handler decorators
+    def handles_error(self, *status_codes: int):
+        """Decorator to register a custom error handler.
+
+        Args:
+            *status_codes: HTTP status codes this handler handles.
+                          If empty, this becomes the default handler for all errors.
+
+        Example:
+            @app.handles_error(404)
+            def custom_404(request):
+                return {"error": "Resource not found", "code": "NOT_FOUND"}
+
+            @app.handles_error()  # Default handler for all errors
+            def default_error(request, exception):
+                return {"error": "Something went wrong"}
+
+            @app.handles_error(401, 403)  # Handle multiple codes
+            def auth_error(request):
+                return {"error": "Authentication required"}
+        """
+        def decorator(func: Callable):
+            handler = ErrorHandler(func, status_codes, content_type=None)
+            self._error_handlers.append(handler)
+            return func
+        return decorator
+
+    def error_renders(self, content_type: str):
+        """Decorator to specify content type for an error handler.
+
+        Must be used with handles_error decorator. This creates a content-type-specific
+        error handler separate from regular route handlers to avoid confusion.
+
+        IMPORTANT: This decorator must be placed ABOVE @handles_error (applied first).
+
+        Args:
+            content_type: The content type this error handler produces
+
+        Example:
+            @app.error_renders("text/html")
+            @app.handles_error(404)
+            def custom_404_html(request):
+                return "<h1>404 - Not Found</h1>"
+
+            @app.error_renders("application/json")
+            @app.handles_error(404)
+            def custom_404_json(request):
+                return {"error": "Not found"}
+        """
+        def decorator(func: Callable):
+            # Find the most recently added error handler and update its content type
+            if self._error_handlers:
+                # The decorator is applied bottom-up, so the last handler added
+                # is the one we just registered with @handles_error
+                handler = self._error_handlers[-1]
+                if handler.handler == func:
+                    # Create a new handler with the same status codes but specific content type
+                    new_handler = ErrorHandler(func, handler.status_codes, content_type)
+                    # Replace the last handler
+                    self._error_handlers[-1] = new_handler
+            return func
+        return decorator
+
     # HTTP method decorators
     def get(self, path: str):
         """Decorator to register a GET route handler."""
@@ -327,11 +415,11 @@ class RestApplication:
         if cached_value is not None:
             return cached_value
 
-        # Built-in dependencies
-        builtin_value = self._resolve_builtin_dependency(param_name, param_type, request, route)
-        if builtin_value is not None:
+        # Built-in dependencies (can be None, so check if it's a built-in first)
+        if self._is_builtin_dependency(param_name, param_type):
+            builtin_value = self._resolve_builtin_dependency(param_name, param_type, request, route)
             # Handle sentinel values for built-in dependencies
-            if hasattr(builtin_value, 'value'):
+            if builtin_value is not None and hasattr(builtin_value, 'value'):
                 actual_value = builtin_value.value
                 self._dependency_cache.set(param_name, actual_value)
                 return actual_value
@@ -359,10 +447,22 @@ class RestApplication:
 
         raise ValueError(f"Unable to resolve dependency: {param_name}")
 
+    def _is_builtin_dependency(self, param_name: str, param_type: Optional[Type]) -> bool:
+        """Check if a parameter is a built-in dependency."""
+        builtin_names = [
+            "request", "exception", "body", "query_params", "path_params",
+            "request_headers", "response_headers", "headers",
+            "json_body", "form_body", "multipart_body", "text_body"
+        ]
+        return param_name in builtin_names or param_type == Request
+
     def _resolve_builtin_dependency(self, param_name: str, param_type: Optional[Type], request: Request, route: Optional[RouteHandler]) -> Any:
         """Resolve built-in framework dependencies."""
         if param_name == "request" or param_type == Request:
             return request
+        elif param_name == "exception":
+            # Return exception from cache (set when error occurs), or None
+            return self._dependency_cache.get("exception")
         elif param_name == "body":
             return request.body
         elif param_name == "query_params":
