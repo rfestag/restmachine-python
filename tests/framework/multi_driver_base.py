@@ -89,12 +89,13 @@ class MultiDriverTestBase(ABC):
 
         return driver_map[driver_name](app)
 
-    @pytest.fixture
+    @pytest.fixture(scope="class")
     def api(self, request):
         """
         Parametrized fixture that provides API client for each enabled driver.
 
         This fixture is automatically parametrized with all enabled drivers.
+        Uses class scope to reuse servers across all tests in a class.
         """
         driver_name = request.param
         app = self.create_app()
@@ -104,7 +105,7 @@ class MultiDriverTestBase(ABC):
         if driver_name.startswith('uvicorn-') or driver_name.startswith('hypercorn-'):
             with driver as active_driver:
                 import time
-                time.sleep(0.1)  # Give server time to start
+                time.sleep(0.05)  # Reduced from 0.1s - minimal time needed
                 yield RestApiDsl(active_driver), driver_name
         else:
             # Direct and Lambda drivers don't need context manager

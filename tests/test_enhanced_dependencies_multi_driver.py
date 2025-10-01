@@ -1,11 +1,10 @@
 """
-Refactored enhanced dependencies tests using 4-layer architecture.
+Enhanced dependencies tests using multi-driver approach.
 
 Tests for advanced dependency injection patterns, Pydantic validation,
-and complex validation scenarios.
+and complex validation scenarios across all drivers.
 """
 
-import pytest
 from typing import Optional, List
 
 try:
@@ -36,25 +35,39 @@ try:
         limit: Optional[int] = Field(10, ge=1, le=100, description="Number of results")
         offset: Optional[int] = Field(0, ge=0, description="Offset for pagination")
 
+    class UserDataRequest(BaseModel):
+        name: str = Field(..., min_length=2, description="User name")
+        email: str = Field(..., description="User email")
+
+    class CombinedValidationRequest(BaseModel):
+        body_data: dict
+        path_id: int
+        format: str = "json"
+
+    class SimpleDataRequest(BaseModel):
+        value: int = Field(..., ge=0, description="Non-negative integer")
+        name: Optional[str] = Field(None, description="Optional name")
+
 except ImportError:
     PYDANTIC_AVAILABLE = False
 
 from restmachine import RestApplication
-from tests.framework import RestApiDsl, RestMachineDriver, AwsLambdaDriver
+from tests.framework import MultiDriverTestBase
 
 
-@pytest.mark.skipif(not PYDANTIC_AVAILABLE, reason="Pydantic not available")
-class TestPydanticValidation:
-    """Test Pydantic model validation in dependency injection."""
+class TestPydanticValidation(MultiDriverTestBase):
+    """Test Pydantic model validation in dependency injection across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API with Pydantic validation."""
+    def create_app(self) -> RestApplication:
+        """Create app with Pydantic validation."""
+        if not PYDANTIC_AVAILABLE:
+            return RestApplication()
+
         app = RestApplication()
 
         # In-memory user store
         users = {}
-        next_id = 1
+        next_id = [1]  # Use list to allow mutation in nested function
 
         @app.validates
         def validate_user_create(json_body) -> UserCreateRequest:
@@ -74,11 +87,10 @@ class TestPydanticValidation:
         @app.post("/users")
         def create_user(validate_user_create) -> UserResponse:
             """Create a new user with validation."""
-            nonlocal next_id
             user_data = validate_user_create.model_dump()
-            user = UserResponse(id=next_id, **user_data)
-            users[next_id] = user.model_dump()
-            next_id += 1
+            user = UserResponse(id=next_id[0], **user_data)
+            users[next_id[0]] = user.model_dump()
+            next_id[0] += 1
             return user
 
         @app.get("/users/{user_id}")
@@ -121,17 +133,22 @@ class TestPydanticValidation:
             # Convert to UserResponse and return as JSON-serializable list
             return [UserResponse.model_validate(u).model_dump() for u in paginated_users]
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_valid_user_creation_with_required_fields(self, api):
         """Test creating user with valid required fields."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         user_data = {
             "name": "John Doe",
             "email": "john@example.com"
         }
 
-        response = api.create_resource("/users", user_data)
-        data = api.expect_successful_creation(response)
+        response = api_client.create_resource("/users", user_data)
+        data = api_client.expect_successful_creation(response)
 
         assert data["name"] == "John Doe"
         assert data["email"] == "john@example.com"
@@ -140,6 +157,11 @@ class TestPydanticValidation:
 
     def test_valid_user_creation_with_all_fields(self, api):
         """Test creating user with all fields."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         user_data = {
             "name": "Jane Smith",
             "email": "jane@example.com",
@@ -147,8 +169,8 @@ class TestPydanticValidation:
             "tags": ["admin", "developer"]
         }
 
-        response = api.create_resource("/users", user_data)
-        data = api.expect_successful_creation(response)
+        response = api_client.create_resource("/users", user_data)
+        data = api_client.expect_successful_creation(response)
 
         assert data["name"] == "Jane Smith"
         assert data["email"] == "jane@example.com"
@@ -157,12 +179,17 @@ class TestPydanticValidation:
 
     def test_invalid_user_creation_missing_required_field(self, api):
         """Test validation error for missing required field."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         user_data = {
             "email": "incomplete@example.com"
             # Missing required 'name' field
         }
 
-        response = api.submit_invalid_data("/users", user_data)
+        response = api_client.submit_invalid_data("/users", user_data)
         assert response.status_code in [400, 422]
 
         error_data = response.get_json_body()
@@ -170,12 +197,17 @@ class TestPydanticValidation:
 
     def test_invalid_user_creation_invalid_email(self, api):
         """Test validation error for invalid email format."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         user_data = {
             "name": "Invalid Email User",
             "email": "not-an-email"
         }
 
-        response = api.submit_invalid_data("/users", user_data)
+        response = api_client.submit_invalid_data("/users", user_data)
         assert response.status_code in [400, 422]
 
         error_data = response.get_json_body()
@@ -183,41 +215,56 @@ class TestPydanticValidation:
 
     def test_invalid_user_creation_invalid_age(self, api):
         """Test validation error for invalid age."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         user_data = {
             "name": "Invalid Age User",
             "email": "user@example.com",
             "age": -5  # Invalid age
         }
 
-        response = api.submit_invalid_data("/users", user_data)
+        response = api_client.submit_invalid_data("/users", user_data)
         assert response.status_code in [400, 422]
 
     def test_invalid_user_creation_name_too_long(self, api):
         """Test validation error for name that's too long."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         user_data = {
             "name": "A" * 101,  # Exceeds max_length of 100
             "email": "user@example.com"
         }
 
-        response = api.submit_invalid_data("/users", user_data)
+        response = api_client.submit_invalid_data("/users", user_data)
         assert response.status_code in [400, 422]
 
     def test_user_update_partial_fields(self, api):
         """Test updating user with partial field validation."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         # First create a user
         create_data = {
             "name": "Original Name",
             "email": "original@example.com",
             "age": 25
         }
-        create_response = api.create_resource("/users", create_data)
-        created_user = api.expect_successful_creation(create_response)
+        create_response = api_client.create_resource("/users", create_data)
+        created_user = api_client.expect_successful_creation(create_response)
         user_id = created_user["id"]
 
         # Update only the name
         update_data = {"name": "Updated Name"}
-        update_response = api.update_resource(f"/users/{user_id}", update_data)
-        updated_user = api.expect_successful_retrieval(update_response)
+        update_response = api_client.update_resource(f"/users/{user_id}", update_data)
+        updated_user = api_client.expect_successful_retrieval(update_response)
 
         assert updated_user["name"] == "Updated Name"
         assert updated_user["email"] == "original@example.com"  # Unchanged
@@ -225,50 +272,64 @@ class TestPydanticValidation:
 
     def test_user_update_invalid_partial_field(self, api):
         """Test validation error when updating with invalid partial field."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         # First create a user
         create_data = {
             "name": "Original Name",
             "email": "original@example.com"
         }
-        create_response = api.create_resource("/users", create_data)
-        created_user = api.expect_successful_creation(create_response)
+        create_response = api_client.create_resource("/users", create_data)
+        created_user = api_client.expect_successful_creation(create_response)
         user_id = created_user["id"]
 
         # Try to update with invalid email
         update_data = {"email": "invalid-email"}
-        update_response = api.update_resource(f"/users/{user_id}", update_data)
+        update_response = api_client.update_resource(f"/users/{user_id}", update_data)
         assert update_response.status_code in [400, 422]
 
     def test_query_parameter_validation(self, api):
         """Test query parameter validation."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         # First create some users
         for i in range(5):
             user_data = {
                 "name": f"User {i}",
                 "email": f"user{i}@example.com"
             }
-            api.create_resource("/users", user_data)
+            api_client.create_resource("/users", user_data)
 
         # Test valid search query
-        response = api.search_resources("/users", {"q": "User", "limit": "3", "offset": "1"})
-        data = api.expect_successful_retrieval(response)
+        response = api_client.search_resources("/users", {"q": "User", "limit": "3", "offset": "1"})
+        data = api_client.expect_successful_retrieval(response)
 
         # Should return users (exact number depends on search implementation)
         assert isinstance(data, list)
 
     def test_query_parameter_validation_invalid_limit(self, api):
         """Test validation error for invalid query parameter."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         # Try to search with invalid limit
-        response = api.search_resources("/users", {"limit": "1000"})  # Exceeds max limit
+        response = api_client.search_resources("/users", {"limit": "1000"})  # Exceeds max limit
         assert response.status_code in [400, 422]
 
 
-class TestAdvancedDependencyPatterns:
-    """Test advanced dependency injection patterns."""
+class TestAdvancedDependencyPatterns(MultiDriverTestBase):
+    """Test advanced dependency injection patterns across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API with complex dependency patterns."""
+    def create_app(self) -> RestApplication:
+        """Create app with complex dependency patterns."""
         app = RestApplication()
 
         # Simulated external services
@@ -304,10 +365,8 @@ class TestAdvancedDependencyPatterns:
         user_service = UserService()
         audit_service = AuditService()
 
-        # Validation model for advanced patterns
-        class UserDataRequest(BaseModel):
-            name: str = Field(..., min_length=2, description="User name")
-            email: str = Field(..., description="User email")
+        if not PYDANTIC_AVAILABLE:
+            return app
 
         @app.validates
         def validate_user_data(json_body) -> UserDataRequest:
@@ -343,35 +402,44 @@ class TestAdvancedDependencyPatterns:
             """Get audit logs."""
             return {"logs": audit_service.logs}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_service_dependency_injection(self, api):
         """Test service dependency injection."""
-        user_data = {"name": "Service User", "email": "service@example.com"}
+        if not PYDANTIC_AVAILABLE:
+            return
 
-        response = api.create_resource("/users", user_data)
-        data = api.expect_successful_creation(response)
+        api_client, driver_name = api
+
+        user_data = {"name": "Service User", "email": "service@example.com"}
+        response = api_client.create_resource("/users", user_data)
+        data = api_client.expect_successful_creation(response)
 
         assert data["name"] == "Service User"
         assert data["id"] == 1
 
     def test_chained_service_dependencies(self, api):
         """Test multiple service dependencies in one handler."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         # Create a user (which uses both user_service and audit_service)
         user_data = {"name": "Chained User", "email": "chained@example.com"}
-        create_response = api.create_resource("/users", user_data)
-        created_user = api.expect_successful_creation(create_response)
+        create_response = api_client.create_resource("/users", user_data)
+        created_user = api_client.expect_successful_creation(create_response)
         user_id = created_user["id"]
 
         # Get the user (which also logs the action)
-        get_response = api.get_resource(f"/users/{user_id}")
-        retrieved_user = api.expect_successful_retrieval(get_response)
+        get_response = api_client.get_resource(f"/users/{user_id}")
+        retrieved_user = api_client.expect_successful_retrieval(get_response)
 
         assert retrieved_user["name"] == "Chained User"
 
         # Check audit logs
-        logs_response = api.get_resource("/audit/logs")
-        logs_data = api.expect_successful_retrieval(logs_response)
+        logs_response = api_client.get_resource("/audit/logs")
+        logs_data = api_client.expect_successful_retrieval(logs_response)
 
         assert len(logs_data["logs"]) >= 2
         assert any(log["action"] == "user_created" for log in logs_data["logs"])
@@ -379,43 +447,49 @@ class TestAdvancedDependencyPatterns:
 
     def test_validation_dependency_with_custom_error(self, api):
         """Test custom validation dependency with specific error messages."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         # Test missing name
         invalid_data = {"email": "test@example.com"}
-        response = api.submit_invalid_data("/users", invalid_data)
+        response = api_client.submit_invalid_data("/users", invalid_data)
         assert response.status_code in [400, 422]
 
         # Test name too short
         short_name_data = {"name": "A", "email": "test@example.com"}
-        response = api.submit_invalid_data("/users", short_name_data)
+        response = api_client.submit_invalid_data("/users", short_name_data)
         assert response.status_code in [400, 422]
 
     def test_service_dependency_not_found_scenario(self, api):
         """Test service dependency when resource not found."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         # Try to get non-existent user
-        response = api.get_resource("/users/999")
-        api.expect_not_found(response)
+        response = api_client.get_resource("/users/999")
+        api_client.expect_not_found(response)
 
         # Check that audit log was created for not found
-        logs_response = api.get_resource("/audit/logs")
-        logs_data = api.expect_successful_retrieval(logs_response)
+        logs_response = api_client.get_resource("/audit/logs")
+        logs_data = api_client.expect_successful_retrieval(logs_response)
 
         assert any(log["action"] == "user_not_found" and log["user_id"] == 999
                   for log in logs_data["logs"])
 
 
-class TestComplexValidationScenarios:
-    """Test complex validation scenarios."""
+class TestComplexValidationScenarios(MultiDriverTestBase):
+    """Test complex validation scenarios across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API with complex validation scenarios."""
+    def create_app(self) -> RestApplication:
+        """Create app with complex validation scenarios."""
         app = RestApplication()
 
-        # Validation model for complex scenarios
-        class CombinedValidationRequest(BaseModel):
-            body_data: dict
-            path_id: int
-            format: str = "json"
+        if not PYDANTIC_AVAILABLE:
+            return app
 
         @app.validates
         def validate_combined_data(json_body, path_params, query_params) -> CombinedValidationRequest:
@@ -462,17 +536,22 @@ class TestComplexValidationScenarios:
                 "format": validate_combined_data.format
             }
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_combined_validation_success(self, api):
         """Test successful combined validation."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         data = {"data": {"name": "test item"}}
 
-        request = api.post("/items/123").with_json_body(data).accepts("application/json")
+        request = api_client.post("/items/123").with_json_body(data).accepts("application/json")
         request.query_params = {"format": "json"}
 
-        response = api.execute(request)
-        result = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        result = api_client.expect_successful_creation(response)
 
         assert result["processed"] is True
         assert result["id"] == 123
@@ -481,45 +560,57 @@ class TestComplexValidationScenarios:
 
     def test_combined_validation_invalid_body(self, api):
         """Test validation error from invalid body."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         data = {"wrong_field": "data"}  # Missing 'data' field
 
-        request = api.post("/items/123").with_json_body(data).accepts("application/json")
-        response = api.execute(request)
+        request = api_client.post("/items/123").with_json_body(data).accepts("application/json")
+        response = api_client.execute(request)
 
         assert response.status_code in [400, 422]
 
     def test_combined_validation_invalid_path_param(self, api):
         """Test validation error from invalid path parameter."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         data = {"data": {"name": "test item"}}
 
-        request = api.post("/items/not-a-number").with_json_body(data).accepts("application/json")
-        response = api.execute(request)
+        request = api_client.post("/items/not-a-number").with_json_body(data).accepts("application/json")
+        response = api_client.execute(request)
 
         assert response.status_code in [400, 422]
 
     def test_combined_validation_invalid_query_param(self, api):
         """Test validation error from invalid query parameter."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         data = {"data": {"name": "test item"}}
 
-        request = api.post("/items/123").with_json_body(data).accepts("application/json")
+        request = api_client.post("/items/123").with_json_body(data).accepts("application/json")
         request.query_params = {"format": "invalid_format"}
 
-        response = api.execute(request)
+        response = api_client.execute(request)
         assert response.status_code in [400, 422]
 
 
-class TestDependencyInjectionAcrossDrivers:
+class TestDependencyValidationConsistency(MultiDriverTestBase):
     """Test that dependency injection works consistently across different drivers."""
 
-    @pytest.fixture(params=['direct', 'aws_lambda'])
-    def api(self, request):
-        """Parametrized fixture for testing across drivers."""
+    def create_app(self) -> RestApplication:
+        """Create app for cross-driver validation testing."""
         app = RestApplication()
 
-        # Simple validation model for cross-driver testing
-        class SimpleDataRequest(BaseModel):
-            value: int = Field(..., ge=0, description="Non-negative integer")
-            name: Optional[str] = Field(None, description="Optional name")
+        if not PYDANTIC_AVAILABLE:
+            return app
 
         @app.validates
         def validate_simple_data(json_body) -> SimpleDataRequest:
@@ -533,31 +624,35 @@ class TestDependencyInjectionAcrossDrivers:
             """Endpoint that uses validation dependency."""
             return {"validated": True, "data": validate_simple_data.model_dump()}
 
-        # Select driver
-        if request.param == 'direct':
-            driver = RestMachineDriver(app)
-        else:
-            driver = AwsLambdaDriver(app)
-
-        return RestApiDsl(driver)
+        return app
 
     def test_validation_dependency_across_drivers(self, api):
         """Test that validation works the same across drivers."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         # Test valid data
         valid_data = {"value": 42, "name": "test"}
-        response = api.create_resource("/validate", valid_data)
-        data = api.expect_successful_creation(response)
+        response = api_client.create_resource("/validate", valid_data)
+        data = api_client.expect_successful_creation(response)
 
         assert data["validated"] is True
         assert data["data"]["value"] == 42
 
         # Test invalid data
         invalid_data = {"value": -1}
-        response = api.submit_invalid_data("/validate", invalid_data)
+        response = api_client.submit_invalid_data("/validate", invalid_data)
         assert response.status_code in [400, 422]
 
     def test_missing_field_validation_across_drivers(self, api):
         """Test missing field validation across drivers."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
         invalid_data = {"name": "test"}  # Missing 'value' field
-        response = api.submit_invalid_data("/validate", invalid_data)
+        response = api_client.submit_invalid_data("/validate", invalid_data)
         assert response.status_code in [400, 422]

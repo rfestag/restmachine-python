@@ -1,23 +1,49 @@
 """
-Refactored detailed conditional requests tests using 4-layer architecture.
+Detailed conditional requests tests using multi-driver approach.
 
 Tests for comprehensive ETag handling, If-Match/If-None-Match scenarios,
-Last-Modified header interactions, and combined conditional headers.
+Last-Modified header interactions, and combined conditional headers
+across all drivers.
 """
 
 import pytest
 from datetime import datetime, timezone, timedelta
 
 from restmachine import RestApplication
-from tests.framework import RestApiDsl, RestMachineDriver, AwsLambdaDriver
+from tests.framework import MultiDriverTestBase
 
 
-class TestETagGeneration:
-    """Test ETag generation and handling."""
+class TestETagGeneration(MultiDriverTestBase):
+    """Test ETag generation and handling across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API with ETag generation."""
+    # Conditional requests only work with direct and AWS Lambda drivers
+    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+
+    @pytest.fixture(scope="function")
+    def api(self, request):
+        """
+        Function-scoped fixture for stateful tests.
+
+        Creates a new app instance for each test to prevent state leakage.
+        """
+        from tests.framework.dsl import RestApiDsl
+
+        driver_name = request.param
+        app = self.create_app()
+        driver = self.create_driver(driver_name, app)
+
+        # HTTP drivers need to be started/stopped with context manager
+        if driver_name.startswith('uvicorn-') or driver_name.startswith('hypercorn-'):
+            with driver as active_driver:
+                import time
+                time.sleep(0.05)
+                yield RestApiDsl(active_driver), driver_name
+        else:
+            # Direct and Lambda drivers don't need context manager
+            yield RestApiDsl(driver), driver_name
+
+    def create_app(self) -> RestApplication:
+        """Create app with ETag generation."""
         app = RestApplication()
 
         # Document store with versioning
@@ -62,14 +88,15 @@ class TestETagGeneration:
             documents[doc_id] = doc
             return doc
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_etag_generation_for_existing_resource(self, api):
         """Test ETag generation for existing resource."""
-        response = api.get_resource("/documents/doc1")
-        data = api.expect_successful_retrieval(response)
+        api_client, driver_name = api
 
-        # Check ETag header
+        response = api_client.get_resource("/documents/doc1")
+        data = api_client.expect_successful_retrieval(response)
+
         etag = response.get_header("ETag")
         assert etag is not None
         assert "doc1-v1" in etag
@@ -77,15 +104,17 @@ class TestETagGeneration:
 
     def test_etag_changes_after_update(self, api):
         """Test that ETag changes after resource update."""
+        api_client, driver_name = api
+
         # Get initial ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         etag1 = response1.get_header("ETag")
         assert "doc1-v1" in etag1
 
         # Update document
         update_data = {"title": "Updated Document 1"}
-        response2 = api.update_resource("/documents/doc1", update_data)
-        data = api.expect_successful_retrieval(response2)
+        response2 = api_client.update_resource("/documents/doc1", update_data)
+        data = api_client.expect_successful_retrieval(response2)
 
         # Check new ETag
         etag2 = response2.get_header("ETag")
@@ -95,8 +124,10 @@ class TestETagGeneration:
 
     def test_etag_for_different_resources(self, api):
         """Test that different resources have different ETags."""
-        response1 = api.get_resource("/documents/doc1")
-        response2 = api.get_resource("/documents/doc2")
+        api_client, driver_name = api
+
+        response1 = api_client.get_resource("/documents/doc1")
+        response2 = api_client.get_resource("/documents/doc2")
 
         etag1 = response1.get_header("ETag")
         etag2 = response2.get_header("ETag")
@@ -107,38 +138,43 @@ class TestETagGeneration:
 
     def test_no_etag_for_nonexistent_resource(self, api):
         """Test that nonexistent resources don't generate ETags."""
-        response = api.get_resource("/documents/nonexistent")
-        api.expect_not_found(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/documents/nonexistent")
+        api_client.expect_not_found(response)
 
         etag = response.get_header("ETag")
         assert etag is None
 
     def test_etag_for_created_resource(self, api):
         """Test ETag for newly created resource."""
+        api_client, driver_name = api
+
         create_data = {"title": "New Document", "content": "New content"}
-        response = api.create_resource("/documents", create_data)
-        data = api.expect_successful_creation(response)
+        response = api_client.create_resource("/documents", create_data)
+        data = api_client.expect_successful_creation(response)
 
         # Created resource should have version 1
         assert data["version"] == 1
 
         # Get the created document to check ETag
         doc_id = data["id"]
-        get_response = api.get_resource(f"/documents/{doc_id}")
+        get_response = api_client.get_resource(f"/documents/{doc_id}")
         etag = get_response.get_header("ETag")
         assert etag is not None
         assert f"{doc_id}-v1" in etag
 
 
-class TestIfNoneMatchHeaders:
-    """Test If-None-Match header handling."""
+class TestIfNoneMatchHeaders(MultiDriverTestBase):
+    """Test If-None-Match header handling across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API for If-None-Match testing."""
+    # Conditional requests only work with direct and AWS Lambda drivers
+    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+
+    def create_app(self) -> RestApplication:
+        """Create app for If-None-Match testing."""
         app = RestApplication()
 
-        # Simple document store
         documents = {
             "doc1": {"id": "doc1", "title": "Document 1", "version": 1}
         }
@@ -167,76 +203,113 @@ class TestIfNoneMatchHeaders:
             documents[doc_id] = doc
             return doc
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_if_none_match_with_matching_etag_returns_304(self, api):
         """Test If-None-Match with matching ETag returns 304."""
+        api_client, driver_name = api
+
         # Get document and its ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         etag = response1.get_header("ETag")
         assert etag is not None
 
         # Request with If-None-Match using same ETag
-        response2 = api.get_if_none_match("/documents/doc1", etag)
-        api.expect_not_modified(response2)
+        response2 = api_client.get_if_none_match("/documents/doc1", etag)
+        api_client.expect_not_modified(response2)
 
     def test_if_none_match_with_different_etag_returns_resource(self, api):
         """Test If-None-Match with different ETag returns resource."""
+        api_client, driver_name = api
+
         # Request with If-None-Match using different ETag
         different_etag = '"different-etag"'
-        response = api.get_if_none_match("/documents/doc1", different_etag)
-        data = api.expect_successful_retrieval(response)
+        response = api_client.get_if_none_match("/documents/doc1", different_etag)
+        data = api_client.expect_successful_retrieval(response)
         assert data["id"] == "doc1"
 
     def test_if_none_match_star_with_existing_resource_returns_304(self, api):
         """Test If-None-Match: * with existing resource returns 304."""
-        # Request with If-None-Match: *
-        response = api.get_if_none_match("/documents/doc1", "*")
-        api.expect_not_modified(response)
+        api_client, driver_name = api
+
+        response = api_client.get_if_none_match("/documents/doc1", "*")
+        api_client.expect_not_modified(response)
 
     def test_if_none_match_star_with_nonexistent_resource_returns_404(self, api):
         """Test If-None-Match: * with nonexistent resource returns 404."""
-        response = api.get_if_none_match("/documents/nonexistent", "*")
-        api.expect_not_found(response)
+        api_client, driver_name = api
+
+        response = api_client.get_if_none_match("/documents/nonexistent", "*")
+        api_client.expect_not_found(response)
 
     def test_if_none_match_with_post_creates_conflict(self, api):
         """Test If-None-Match with POST should prevent creation if resource exists."""
-        # This would be more relevant for PUT, but testing POST behavior
+        api_client, driver_name = api
+
         create_data = {"title": "New Document"}
 
         # Use If-None-Match with POST (unusual but valid scenario)
-        request = api.post("/documents").with_json_body(create_data).accepts("application/json")
+        request = api_client.post("/documents").with_json_body(create_data).accepts("application/json")
         request = request.with_header("If-None-Match", "*")
 
-        response = api.execute(request)
+        response = api_client.execute(request)
         # Behavior depends on implementation - could be 201 (created) or 412 (precondition failed)
         assert response.status_code in [201, 412]
 
     def test_if_none_match_with_multiple_etags(self, api):
         """Test If-None-Match with multiple ETags."""
+        api_client, driver_name = api
+
         # Get current ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         current_etag = response1.get_header("ETag")
 
         # Request with multiple ETags including the current one
         multiple_etags = f'"old-etag-1", {current_etag}, "old-etag-2"'
-        response2 = api.get_if_none_match("/documents/doc1", multiple_etags)
-        api.expect_not_modified(response2)
+        response2 = api_client.get_if_none_match("/documents/doc1", multiple_etags)
+        api_client.expect_not_modified(response2)
 
     def test_if_none_match_with_multiple_etags_no_match(self, api):
         """Test If-None-Match with multiple ETags where none match."""
+        api_client, driver_name = api
+
         multiple_etags = '"old-etag-1", "old-etag-2", "old-etag-3"'
-        response = api.get_if_none_match("/documents/doc1", multiple_etags)
-        data = api.expect_successful_retrieval(response)
+        response = api_client.get_if_none_match("/documents/doc1", multiple_etags)
+        data = api_client.expect_successful_retrieval(response)
         assert data["id"] == "doc1"
 
 
-class TestIfMatchHeaders:
-    """Test If-Match header handling."""
+class TestIfMatchHeaders(MultiDriverTestBase):
+    """Test If-Match header handling across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API for If-Match testing."""
+    # Conditional requests only work with direct and AWS Lambda drivers
+    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+
+    @pytest.fixture(scope="function")
+    def api(self, request):
+        """
+        Function-scoped fixture for stateful tests.
+
+        Creates a new app instance for each test to prevent state leakage.
+        """
+        from tests.framework.dsl import RestApiDsl
+
+        driver_name = request.param
+        app = self.create_app()
+        driver = self.create_driver(driver_name, app)
+
+        # HTTP drivers need to be started/stopped with context manager
+        if driver_name.startswith('uvicorn-') or driver_name.startswith('hypercorn-'):
+            with driver as active_driver:
+                import time
+                time.sleep(0.05)
+                yield RestApiDsl(active_driver), driver_name
+        else:
+            # Direct and Lambda drivers don't need context manager
+            yield RestApiDsl(driver), driver_name
+
+    def create_app(self) -> RestApplication:
+        """Create app for If-Match testing."""
         app = RestApplication()
 
         documents = {
@@ -273,76 +346,90 @@ class TestIfMatchHeaders:
             del documents[doc_id]
             return None
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_if_match_with_correct_etag_allows_update(self, api):
         """Test If-Match with correct ETag allows update."""
+        api_client, driver_name = api
+
         # Get current ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         etag = response1.get_header("ETag")
 
         # Update with correct ETag
         update_data = {"title": "Updated Document"}
-        response2 = api.update_if_match("/documents/doc1", update_data, etag)
-        data = api.expect_successful_retrieval(response2)
+        response2 = api_client.update_if_match("/documents/doc1", update_data, etag)
+        data = api_client.expect_successful_retrieval(response2)
         assert data["title"] == "Updated Document"
         assert data["version"] == 2
 
     def test_if_match_with_wrong_etag_returns_412(self, api):
         """Test If-Match with wrong ETag returns 412."""
+        api_client, driver_name = api
+
         wrong_etag = '"wrong-etag"'
         update_data = {"title": "Should Not Update"}
-        response = api.update_if_match("/documents/doc1", update_data, wrong_etag)
-        api.expect_precondition_failed(response)
+        response = api_client.update_if_match("/documents/doc1", update_data, wrong_etag)
+        api_client.expect_precondition_failed(response)
 
     def test_if_match_star_with_existing_resource_allows_update(self, api):
         """Test If-Match: * with existing resource allows update."""
+        api_client, driver_name = api
+
         update_data = {"title": "Updated with Star"}
-        response = api.update_if_match("/documents/doc1", update_data, "*")
-        data = api.expect_successful_retrieval(response)
+        response = api_client.update_if_match("/documents/doc1", update_data, "*")
+        data = api_client.expect_successful_retrieval(response)
         assert data["title"] == "Updated with Star"
 
     def test_if_match_star_with_nonexistent_resource_returns_404(self, api):
         """Test If-Match: * with nonexistent resource returns 404 (restmachine behavior)."""
+        api_client, driver_name = api
+
         update_data = {"title": "Should Not Create"}
-        response = api.update_if_match("/documents/nonexistent", update_data, "*")
-        api.expect_not_found(response)
+        response = api_client.update_if_match("/documents/nonexistent", update_data, "*")
+        api_client.expect_not_found(response)
 
     def test_if_match_with_delete_operation(self, api):
         """Test If-Match with DELETE operation."""
+        api_client, driver_name = api
+
         # Get current ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         etag = response1.get_header("ETag")
 
         # Delete with correct ETag
-        request = api.delete("/documents/doc1").with_header("If-Match", etag).accepts("application/json")
-        response2 = api.execute(request)
-        api.expect_no_content(response2)
+        request = api_client.delete("/documents/doc1").with_header("If-Match", etag).accepts("application/json")
+        response2 = api_client.execute(request)
+        api_client.expect_no_content(response2)
 
         # Verify deletion
-        response3 = api.get_resource("/documents/doc1")
-        api.expect_not_found(response3)
+        response3 = api_client.get_resource("/documents/doc1")
+        api_client.expect_not_found(response3)
 
     def test_if_match_with_multiple_etags(self, api):
         """Test If-Match with multiple ETags."""
+        api_client, driver_name = api
+
         # Get current ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         current_etag = response1.get_header("ETag")
 
         # Update with multiple ETags including the current one
         multiple_etags = f'"old-etag", {current_etag}, "another-old-etag"'
         update_data = {"title": "Updated with Multiple ETags"}
-        response2 = api.update_if_match("/documents/doc1", update_data, multiple_etags)
-        data = api.expect_successful_retrieval(response2)
+        response2 = api_client.update_if_match("/documents/doc1", update_data, multiple_etags)
+        data = api_client.expect_successful_retrieval(response2)
         assert data["title"] == "Updated with Multiple ETags"
 
 
-class TestLastModifiedHeaders:
-    """Test Last-Modified header handling."""
+class TestLastModifiedHeaders(MultiDriverTestBase):
+    """Test Last-Modified header handling across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API with Last-Modified support."""
+    # Conditional requests only work with direct and AWS Lambda drivers
+    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+
+    def create_app(self) -> RestApplication:
+        """Create app with Last-Modified support."""
         app = RestApplication()
 
         # Documents with last modified timestamps
@@ -389,62 +476,74 @@ class TestLastModifiedHeaders:
             doc["last_modified"] = doc["last_modified"].isoformat()
             return doc
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_last_modified_header_present(self, api):
         """Test that Last-Modified header is present."""
-        response = api.get_resource("/documents/doc1")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/documents/doc1")
+        api_client.expect_successful_retrieval(response)
 
         last_modified = response.get_header("Last-Modified")
         assert last_modified is not None
 
     def test_if_modified_since_with_newer_modification(self, api):
         """Test If-Modified-Since when resource was modified after the date."""
+        api_client, driver_name = api
+
         # Use a date before the document's last modified time
         old_date = "Mon, 01 Jan 2024 10:00:00 GMT"
-        response = api.get_if_modified_since("/documents/doc1", old_date)
-        data = api.expect_successful_retrieval(response)
+        response = api_client.get_if_modified_since("/documents/doc1", old_date)
+        data = api_client.expect_successful_retrieval(response)
         assert data["id"] == "doc1"
 
     def test_if_modified_since_with_older_modification(self, api):
         """Test If-Modified-Since when resource wasn't modified after the date."""
+        api_client, driver_name = api
+
         # Use a date after the document's last modified time
         future_date = "Wed, 01 Jan 2025 10:00:00 GMT"
-        response = api.get_if_modified_since("/documents/doc1", future_date)
-        api.expect_not_modified(response)
+        response = api_client.get_if_modified_since("/documents/doc1", future_date)
+        api_client.expect_not_modified(response)
 
     def test_if_unmodified_since_with_newer_modification(self, api):
         """Test If-Unmodified-Since when resource was modified after the date."""
+        api_client, driver_name = api
+
         # Use a date before the document's last modified time
         old_date = "Mon, 01 Jan 2024 10:00:00 GMT"
-        request = (api.put("/documents/doc1")
+        request = (api_client.put("/documents/doc1")
                   .with_json_body({"title": "Should Not Update"})
                   .with_header("If-Unmodified-Since", old_date)
                   .accepts("application/json"))
-        response = api.execute(request)
-        api.expect_precondition_failed(response)
+        response = api_client.execute(request)
+        api_client.expect_precondition_failed(response)
 
     def test_if_unmodified_since_with_older_modification(self, api):
         """Test If-Unmodified-Since when resource wasn't modified after the date."""
+        api_client, driver_name = api
+
         # Use a date after the document's last modified time
         future_date = "Wed, 01 Jan 2025 10:00:00 GMT"
         update_data = {"title": "Updated Document"}
-        request = (api.put("/documents/doc1")
+        request = (api_client.put("/documents/doc1")
                   .with_json_body(update_data)
                   .with_header("If-Unmodified-Since", future_date)
                   .accepts("application/json"))
-        response = api.execute(request)
-        data = api.expect_successful_retrieval(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_retrieval(response)
         assert data["title"] == "Updated Document"
 
 
-class TestCombinedConditionalHeaders:
-    """Test combinations of conditional headers."""
+class TestCombinedConditionalHeaders(MultiDriverTestBase):
+    """Test combinations of conditional headers across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API with both ETag and Last-Modified support."""
+    # Conditional requests only work with direct and AWS Lambda drivers
+    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+
+    def create_app(self) -> RestApplication:
+        """Create app with both ETag and Last-Modified support."""
         app = RestApplication()
 
         base_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
@@ -493,12 +592,14 @@ class TestCombinedConditionalHeaders:
             doc["last_modified"] = doc["last_modified"].isoformat()
             return doc
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_both_etag_and_last_modified_present(self, api):
         """Test that both ETag and Last-Modified headers are present."""
-        response = api.get_resource("/documents/doc1")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/documents/doc1")
+        api_client.expect_successful_retrieval(response)
 
         etag = response.get_header("ETag")
         last_modified = response.get_header("Last-Modified")
@@ -509,68 +610,76 @@ class TestCombinedConditionalHeaders:
 
     def test_if_match_and_if_unmodified_since_both_pass(self, api):
         """Test update when both If-Match and If-Unmodified-Since conditions pass."""
+        api_client, driver_name = api
+
         # Get current ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         etag = response1.get_header("ETag")
 
         # Update with both conditions
         update_data = {"title": "Updated with Both Conditions"}
         future_date = "Wed, 01 Jan 2025 10:00:00 GMT"
 
-        request = (api.put("/documents/doc1")
+        request = (api_client.put("/documents/doc1")
                   .with_json_body(update_data)
                   .with_header("If-Match", etag)
                   .with_header("If-Unmodified-Since", future_date)
                   .accepts("application/json"))
 
-        response2 = api.execute(request)
-        data = api.expect_successful_retrieval(response2)
+        response2 = api_client.execute(request)
+        data = api_client.expect_successful_retrieval(response2)
         assert data["title"] == "Updated with Both Conditions"
 
     def test_if_match_passes_if_unmodified_since_fails(self, api):
         """Test behavior when If-Match passes but If-Unmodified-Since fails."""
+        api_client, driver_name = api
+
         # Get current ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         etag = response1.get_header("ETag")
 
         # Try to update with valid ETag but old date
         update_data = {"title": "Should Not Update"}
         old_date = "Mon, 01 Jan 2024 10:00:00 GMT"
 
-        request = (api.put("/documents/doc1")
+        request = (api_client.put("/documents/doc1")
                   .with_json_body(update_data)
                   .with_header("If-Match", etag)
                   .with_header("If-Unmodified-Since", old_date)
                   .accepts("application/json"))
 
-        response2 = api.execute(request)
+        response2 = api_client.execute(request)
         # Should fail because If-Unmodified-Since condition fails
-        api.expect_precondition_failed(response2)
+        api_client.expect_precondition_failed(response2)
 
     def test_if_none_match_and_if_modified_since_both_return_304(self, api):
         """Test when both If-None-Match and If-Modified-Since return 304."""
+        api_client, driver_name = api
+
         # Get current ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         etag = response1.get_header("ETag")
 
         # Request with both conditions that should return 304
         future_date = "Wed, 01 Jan 2025 10:00:00 GMT"
 
-        request = (api.get("/documents/doc1")
+        request = (api_client.get("/documents/doc1")
                   .with_header("If-None-Match", etag)
                   .with_header("If-Modified-Since", future_date)
                   .accepts("application/json"))
 
-        response2 = api.execute(request)
-        api.expect_not_modified(response2)
+        response2 = api_client.execute(request)
+        api_client.expect_not_modified(response2)
 
 
-class TestConditionalRequestsAcrossDrivers:
-    """Test conditional requests work consistently across drivers."""
+class TestConditionalRequestsConsistency(MultiDriverTestBase):
+    """Test conditional requests work consistently across all drivers."""
 
-    @pytest.fixture(params=['direct', 'aws_lambda'])
-    def api(self, request):
-        """Parametrized fixture for testing across drivers."""
+    # Conditional requests only work with direct and AWS Lambda drivers
+    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+
+    def create_app(self) -> RestApplication:
+        """Create app for cross-driver conditional request testing."""
         app = RestApplication()
 
         documents = {
@@ -601,18 +710,14 @@ class TestConditionalRequestsAcrossDrivers:
             documents[doc_id]["version"] += 1
             return documents[doc_id]
 
-        # Select driver
-        if request.param == 'direct':
-            driver = RestMachineDriver(app)
-        else:
-            driver = AwsLambdaDriver(app)
-
-        return RestApiDsl(driver)
+        return app
 
     def test_etag_generation_across_drivers(self, api):
         """Test ETag generation works across drivers."""
-        response = api.get_resource("/documents/doc1")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/documents/doc1")
+        api_client.expect_successful_retrieval(response)
 
         etag = response.get_header("ETag")
         assert etag is not None
@@ -620,23 +725,27 @@ class TestConditionalRequestsAcrossDrivers:
 
     def test_if_none_match_across_drivers(self, api):
         """Test If-None-Match works across drivers."""
+        api_client, driver_name = api
+
         # Get ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         etag = response1.get_header("ETag")
 
         # Test If-None-Match
-        response2 = api.get_if_none_match("/documents/doc1", etag)
-        api.expect_not_modified(response2)
+        response2 = api_client.get_if_none_match("/documents/doc1", etag)
+        api_client.expect_not_modified(response2)
 
     def test_if_match_across_drivers(self, api):
         """Test If-Match works across drivers."""
+        api_client, driver_name = api
+
         # Get ETag
-        response1 = api.get_resource("/documents/doc1")
+        response1 = api_client.get_resource("/documents/doc1")
         etag = response1.get_header("ETag")
 
         # Update with If-Match
         update_data = {"title": "Updated Across Drivers"}
-        response2 = api.update_if_match("/documents/doc1", update_data, etag)
-        data = api.expect_successful_retrieval(response2)
+        response2 = api_client.update_if_match("/documents/doc1", update_data, etag)
+        data = api_client.expect_successful_retrieval(response2)
         assert data["title"] == "Updated Across Drivers"
         assert data["version"] == 2

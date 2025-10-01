@@ -2,9 +2,10 @@
 Pytest configuration for multi-driver testing.
 
 This file sets up automatic parametrization for test classes that inherit from
-MultiDriverTestBase.
+MultiDriverTestBase and adds driver-specific markers.
 """
 
+import pytest
 from tests.framework.multi_driver_base import MultiDriverTestBase
 
 
@@ -31,3 +32,27 @@ def pytest_generate_tests(metafunc):
             indirect=True,
             ids=[f"driver-{d}" for d in drivers]
         )
+
+
+def pytest_collection_modifyitems(config, items):
+    """
+    Pytest hook to add driver-specific markers to parametrized tests.
+
+    This allows running tests for specific drivers using markers like:
+        pytest -m driver_direct
+        pytest -m "driver_direct or driver_aws_lambda"
+        pytest -m "not driver_uvicorn_http1"
+    """
+    for item in items:
+        # Check if this test has a parametrized driver (look for 'driver-' in the node id)
+        if 'driver-' in item.nodeid:
+            # Extract driver name from the node id (e.g., "driver-direct" -> "direct")
+            parts = item.nodeid.split('[')
+            if len(parts) > 1:
+                param_part = parts[-1].rstrip(']')
+                if param_part.startswith('driver-'):
+                    driver_name = param_part.replace('driver-', '')
+                    # Convert driver name to marker name (e.g., "aws_lambda" -> "driver_aws_lambda")
+                    # Replace hyphens with underscores for marker names
+                    marker_name = f"driver_{driver_name.replace('-', '_')}"
+                    item.add_marker(getattr(pytest.mark, marker_name))

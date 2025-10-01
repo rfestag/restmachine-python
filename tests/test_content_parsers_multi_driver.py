@@ -1,23 +1,21 @@
 """
-Refactored advanced content type tests using 4-layer architecture.
+Content type and parser tests using multi-driver approach.
 
 Tests for multipart form data, content-type with charset, complex parser
-injection scenarios, and edge cases in content handling.
+injection scenarios, custom content parsers, and content negotiation.
 """
 
-import pytest
 from urllib.parse import urlencode
 
 from restmachine import RestApplication
-from tests.framework import RestApiDsl, RestMachineDriver, AwsLambdaDriver
+from tests.framework import MultiDriverTestBase
 
 
-class TestMultipartFormData:
-    """Test multipart form data handling."""
+class TestMultipartFormData(MultiDriverTestBase):
+    """Test multipart form data handling across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API for multipart form testing."""
+    def create_app(self) -> RestApplication:
+        """Create app with multipart handling."""
         app = RestApplication()
 
         @app.post("/upload")
@@ -46,10 +44,12 @@ class TestMultipartFormData:
             else:
                 return {"error": "Invalid multipart data"}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_multipart_form_data_basic(self, api):
         """Test basic multipart form data handling."""
+        api_client, driver_name = api
+
         # Simulate multipart form data
         multipart_data = (
             "--boundary123\r\n"
@@ -63,19 +63,21 @@ class TestMultipartFormData:
             "--boundary123--\r\n"
         )
 
-        request = (api.post("/upload")
+        request = (api_client.post("/upload")
                   .with_text_body(multipart_data)
                   .with_header("Content-Type", "multipart/form-data; boundary=boundary123")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["received"] is True
         assert data["content_length"] > 0
 
     def test_multipart_with_file_upload(self, api):
         """Test multipart form data with file upload simulation."""
+        api_client, driver_name = api
+
         # Simulate file upload in multipart data
         multipart_data = (
             "--boundary456\r\n"
@@ -90,19 +92,21 @@ class TestMultipartFormData:
             "--boundary456--\r\n"
         )
 
-        request = (api.post("/upload")
+        request = (api_client.post("/upload")
                   .with_text_body(multipart_data)
                   .with_header("Content-Type", "multipart/form-data; boundary=boundary456")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["received"] is True
         assert "This is file content" in multipart_data
 
     def test_multipart_parser_injection(self, api):
         """Test multipart parser dependency injection."""
+        api_client, driver_name = api
+
         multipart_data = (
             "--testboundary\r\n"
             "Content-Disposition: form-data; name=\"test_field\"\r\n"
@@ -111,25 +115,24 @@ class TestMultipartFormData:
             "--testboundary--\r\n"
         )
 
-        request = (api.post("/multipart")
+        request = (api_client.post("/multipart")
                   .with_text_body(multipart_data)
                   .with_header("Content-Type", "multipart/form-data; boundary=testboundary")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["processed"] is True
         assert data["data"]["type"] == "multipart"
         assert data["data"]["parsed"] is True
 
 
-class TestContentTypeWithCharset:
-    """Test content type handling with charset parameters."""
+class TestContentTypeWithCharset(MultiDriverTestBase):
+    """Test content type handling with charset parameters across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API for charset testing."""
+    def create_app(self) -> RestApplication:
+        """Create app with charset handling."""
         app = RestApplication()
 
         @app.post("/text")
@@ -148,76 +151,83 @@ class TestContentTypeWithCharset:
                 "type": "json"
             }
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_json_with_utf8_charset(self, api):
         """Test JSON with UTF-8 charset."""
+        api_client, driver_name = api
+
         json_data = {"message": "Hello, 世界!"}
 
-        request = (api.post("/json")
+        request = (api_client.post("/json")
                   .with_json_body(json_data)
                   .with_header("Content-Type", "application/json; charset=utf-8")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["received_json"]["message"] == "Hello, 世界!"
         assert data["type"] == "json"
 
     def test_text_with_different_charsets(self, api):
         """Test text content with different charset declarations."""
+        api_client, driver_name = api
+
         text_content = "Hello, world with special chars: ñáéíóú"
 
         # Test with UTF-8 charset
-        request = (api.post("/text")
+        request = (api_client.post("/text")
                   .with_text_body(text_content)
                   .with_header("Content-Type", "text/plain; charset=utf-8")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["received_text"] == text_content
         assert data["length"] > 0
 
     def test_form_data_with_charset(self, api):
         """Test form data with charset parameter."""
+        api_client, driver_name = api
+
         form_data = {"name": "José María", "city": "São Paulo"}
         encoded_data = urlencode(form_data)
 
-        request = (api.post("/text")
+        request = (api_client.post("/text")
                   .with_text_body(encoded_data)
                   .with_header("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert "Jos" in data["received_text"]  # Should contain part of José
         assert "Paulo" in data["received_text"]
 
     def test_content_type_case_insensitive_charset(self, api):
         """Test that charset parameter is case insensitive."""
+        api_client, driver_name = api
+
         json_data = {"test": "value"}
 
-        request = (api.post("/json")
+        request = (api_client.post("/json")
                   .with_json_body(json_data)
                   .with_header("Content-Type", "application/json; CHARSET=UTF-8")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["received_json"]["test"] == "value"
 
 
-class TestComplexContentParsers:
-    """Test complex content parser scenarios."""
+class TestComplexContentParsers(MultiDriverTestBase):
+    """Test complex content parser scenarios across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API with multiple custom parsers."""
+    def create_app(self) -> RestApplication:
+        """Create app with multiple custom parsers."""
         app = RestApplication()
 
         @app.accepts("application/xml")
@@ -267,19 +277,21 @@ class TestComplexContentParsers:
             # Return the parsed data from whichever parser was used
             return {"result": parsed_data}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_xml_parser_selection(self, api):
         """Test XML parser selection and processing."""
+        api_client, driver_name = api
+
         xml_content = "<root><item>value</item></root>"
 
-        request = (api.post("/process")
+        request = (api_client.post("/process")
                   .with_text_body(xml_content)
                   .with_header("Content-Type", "application/xml")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["result"]["format"] == "xml"
         assert data["result"]["parsed_at"] == "xml_parser"
@@ -287,15 +299,17 @@ class TestComplexContentParsers:
 
     def test_yaml_parser_selection(self, api):
         """Test YAML parser selection and processing."""
+        api_client, driver_name = api
+
         yaml_content = "key: value\nlist:\n  - item1\n  - item2"
 
-        request = (api.post("/process")
+        request = (api_client.post("/process")
                   .with_text_body(yaml_content)
                   .with_header("Content-Type", "application/yaml")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["result"]["format"] == "yaml"
         assert data["result"]["parsed_at"] == "yaml_parser"
@@ -303,15 +317,17 @@ class TestComplexContentParsers:
 
     def test_csv_parser_selection(self, api):
         """Test CSV parser selection and processing."""
+        api_client, driver_name = api
+
         csv_content = "name,age,city\nJohn,30,NYC\nJane,25,LA"
 
-        request = (api.post("/process")
+        request = (api_client.post("/process")
                   .with_text_body(csv_content)
                   .with_header("Content-Type", "text/csv")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["result"]["format"] == "csv"
         assert data["result"]["parsed_at"] == "csv_parser"
@@ -319,15 +335,17 @@ class TestComplexContentParsers:
 
     def test_custom_json_parser_selection(self, api):
         """Test custom JSON variant parser."""
+        api_client, driver_name = api
+
         json_content = '{"type": "custom", "value": 42}'
 
-        request = (api.post("/process")
+        request = (api_client.post("/process")
                   .with_text_body(json_content)
                   .with_header("Content-Type", "application/custom+json")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["result"]["format"] == "custom_json"
         assert data["result"]["parsed_at"] == "custom_json_parser"
@@ -336,23 +354,24 @@ class TestComplexContentParsers:
 
     def test_unsupported_content_type_with_required_parser(self, api):
         """Test unsupported content type when parser is required."""
-        request = (api.post("/process")
+        api_client, driver_name = api
+
+        request = (api_client.post("/process")
                   .with_text_body("some content")
                   .with_header("Content-Type", "application/unsupported")
                   .accepts("application/json"))
 
-        response = api.execute(request)
+        response = api_client.execute(request)
 
         # Should return 415/400 since no parser matched for required content type
         assert response.status_code in [400, 415]
 
 
-class TestParserErrorHandling:
-    """Test error handling in content parsers."""
+class TestParserErrorHandling(MultiDriverTestBase):
+    """Test error handling in content parsers across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API for parser error testing."""
+    def create_app(self) -> RestApplication:
+        """Create app with strict parsers for error testing."""
         app = RestApplication()
 
         @app.accepts("application/json")
@@ -383,18 +402,20 @@ class TestParserErrorHandling:
             """Handle strictly parsed XML."""
             return {"data": parsed_data, "parser": "strict"}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_json_parser_error_handling(self, api):
         """Test JSON parser error handling."""
+        api_client, driver_name = api
+
         invalid_json = '{"incomplete": json'
 
-        request = (api.post("/strict-json")
+        request = (api_client.post("/strict-json")
                   .with_text_body(invalid_json)
                   .with_header("Content-Type", "application/json")
                   .accepts("application/json"))
 
-        response = api.execute(request)
+        response = api_client.execute(request)
         assert response.status_code == 422  # Unprocessable Entity
 
         error_data = response.get_json_body()
@@ -402,14 +423,16 @@ class TestParserErrorHandling:
 
     def test_xml_parser_error_handling(self, api):
         """Test XML parser error handling."""
+        api_client, driver_name = api
+
         invalid_xml = "not xml content"
 
-        request = (api.post("/strict-xml")
+        request = (api_client.post("/strict-xml")
                   .with_text_body(invalid_xml)
                   .with_header("Content-Type", "application/xml")
                   .accepts("application/json"))
 
-        response = api.execute(request)
+        response = api_client.execute(request)
         assert response.status_code == 422
 
         error_data = response.get_json_body()
@@ -417,39 +440,42 @@ class TestParserErrorHandling:
 
     def test_xml_parser_forbidden_content_error(self, api):
         """Test XML parser with forbidden content."""
+        api_client, driver_name = api
+
         forbidden_xml = "<root>invalid content</root>"
 
-        request = (api.post("/strict-xml")
+        request = (api_client.post("/strict-xml")
                   .with_text_body(forbidden_xml)
                   .with_header("Content-Type", "application/xml")
                   .accepts("application/json"))
 
-        response = api.execute(request)
+        response = api_client.execute(request)
         assert response.status_code == 422
 
     def test_valid_json_after_error_scenarios(self, api):
         """Test that valid JSON still works after error scenarios."""
+        api_client, driver_name = api
+
         valid_json = '{"valid": "json", "number": 42}'
 
-        request = (api.post("/strict-json")
+        request = (api_client.post("/strict-json")
                   .with_text_body(valid_json)
                   .with_header("Content-Type", "application/json")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_creation(response)
 
         assert data["data"]["valid"] == "json"
         assert data["data"]["number"] == 42
         assert data["parser"] == "strict"
 
 
-class TestContentNegotiationEdgeCases:
-    """Test edge cases in content negotiation."""
+class TestContentNegotiationEdgeCases(MultiDriverTestBase):
+    """Test edge cases in content negotiation across all drivers."""
 
-    @pytest.fixture
-    def api(self):
-        """Set up API for content negotiation edge cases."""
+    def create_app(self) -> RestApplication:
+        """Create app with multiple response renderers."""
         app = RestApplication()
 
         @app.get("/data")
@@ -472,17 +498,19 @@ class TestContentNegotiationEdgeCases:
             data = get_data
             return f"<data><message>{data['message']}</message><timestamp>{data['timestamp']}</timestamp></data>"
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_accept_header_with_quality_values(self, api):
         """Test Accept header with quality values."""
+        api_client, driver_name = api
+
         # Request with quality preferences
-        request = (api.get("/data")
+        request = (api_client.get("/data")
                   .with_header("Accept", "text/html;q=0.9, application/json;q=1.0, text/plain;q=0.8")
                   .accepts("application/json"))
 
-        response = api.execute(request)
-        data = api.expect_successful_retrieval(response)
+        response = api_client.execute(request)
+        data = api_client.expect_successful_retrieval(response)
 
         # Should prefer JSON (q=1.0)
         assert response.content_type == "application/json"
@@ -490,8 +518,10 @@ class TestContentNegotiationEdgeCases:
 
     def test_accept_header_with_wildcards(self, api):
         """Test Accept header with wildcard types."""
-        request = api.get("/data").with_header("Accept", "text/*")
-        response = api.execute(request)
+        api_client, driver_name = api
+
+        request = api_client.get("/data").with_header("Accept", "text/*")
+        response = api_client.execute(request)
 
         # restmachine doesn't support partial wildcards like text/*
         assert response.status_code == 406
@@ -499,8 +529,10 @@ class TestContentNegotiationEdgeCases:
 
     def test_accept_all_wildcard(self, api):
         """Test Accept: */* header."""
-        request = api.get("/data").with_header("Accept", "*/*")
-        response = api.execute(request)
+        api_client, driver_name = api
+
+        request = api_client.get("/data").with_header("Accept", "*/*")
+        response = api_client.execute(request)
 
         assert response.status_code == 200
         # Should return some content type
@@ -508,19 +540,23 @@ class TestContentNegotiationEdgeCases:
 
     def test_multiple_accept_types_first_available(self, api):
         """Test multiple Accept types where first available is chosen."""
-        request = (api.get("/data")
+        api_client, driver_name = api
+
+        request = (api_client.get("/data")
                   .with_header("Accept", "application/pdf, text/html, application/json"))
 
-        response = api.execute(request)
+        response = api_client.execute(request)
         assert response.status_code == 200
         # Should choose the first available type (text/html)
         assert response.content_type == "text/html"
 
     def test_no_accept_header_defaults_to_json(self, api):
         """Test that no Accept header defaults to first available renderer."""
-        request = api.get("/data")
+        api_client, driver_name = api
+
+        request = api_client.get("/data")
         # Don't set Accept header
-        response = api.execute(request)
+        response = api_client.execute(request)
 
         assert response.status_code == 200
         # restmachine defaults to first available renderer (text/html in this case)
@@ -529,61 +565,152 @@ class TestContentNegotiationEdgeCases:
 
     def test_unsupported_accept_type_returns_406(self, api):
         """Test that unsupported Accept type returns 406."""
-        request = api.get("/data").with_header("Accept", "application/pdf")
-        response = api.execute(request)
+        api_client, driver_name = api
+
+        request = api_client.get("/data").with_header("Accept", "application/pdf")
+        response = api_client.execute(request)
 
         assert response.status_code == 406  # Not Acceptable
 
 
-class TestContentTypeAcrossDrivers:
-    """Test content type handling consistency across drivers."""
+class TestBasicContentHandling(MultiDriverTestBase):
+    """Test basic content type parsing and handling across all drivers."""
 
-    @pytest.fixture(params=['direct', 'aws_lambda'])
-    def api(self, request):
-        """Parametrized fixture for testing across drivers."""
+    def create_app(self) -> RestApplication:
+        """Create app with basic content type handling."""
         app = RestApplication()
 
-        @app.accepts("application/custom")
-        def parse_custom(body: str):
-            return {"custom": True, "content": body}
+        @app.post("/items")
+        def create_item(json_body):
+            return {"message": "Item created", "data": json_body}
 
-        @app.post("/custom")
-        def handle_custom(parsed_data):
-            return {"received": parsed_data}
+        @app.post("/forms")
+        def submit_form(form_body):
+            return {"message": "Form submitted", "data": form_body}
 
-        @app.post("/json")
-        def handle_json(json_body):
-            return {"received": json_body}
+        @app.post("/text")
+        def submit_text(text_body):
+            return {"message": "Text received", "content": text_body}
 
-        # Select driver
-        if request.param == 'direct':
-            driver = RestMachineDriver(app)
-        else:
-            driver = AwsLambdaDriver(app)
+        return app
 
-        return RestApiDsl(driver)
+    def test_can_parse_json_body(self, api):
+        """Test that JSON request bodies are parsed correctly."""
+        api_client, driver_name = api
 
-    def test_custom_content_type_across_drivers(self, api):
-        """Test custom content type parsing across drivers."""
-        custom_content = "custom format data"
+        data = {"name": "Test Item", "value": 42}
 
-        request = (api.post("/custom")
-                  .with_text_body(custom_content)
-                  .with_header("Content-Type", "application/custom")
-                  .accepts("application/json"))
+        response = api_client.create_resource("/items", data)
+        result = api_client.expect_successful_creation(response)
 
-        response = api.execute(request)
-        data = api.expect_successful_creation(response)
+        assert result["data"]["name"] == "Test Item"
+        assert result["data"]["value"] == 42
 
-        assert data["received"]["custom"] is True
-        assert data["received"]["content"] == custom_content
+    def test_can_parse_form_body(self, api):
+        """Test that form-encoded bodies are parsed correctly."""
+        api_client, driver_name = api
 
-    def test_json_handling_across_drivers(self, api):
-        """Test JSON handling consistency across drivers."""
-        json_data = {"test": "value", "number": 42}
+        form_data = {"username": "testuser", "password": "secret"}
 
-        response = api.create_resource("/json", json_data)
-        data = api.expect_successful_creation(response)
+        request = api_client.post("/forms").with_form_body(form_data).accepts("application/json")
+        response = api_client.execute(request)
 
-        assert data["received"]["test"] == "value"
-        assert data["received"]["number"] == 42
+        result = api_client.expect_successful_creation(response)
+        assert result["data"]["username"] == "testuser"
+        assert result["data"]["password"] == "secret"
+
+    def test_can_parse_text_body(self, api):
+        """Test that text bodies are handled correctly."""
+        api_client, driver_name = api
+
+        text_content = "This is plain text content"
+
+        request = api_client.post("/text").with_text_body(text_content).accepts("application/json")
+        response = api_client.execute(request)
+
+        result = api_client.expect_successful_creation(response)
+        assert result["content"] == text_content
+
+    def test_empty_body_handling(self, api):
+        """Test that empty bodies are handled gracefully."""
+        api_client, driver_name = api
+
+        request = api_client.post("/items").accepts("application/json")
+        response = api_client.execute(request)
+
+        result = api_client.expect_successful_creation(response)
+        assert result["data"] is None
+
+
+class TestResponseRendering(MultiDriverTestBase):
+    """Test response rendering in different formats across all drivers."""
+
+    def create_app(self) -> RestApplication:
+        """Create app with multiple response formats."""
+        app = RestApplication()
+
+        @app.get("/resource")
+        def get_resource():
+            return {"id": 1, "title": "Test Resource", "description": "A test resource"}
+
+        @app.renders("text/html")
+        def render_html(get_resource):
+            data = get_resource
+            return f"""
+            <div class="resource">
+                <h1>{data['title']}</h1>
+                <p>ID: {data['id']}</p>
+                <p>{data['description']}</p>
+            </div>
+            """
+
+        @app.renders("text/plain")
+        def render_text(get_resource):
+            data = get_resource
+            return f"Resource {data['id']}: {data['title']} - {data['description']}"
+
+        return app
+
+    def test_json_response_by_default(self, api):
+        """Test that JSON is returned by default."""
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/resource")
+
+        data = api_client.expect_successful_retrieval(response)
+        assert data["id"] == 1
+        assert data["title"] == "Test Resource"
+        assert response.content_type == "application/json"
+
+    def test_html_response_when_requested(self, api):
+        """Test that HTML is returned when requested."""
+        api_client, driver_name = api
+
+        response = api_client.get_as_html("/resource")
+
+        assert response.status_code == 200
+        assert response.content_type == "text/html"
+        html_content = response.get_text_body()
+        assert "<h1>Test Resource</h1>" in html_content
+        assert "ID: 1" in html_content
+
+    def test_text_response_when_requested(self, api):
+        """Test that plain text is returned when requested."""
+        api_client, driver_name = api
+
+        request = api_client.get("/resource").accepts("text/plain")
+        response = api_client.execute(request)
+
+        assert response.status_code == 200
+        assert response.content_type == "text/plain"
+        text_content = response.get_text_body()
+        assert "Resource 1: Test Resource" in text_content
+
+    def test_unsupported_accept_type_returns_406(self, api):
+        """Test that unsupported Accept header returns 406."""
+        api_client, driver_name = api
+
+        request = api_client.get("/resource").accepts("application/pdf")
+        response = api_client.execute(request)
+
+        assert response.status_code == 406

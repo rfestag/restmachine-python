@@ -1,5 +1,5 @@
 """
-Refactored advanced default headers tests using 4-layer architecture.
+Advanced default headers tests using multi-driver architecture.
 
 Tests for route-specific vs global headers, header modification in-place,
 header dependency caching, and error handling in header functions.
@@ -9,14 +9,13 @@ import pytest
 from datetime import datetime
 
 from restmachine import RestApplication
-from tests.framework import RestApiDsl, RestMachineDriver, AwsLambdaDriver
+from tests.framework import MultiDriverTestBase
 
 
-class TestBasicDefaultHeaders:
+class TestBasicDefaultHeaders(MultiDriverTestBase):
     """Test basic default header functionality."""
 
-    @pytest.fixture
-    def api(self):
+    def create_app(self) -> RestApplication:
         """Set up API with basic default headers."""
         app = RestApplication()
 
@@ -37,12 +36,14 @@ class TestBasicDefaultHeaders:
         def create_endpoint(json_body):
             return {"created": json_body}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_default_headers_applied_to_get(self, api):
         """Test that default headers are applied to GET responses."""
-        response = api.get_resource("/test")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/test")
+        api_client.expect_successful_retrieval(response)
 
         # Check default headers
         assert response.get_header("X-API-Version") == "1.0"
@@ -52,9 +53,11 @@ class TestBasicDefaultHeaders:
 
     def test_default_headers_applied_to_post(self, api):
         """Test that default headers are applied to POST responses."""
+        api_client, driver_name = api
+
         test_data = {"name": "test"}
-        response = api.create_resource("/create", test_data)
-        api.expect_successful_creation(response)
+        response = api_client.create_resource("/create", test_data)
+        api_client.expect_successful_creation(response)
 
         # Check default headers
         assert response.get_header("X-API-Version") == "1.0"
@@ -63,8 +66,10 @@ class TestBasicDefaultHeaders:
 
     def test_default_headers_vary_by_request(self, api):
         """Test that default headers can vary by request."""
-        response1 = api.get_resource("/test")
-        response2 = api.get_resource("/create")  # Different path
+        api_client, driver_name = api
+
+        response1 = api_client.get_resource("/test")
+        response2 = api_client.get_resource("/create")  # Different path
 
         request_id1 = response1.get_header("X-Request-ID")
         request_id2 = response2.get_header("X-Request-ID")
@@ -73,11 +78,10 @@ class TestBasicDefaultHeaders:
         assert request_id1 != request_id2
 
 
-class TestConditionalHeaders:
+class TestConditionalHeaders(MultiDriverTestBase):
     """Test conditional header functionality based on request attributes."""
 
-    @pytest.fixture
-    def api(self):
+    def create_app(self) -> RestApplication:
         """Set up API with conditional headers."""
         app = RestApplication()
 
@@ -128,12 +132,14 @@ class TestConditionalHeaders:
         def create_endpoint(json_body):
             return {"created": json_body}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_global_headers_on_regular_endpoint(self, api):
         """Test that global headers are applied to regular endpoints."""
-        response = api.get_resource("/test")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/test")
+        api_client.expect_successful_retrieval(response)
 
         assert response.get_header("X-Global") == "true"
         assert response.get_header("X-Timestamp") is not None
@@ -144,8 +150,10 @@ class TestConditionalHeaders:
 
     def test_admin_conditional_headers(self, api):
         """Test that admin-specific headers are applied conditionally."""
-        response = api.get_resource("/admin/users")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/admin/users")
+        api_client.expect_successful_retrieval(response)
 
         # Should have global headers plus admin headers
         assert response.get_header("X-Global") == "true"
@@ -155,8 +163,10 @@ class TestConditionalHeaders:
 
     def test_admin_headers_on_different_endpoints(self, api):
         """Test that admin headers apply to all admin paths."""
-        response1 = api.get_resource("/admin/users")
-        response2 = api.get_resource("/admin/settings")
+        api_client, driver_name = api
+
+        response1 = api_client.get_resource("/admin/users")
+        response2 = api_client.get_resource("/admin/settings")
 
         # Both should have admin headers
         assert response1.get_header("X-Admin") == "true"
@@ -168,8 +178,10 @@ class TestConditionalHeaders:
 
     def test_api_conditional_headers(self, api):
         """Test that API-specific headers are applied conditionally."""
-        response = api.get_resource("/api/v1/data")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/api/v1/data")
+        api_client.expect_successful_retrieval(response)
 
         # Should have global headers plus API headers
         assert response.get_header("X-Global") == "true"
@@ -179,8 +191,10 @@ class TestConditionalHeaders:
 
     def test_api_headers_vary_by_path(self, api):
         """Test that API headers vary by request path."""
-        response1 = api.get_resource("/api/v1/data")
-        response2 = api.get_resource("/api/v1/status")
+        api_client, driver_name = api
+
+        response1 = api_client.get_resource("/api/v1/data")
+        response2 = api_client.get_resource("/api/v1/status")
 
         # Both should have API headers
         assert response1.get_header("X-API") == "true"
@@ -192,20 +206,21 @@ class TestConditionalHeaders:
 
     def test_method_conditional_headers(self, api):
         """Test headers that vary by HTTP method."""
+        api_client, driver_name = api
+
         # GET request - no POST header
-        get_response = api.get_resource("/test")
+        get_response = api_client.get_resource("/test")
         assert get_response.get_header("X-Post-Request") is None
 
         # POST request - should have POST header
-        post_response = api.create_resource("/create", {"test": "data"})
+        post_response = api_client.create_resource("/create", {"test": "data"})
         assert post_response.get_header("X-Post-Request") == "true"
 
 
-class TestHeaderReturnValues:
+class TestHeaderReturnValues(MultiDriverTestBase):
     """Test different return value patterns from header functions."""
 
-    @pytest.fixture
-    def api(self):
+    def create_app(self) -> RestApplication:
         """Set up API with different header return patterns."""
         app = RestApplication()
 
@@ -240,54 +255,82 @@ class TestHeaderReturnValues:
         def create_endpoint(json_body):
             return {"created": json_body}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_basic_header_generation(self, api):
         """Test basic header generation."""
-        response = api.get_resource("/test")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/test")
+        api_client.expect_successful_retrieval(response)
 
         assert response.get_header("X-Basic") == "true"
         assert response.get_header("X-Path") == "/test"
 
     def test_conditional_headers_by_method(self, api):
         """Test conditional header generation based on method."""
+        api_client, driver_name = api
+
         # GET request - no POST header
-        get_response = api.get_resource("/test")
+        get_response = api_client.get_resource("/test")
         assert get_response.get_header("X-Post-Request") is None
 
         # POST request - should have POST header
-        post_response = api.create_resource("/create", {"test": "data"})
+        post_response = api_client.create_resource("/create", {"test": "data"})
         assert post_response.get_header("X-Post-Request") == "true"
 
     def test_conditional_headers_by_path(self, api):
         """Test conditional header generation based on path."""
+        api_client, driver_name = api
+
         # Regular path - no admin header
-        regular_response = api.get_resource("/test")
+        regular_response = api_client.get_resource("/test")
         assert regular_response.get_header("X-Admin-Access") is None
 
         # Admin path - should have admin header
-        admin_response = api.get_resource("/admin/test")
+        admin_response = api_client.get_resource("/admin/test")
         assert admin_response.get_header("X-Admin-Access") == "true"
 
 
-class TestHeaderCallPatterns:
+class TestHeaderCallPatterns(MultiDriverTestBase):
     """Test header function call patterns and behavior."""
 
-    @pytest.fixture
-    def api(self):
+    @pytest.fixture(scope="function")
+    def api(self, request):
+        """
+        Function-scoped fixture for stateful tests.
+
+        Creates a new app instance for each test to prevent state leakage.
+        """
+        from tests.framework.dsl import RestApiDsl
+
+        driver_name = request.param
+        app = self.create_app()
+        driver = self.create_driver(driver_name, app)
+
+        # HTTP drivers need to be started/stopped with context manager
+        if driver_name.startswith('uvicorn-') or driver_name.startswith('hypercorn-'):
+            with driver as active_driver:
+                import time
+                time.sleep(0.05)
+                yield RestApiDsl(active_driver), driver_name
+        else:
+            # Direct and Lambda drivers don't need context manager
+            yield RestApiDsl(driver), driver_name
+
+    def create_app(self) -> RestApplication:
         """Set up API to test header function call patterns."""
         app = RestApplication()
 
         # Counter to track how many times header functions are called
-        call_count = {"count": 0}
+        self.call_count = {"count": 0}
 
         @app.default_headers
         def tracking_headers(request):
             """Headers that track call count."""
-            call_count["count"] += 1
+            self.call_count["count"] += 1
             return {
-                "X-Call-Count": str(call_count["count"]),
+                "X-Call-Count": str(self.call_count["count"]),
                 "X-Request-Method": request.method.value,
                 "X-Request-Path": request.path
             }
@@ -300,47 +343,46 @@ class TestHeaderCallPatterns:
         def create_endpoint(json_body):
             return {"created": json_body}
 
-        return RestApiDsl(RestMachineDriver(app)), call_count
+        return app
 
     def test_header_function_called_per_request(self, api):
         """Test that header functions are called for each request."""
-        api_dsl, call_count = api
+        api_client, driver_name = api
 
         # First request
-        response1 = api_dsl.get_resource("/test")
+        response1 = api_client.get_resource("/test")
         assert response1.get_header("X-Call-Count") == "1"
 
         # Second request to same endpoint
-        response2 = api_dsl.get_resource("/test")
+        response2 = api_client.get_resource("/test")
         assert response2.get_header("X-Call-Count") == "2"
 
         # Third request to different endpoint
-        response3 = api_dsl.create_resource("/create", {"data": "test"})
+        response3 = api_client.create_resource("/create", {"data": "test"})
         assert response3.get_header("X-Call-Count") == "3"
 
         # Verify call count incremented correctly
-        assert call_count["count"] == 3
+        assert self.call_count["count"] == 3
 
     def test_header_function_receives_correct_request_info(self, api):
         """Test that header functions receive correct request information."""
-        api_dsl, _ = api
+        api_client, driver_name = api
 
         # GET request
-        get_response = api_dsl.get_resource("/test")
+        get_response = api_client.get_resource("/test")
         assert get_response.get_header("X-Request-Method") == "GET"
         assert get_response.get_header("X-Request-Path") == "/test"
 
         # POST request
-        post_response = api_dsl.create_resource("/create", {"data": "test"})
+        post_response = api_client.create_resource("/create", {"data": "test"})
         assert post_response.get_header("X-Request-Method") == "POST"
         assert post_response.get_header("X-Request-Path") == "/create"
 
 
-class TestHeaderErrorHandling:
+class TestHeaderErrorHandling(MultiDriverTestBase):
     """Test error handling in header functions."""
 
-    @pytest.fixture
-    def api(self):
+    def create_app(self) -> RestApplication:
         """Set up API with error-prone header functions."""
         app = RestApplication()
 
@@ -370,20 +412,24 @@ class TestHeaderErrorHandling:
         def none_endpoint():
             return {"message": "none endpoint"}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_successful_header_generation(self, api):
         """Test normal successful header generation."""
-        response = api.get_resource("/test")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/test")
+        api_client.expect_successful_retrieval(response)
 
         assert response.get_header("X-Success") == "true"
         assert response.get_header("X-Path") == "/test"
 
     def test_header_function_returning_none(self, api):
         """Test header function that returns None."""
-        response = api.get_resource("/none")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/none")
+        api_client.expect_successful_retrieval(response)
 
         # Should not have the headers since function returned None
         assert response.get_header("X-Success") is None
@@ -391,12 +437,14 @@ class TestHeaderErrorHandling:
 
     def test_header_function_exception_handling(self, api):
         """Test handling of exceptions in header functions."""
-        response = api.get_resource("/error")
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/error")
 
         # Request should still succeed despite header function failure
         # (implementation might log error but continue)
         if response.status_code == 200:
-            api.expect_successful_retrieval(response)
+            api_client.expect_successful_retrieval(response)
             # Headers might be missing due to exception
             assert response.get_header("X-Success") is None
         else:
@@ -404,11 +452,10 @@ class TestHeaderErrorHandling:
             assert response.status_code >= 500
 
 
-class TestHeadersWithExistingResponseHeaders:
+class TestHeadersWithExistingResponseHeaders(MultiDriverTestBase):
     """Test header behavior when response already has headers."""
 
-    @pytest.fixture
-    def api(self):
+    def create_app(self) -> RestApplication:
         """Set up API that sets response headers explicitly."""
         app = RestApplication()
 
@@ -438,20 +485,24 @@ class TestHeadersWithExistingResponseHeaders:
         def no_custom_headers():
             return {"message": "no custom headers"}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_default_headers_with_no_existing_headers(self, api):
         """Test default headers when no existing headers are present."""
-        response = api.get_resource("/no-custom-headers")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/no-custom-headers")
+        api_client.expect_successful_retrieval(response)
 
         assert response.get_header("X-Default") == "true"
         assert response.get_header("X-Timestamp") == "2024-01-01T00:00:00Z"
 
     def test_header_precedence_with_existing_headers(self, api):
         """Test header precedence when response has existing headers."""
-        response = api.get_resource("/custom-headers")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/custom-headers")
+        api_client.expect_successful_retrieval(response)
 
         # Check which headers take precedence
         assert response.get_header("X-Custom") == "true"
@@ -466,12 +517,11 @@ class TestHeadersWithExistingResponseHeaders:
         assert "json" in content_type
 
 
-class TestHeadersAcrossDrivers:
+class TestHeadersAcrossDrivers(MultiDriverTestBase):
     """Test header functionality across different drivers."""
 
-    @pytest.fixture(params=['direct', 'aws_lambda'])
-    def api(self, request):
-        """Parametrized fixture for testing across drivers."""
+    def create_app(self) -> RestApplication:
+        """Create app for testing across drivers."""
         app = RestApplication()
 
         @app.default_headers
@@ -490,18 +540,14 @@ class TestHeadersAcrossDrivers:
         def create_endpoint(json_body):
             return {"created": json_body}
 
-        # Select driver
-        if request.param == 'direct':
-            driver = RestMachineDriver(app)
-        else:
-            driver = AwsLambdaDriver(app)
-
-        return RestApiDsl(driver)
+        return app
 
     def test_default_headers_work_across_drivers(self, api):
         """Test that default headers work consistently across drivers."""
-        response = api.get_resource("/test")
-        api.expect_successful_retrieval(response)
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/test")
+        api_client.expect_successful_retrieval(response)
 
         assert response.get_header("X-Driver-Test") == "true"
         assert response.get_header("X-Request-Method") == "GET"
@@ -509,9 +555,11 @@ class TestHeadersAcrossDrivers:
 
     def test_default_headers_with_post_across_drivers(self, api):
         """Test default headers with POST requests across drivers."""
+        api_client, driver_name = api
+
         test_data = {"name": "test"}
-        response = api.create_resource("/create", test_data)
-        api.expect_successful_creation(response)
+        response = api_client.create_resource("/create", test_data)
+        api_client.expect_successful_creation(response)
 
         assert response.get_header("X-Driver-Test") == "true"
         assert response.get_header("X-Request-Method") == "POST"

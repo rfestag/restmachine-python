@@ -47,7 +47,12 @@ class HttpServerDriver(DriverInterface):
         self.actual_port = None
         self.server_thread = None
         self.server_started = threading.Event()
+        self.server_shutdown = threading.Event()
         self.server_error = None
+        self.server_instance = None
+        self.event_loop = None
+        self.session = None
+        self._server_ready = False
 
     def start_server(self):
         """Start the HTTP server in a background thread."""
@@ -66,12 +71,14 @@ class HttpServerDriver(DriverInterface):
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()
 
-        # Wait for server to start
-        if not self.server_started.wait(timeout=10):
-            raise TimeoutError("Server failed to start within 10 seconds")
+        # Wait for server to start (reduced timeout, servers start quickly)
+        if not self.server_started.wait(timeout=5):
+            raise TimeoutError("Server failed to start within 5 seconds")
 
         if self.server_error:
             raise self.server_error
+
+        self._server_ready = True
 
     def _start_uvicorn(self):
         """Start Uvicorn server."""
@@ -103,14 +110,27 @@ class HttpServerDriver(DriverInterface):
         )
 
         server = uvicorn.Server(config)
+        self.server_instance = server
 
         # Signal that server is starting
         self.server_started.set()
 
-        # Run server in current thread
+        # Run server in current thread with proper cleanup
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(server.serve())
+        self.event_loop = loop
+
+        try:
+            loop.run_until_complete(server.serve())
+        finally:
+            # Clean up pending tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            # Wait for all tasks to complete cancellation
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.close()
 
     def _start_hypercorn(self):
         """Start Hypercorn server."""
@@ -148,9 +168,12 @@ class HttpServerDriver(DriverInterface):
         # Run server with a new event loop
         # Note: Hypercorn uses signal handlers that don't work in threads,
         # so we wrap it to avoid those issues
+        shutdown_event = asyncio.Event()
+        self.shutdown_event = shutdown_event
+
         async def run_server():
             try:
-                await hypercorn.asyncio.serve(asgi_app, config, shutdown_trigger=lambda: asyncio.Future())
+                await hypercorn.asyncio.serve(asgi_app, config, shutdown_trigger=shutdown_event.wait)
             except RuntimeError as e:
                 # Ignore "set_wakeup_fd only works in main thread" errors
                 if "set_wakeup_fd" not in str(e):
@@ -158,15 +181,28 @@ class HttpServerDriver(DriverInterface):
 
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        self.event_loop = loop
+
         try:
             loop.run_until_complete(run_server())
-        except Exception:
-            pass  # Server will be stopped when thread exits
+        finally:
+            # Clean up pending tasks
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            # Wait for all tasks to complete cancellation
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.close()
 
     def execute(self, request: HttpRequest) -> HttpResponse:
         """Execute HTTP request against the running server."""
         if not self.server_started.is_set():
             raise RuntimeError("Server not started")
+
+        # Create session if not exists (reuse for all requests)
+        if self.session is None:
+            self.session = requests.Session()
 
         # Build URL
         url = f"http://{self.host}:{self.actual_port}{request.path}"
@@ -194,7 +230,7 @@ class HttpServerDriver(DriverInterface):
 
         # Make HTTP request
         try:
-            response = requests.request(**kwargs)
+            response = self.session.request(**kwargs)
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"HTTP request failed: {e}")
 
@@ -218,14 +254,47 @@ class HttpServerDriver(DriverInterface):
     def __enter__(self):
         """Context manager entry."""
         self.start_server()
-        # Give server a moment to fully start
-        time.sleep(0.1)
+        # Minimal wait - server is already running after start_server()
+        time.sleep(0.02)  # Reduced from 0.1s
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        # Servers will be cleaned up when the daemon thread ends
-        pass
+        """Context manager exit - properly shut down server and clean up resources."""
+        # Close the requests session
+        if self.session:
+            self.session.close()
+            self.session = None
+
+        # Shut down the server
+        if self.server_instance:
+            # Uvicorn server shutdown
+            if hasattr(self.server_instance, 'should_exit'):
+                self.server_instance.should_exit = True
+
+        # Hypercorn shutdown
+        if hasattr(self, 'shutdown_event') and self.shutdown_event:
+            # Signal hypercorn to shut down
+            if self.event_loop and not self.event_loop.is_closed():
+                try:
+                    self.event_loop.call_soon_threadsafe(self.shutdown_event.set)
+                except Exception:
+                    pass  # Loop might already be closing
+
+        # Give server time to shut down gracefully
+        if self.server_thread and self.server_thread.is_alive():
+            self.server_thread.join(timeout=2.0)
+
+        # Force cleanup of event loop if still exists
+        if self.event_loop and not self.event_loop.is_closed():
+            try:
+                # Cancel all pending tasks
+                pending = asyncio.all_tasks(self.event_loop)
+                for task in pending:
+                    task.cancel()
+            except Exception:
+                pass  # Loop might be in bad state
+
+        return False  # Don't suppress exceptions
 
 
 class UvicornHttpDriver(HttpServerDriver):

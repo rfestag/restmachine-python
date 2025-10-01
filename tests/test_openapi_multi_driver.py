@@ -1,15 +1,14 @@
 """
-Refactored OpenAPI generation tests using 4-layer architecture.
+OpenAPI generation tests using MultiDriverTestBase pattern.
 
-Tests for OpenAPI specification generation, validation, and edge cases.
+Tests for OpenAPI specification generation, validation, and edge cases
+across all supported drivers.
 """
 
 import os
 import tempfile
 import json
 from typing import Optional
-
-import pytest
 
 try:
     from pydantic import BaseModel, Field
@@ -36,14 +35,16 @@ except ImportError:
     PYDANTIC_AVAILABLE = False
 
 from restmachine import RestApplication
-from tests.framework import RestApiDsl, RestMachineDriver
+from tests.framework import MultiDriverTestBase
 
 
-class TestBasicOpenAPIGeneration:
+class TestBasicOpenAPIGeneration(MultiDriverTestBase):
     """Test basic OpenAPI specification generation."""
 
-    @pytest.fixture
-    def api(self):
+    # OpenAPI generation only works with direct driver
+    ENABLED_DRIVERS = ['direct']
+
+    def create_app(self) -> RestApplication:
         """Set up API with basic routes."""
         app = RestApplication()
 
@@ -63,11 +64,13 @@ class TestBasicOpenAPIGeneration:
             """Create a new user."""
             return {"id": 123, "name": json_body["name"]}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_basic_openapi_generation(self, api):
         """Test basic OpenAPI spec generation."""
-        spec = api.generate_openapi_spec()
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
 
         # Basic structure validation
         assert "openapi" in spec
@@ -75,21 +78,25 @@ class TestBasicOpenAPIGeneration:
         assert "paths" in spec
 
         # Check basic paths
-        api.assert_has_path(spec, "/", "get")
-        api.assert_has_path(spec, "/users/{user_id}", "get")
-        api.assert_has_path(spec, "/users", "post")
+        api_client.assert_has_path(spec, "/", "get")
+        api_client.assert_has_path(spec, "/users/{user_id}", "get")
+        api_client.assert_has_path(spec, "/users", "post")
 
     def test_openapi_spec_validation(self, api):
         """Test that generated OpenAPI spec is valid."""
-        spec = api.generate_openapi_spec()
-        api.assert_openapi_valid(spec)
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
+        api_client.assert_openapi_valid(spec)
 
     def test_path_parameters_in_spec(self, api):
         """Test that path parameters are included in spec."""
-        spec = api.generate_openapi_spec()
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
 
         # Check path parameter
-        operation = api.get_path_operation(spec, "/users/{user_id}", "get")
+        operation = api_client.get_path_operation(spec, "/users/{user_id}", "get")
         assert "parameters" in operation
 
         # Find the path parameter
@@ -103,13 +110,17 @@ class TestBasicOpenAPIGeneration:
         assert path_param["required"] is True
 
 
-@pytest.mark.skipif(not PYDANTIC_AVAILABLE, reason="Pydantic not available")
-class TestOpenAPIWithPydantic:
+class TestOpenAPIWithPydantic(MultiDriverTestBase):
     """Test OpenAPI generation with Pydantic models."""
 
-    @pytest.fixture
-    def api(self):
+    # OpenAPI generation only works with direct driver
+    ENABLED_DRIVERS = ['direct']
+
+    def create_app(self) -> RestApplication:
         """Set up API with Pydantic models."""
+        if not PYDANTIC_AVAILABLE:
+            return None
+
         app = RestApplication()
 
         @app.validates
@@ -154,40 +165,60 @@ class TestOpenAPIWithPydantic:
                 age=validate_update_request.age or 30
             )
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_pydantic_schema_generation(self, api):
         """Test that Pydantic models generate schemas."""
-        spec = api.generate_openapi_spec()
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
 
         # Check that schemas are generated
-        api.assert_has_schema(spec, "CreateUserRequest")
-        api.assert_has_schema(spec, "UserResponse")
-        api.assert_has_schema(spec, "UpdateUserRequest")
+        api_client.assert_has_schema(spec, "CreateUserRequest")
+        api_client.assert_has_schema(spec, "UserResponse")
+        api_client.assert_has_schema(spec, "UpdateUserRequest")
 
     def test_request_body_schema_reference(self, api):
         """Test that request body references correct schema."""
-        spec = api.generate_openapi_spec()
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
 
         # Check POST /users request body
-        api.assert_request_body_schema(spec, "/users", "post", "CreateUserRequest")
+        api_client.assert_request_body_schema(spec, "/users", "post", "CreateUserRequest")
 
         # Check PUT /users/{user_id} request body
-        api.assert_request_body_schema(spec, "/users/{user_id}", "put", "UpdateUserRequest")
+        api_client.assert_request_body_schema(spec, "/users/{user_id}", "put", "UpdateUserRequest")
 
     def test_response_schema_reference(self, api):
         """Test that responses reference correct schemas."""
-        spec = api.generate_openapi_spec()
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
 
         # Check POST /users response
-        api.assert_response_schema(spec, "/users", "post", "200", "UserResponse")
+        api_client.assert_response_schema(spec, "/users", "post", "200", "UserResponse")
 
         # Check GET /users/{user_id} response
-        api.assert_response_schema(spec, "/users/{user_id}", "get", "200", "UserResponse")
+        api_client.assert_response_schema(spec, "/users/{user_id}", "get", "200", "UserResponse")
 
     def test_optional_fields_in_schema(self, api):
         """Test that optional fields are properly marked."""
-        spec = api.generate_openapi_spec()
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
 
         # Check CreateUserRequest schema
         create_schema = spec["components"]["schemas"]["CreateUserRequest"]
@@ -204,7 +235,12 @@ class TestOpenAPIWithPydantic:
 
     def test_field_descriptions_included(self, api):
         """Test that field descriptions are included in schemas."""
-        spec = api.generate_openapi_spec()
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
 
         # Check that field descriptions are present
         create_schema = spec["components"]["schemas"]["CreateUserRequest"]
@@ -219,11 +255,13 @@ class TestOpenAPIWithPydantic:
         assert email_prop["description"] == "The user's email address"
 
 
-class TestOpenAPIFileSaving:
+class TestOpenAPIFileSaving(MultiDriverTestBase):
     """Test OpenAPI file saving functionality."""
 
-    @pytest.fixture
-    def api(self):
+    # OpenAPI generation only works with direct driver
+    ENABLED_DRIVERS = ['direct']
+
+    def create_app(self) -> RestApplication:
         """Set up simple API for file saving tests."""
         app = RestApplication()
 
@@ -232,17 +270,19 @@ class TestOpenAPIFileSaving:
             """Test endpoint."""
             return {"test": "data"}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_save_openapi_json_default_location(self, api):
         """Test saving OpenAPI spec to default location."""
+        api_client, driver_name = api
+
         with tempfile.TemporaryDirectory() as temp_dir:
             # Change to temp directory
             original_cwd = os.getcwd()
             os.chdir(temp_dir)
 
             try:
-                filepath = api.save_openapi_spec()
+                filepath = api_client.save_openapi_spec()
 
                 # Check file was created
                 assert os.path.exists(filepath)
@@ -259,9 +299,11 @@ class TestOpenAPIFileSaving:
 
     def test_save_openapi_json_custom_directory(self, api):
         """Test saving OpenAPI spec to custom directory."""
+        api_client, driver_name = api
+
         with tempfile.TemporaryDirectory() as temp_dir:
             custom_dir = os.path.join(temp_dir, "custom_docs")
-            filepath = api.save_openapi_spec(directory=custom_dir, filename="api.json")
+            filepath = api_client.save_openapi_spec(directory=custom_dir, filename="api.json")
 
             # Check file was created
             assert os.path.exists(filepath)
@@ -274,64 +316,58 @@ class TestOpenAPIFileSaving:
 
     def test_save_openapi_creates_directory(self, api):
         """Test that saving OpenAPI spec creates directory if it doesn't exist."""
+        api_client, driver_name = api
+
         with tempfile.TemporaryDirectory() as temp_dir:
             nested_dir = os.path.join(temp_dir, "docs", "api", "v1")
-            filepath = api.save_openapi_spec(directory=nested_dir)
+            filepath = api_client.save_openapi_spec(directory=nested_dir)
 
             # Check directory and file were created
             assert os.path.exists(nested_dir)
             assert os.path.exists(filepath)
 
 
-class TestOpenAPIEdgeCases:
+class TestOpenAPIEdgeCases(MultiDriverTestBase):
     """Test OpenAPI generation edge cases."""
 
-    def test_route_without_annotations(self):
-        """Test routes without type annotations."""
+    # OpenAPI generation only works with direct driver
+    ENABLED_DRIVERS = ['direct']
+
+    def create_app(self) -> RestApplication:
+        """Set up API with edge case routes."""
         app = RestApplication()
 
         @app.get("/simple")
         def simple_route():
             return "Simple response"
 
-        api = RestApiDsl(RestMachineDriver(app))
-        spec = api.generate_openapi_spec()
-
-        # Should still generate valid spec
-        api.assert_openapi_valid(spec)
-        api.assert_has_path(spec, "/simple", "get")
-
-    def test_empty_application(self):
-        """Test OpenAPI generation for empty application."""
-        app = RestApplication()
-        api = RestApiDsl(RestMachineDriver(app))
-
-        spec = api.generate_openapi_spec()
-
-        # Should generate valid spec even with no routes
-        api.assert_openapi_valid(spec)
-        assert "openapi" in spec
-        assert "info" in spec
-        assert "paths" in spec
-        # Paths can be empty for empty application
-        assert isinstance(spec["paths"], dict)
-
-    def test_route_with_complex_path(self):
-        """Test routes with complex path patterns."""
-        app = RestApplication()
-
         @app.get("/api/v1/users/{user_id}/posts/{post_id}/comments")
         def get_comments(path_params):
             """Get comments for a specific post."""
             return {"comments": []}
 
-        api = RestApiDsl(RestMachineDriver(app))
-        spec = api.generate_openapi_spec()
+        return app
 
-        api.assert_has_path(spec, "/api/v1/users/{user_id}/posts/{post_id}/comments", "get")
+    def test_route_without_annotations(self, api):
+        """Test routes without type annotations."""
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
+
+        # Should still generate valid spec
+        api_client.assert_openapi_valid(spec)
+        api_client.assert_has_path(spec, "/simple", "get")
+
+    def test_route_with_complex_path(self, api):
+        """Test routes with complex path patterns."""
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
+
+        api_client.assert_has_path(spec, "/api/v1/users/{user_id}/posts/{post_id}/comments", "get")
 
         # Check multiple path parameters
-        operation = api.get_path_operation(spec, "/api/v1/users/{user_id}/posts/{post_id}/comments", "get")
+        operation = api_client.get_path_operation(spec, "/api/v1/users/{user_id}/posts/{post_id}/comments", "get")
         assert "parameters" in operation
 
         # Should have both user_id and post_id parameters
@@ -340,11 +376,39 @@ class TestOpenAPIEdgeCases:
         assert "post_id" in param_names
 
 
-class TestOpenAPIMultipleHTTPMethods:
-    """Test OpenAPI generation with multiple HTTP methods."""
+class TestEmptyApplication(MultiDriverTestBase):
+    """Test OpenAPI generation for empty application."""
 
-    @pytest.fixture
-    def api(self):
+    # OpenAPI generation only works with direct driver
+    ENABLED_DRIVERS = ['direct']
+
+    def create_app(self) -> RestApplication:
+        """Create empty application."""
+        app = RestApplication()
+        return app
+
+    def test_empty_application(self, api):
+        """Test OpenAPI generation for empty application."""
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
+
+        # Should generate valid spec even with no routes
+        api_client.assert_openapi_valid(spec)
+        assert "openapi" in spec
+        assert "info" in spec
+        assert "paths" in spec
+        # Paths can be empty for empty application
+        assert isinstance(spec["paths"], dict)
+
+
+class TestOpenAPIMultipleHTTPMethods(MultiDriverTestBase):
+    """Test OpenAPI generation with multiple HTTP methods on same path."""
+
+    # OpenAPI generation only works with direct driver
+    ENABLED_DRIVERS = ['direct']
+
+    def create_app(self) -> RestApplication:
         """Set up API with multiple methods on same path."""
         app = RestApplication()
 
@@ -363,16 +427,18 @@ class TestOpenAPIMultipleHTTPMethods:
             """Delete an item."""
             return None
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_multiple_methods_same_path(self, api):
         """Test that multiple methods on same path are handled correctly."""
-        spec = api.generate_openapi_spec()
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
 
         # Check all methods are present
-        api.assert_has_path(spec, "/items/{item_id}", "get")
-        api.assert_has_path(spec, "/items/{item_id}", "put")
-        api.assert_has_path(spec, "/items/{item_id}", "delete")
+        api_client.assert_has_path(spec, "/items/{item_id}", "get")
+        api_client.assert_has_path(spec, "/items/{item_id}", "put")
+        api_client.assert_has_path(spec, "/items/{item_id}", "delete")
 
         # Check each method has proper configuration
         path_spec = spec["paths"]["/items/{item_id}"]
@@ -386,11 +452,13 @@ class TestOpenAPIMultipleHTTPMethods:
         assert "204" in delete_op["responses"] or "200" in delete_op["responses"]
 
 
-class TestOpenAPIQueryParameters:
+class TestOpenAPIQueryParameters(MultiDriverTestBase):
     """Test OpenAPI generation with query parameters."""
 
-    @pytest.fixture
-    def api(self):
+    # OpenAPI generation only works with direct driver
+    ENABLED_DRIVERS = ['direct']
+
+    def create_app(self) -> RestApplication:
         """Set up API with query parameters."""
         app = RestApplication()
 
@@ -399,61 +467,80 @@ class TestOpenAPIQueryParameters:
             """Search items with query parameters."""
             return {"results": [], "query": dict(query_params)}
 
-        return RestApiDsl(RestMachineDriver(app))
+        return app
 
     def test_query_parameters_in_spec(self, api):
         """Test that query parameters are documented in OpenAPI spec."""
-        spec = api.generate_openapi_spec()
+        api_client, driver_name = api
 
-        api.assert_has_path(spec, "/search", "get")
+        spec = api_client.generate_openapi_spec()
+
+        api_client.assert_has_path(spec, "/search", "get")
 
         # The framework might auto-detect query parameters or require manual specification
         # This test verifies the structure is correct
-        operation = api.get_path_operation(spec, "/search", "get")
+        operation = api_client.get_path_operation(spec, "/search", "get")
 
         # Operation should exist and be valid
         assert "responses" in operation
 
 
-if PYDANTIC_AVAILABLE:
-    class TestOpenAPIValidation:
-        """Test OpenAPI specification validation."""
+class TestOpenAPIValidation(MultiDriverTestBase):
+    """Test OpenAPI specification validation."""
 
-        def test_comprehensive_spec_validation(self):
-            """Test validation of comprehensive OpenAPI spec."""
+    # OpenAPI generation only works with direct driver
+    ENABLED_DRIVERS = ['direct']
+
+    def create_app(self) -> RestApplication:
+        """Set up API for validation tests."""
+        if not PYDANTIC_AVAILABLE:
             app = RestApplication()
 
-            @app.post("/users")
-            def create_user(json_body: CreateUserRequest) -> UserResponse:
-                return UserResponse(id=1, name=json_body.name, email=json_body.email)
-
-            @app.get("/users/{user_id}")
-            def get_user(path_params) -> UserResponse:
-                user_id = int(path_params["user_id"])
-                return UserResponse(id=user_id, name=f"User {user_id}", email=f"user{user_id}@example.com")
-
-            api = RestApiDsl(RestMachineDriver(app))
-            spec = api.generate_openapi_spec()
-
-            # Should validate successfully
-            api.assert_openapi_valid(spec)
-
-        def test_edge_cases_spec_validation(self):
-            """Test validation with edge cases."""
-            app = RestApplication()
-
-            # Route with no response annotation
             @app.get("/status")
             def get_status():
                 return {"status": "ok"}
 
-            # Route with complex nested path
             @app.get("/api/v2/complex/{id}/nested/{nested_id}")
             def complex_route(path_params):
                 return {"data": "complex"}
 
-            api = RestApiDsl(RestMachineDriver(app))
-            spec = api.generate_openapi_spec()
+            return app
 
-            # Should still validate
-            api.assert_openapi_valid(spec)
+        app = RestApplication()
+
+        @app.post("/users")
+        def create_user(json_body: CreateUserRequest) -> UserResponse:
+            return UserResponse(id=1, name=json_body.name, email=json_body.email)
+
+        @app.get("/users/{user_id}")
+        def get_user(path_params) -> UserResponse:
+            user_id = int(path_params["user_id"])
+            return UserResponse(id=user_id, name=f"User {user_id}", email=f"user{user_id}@example.com")
+
+        @app.get("/status")
+        def get_status():
+            return {"status": "ok"}
+
+        @app.get("/api/v2/complex/{id}/nested/{nested_id}")
+        def complex_route(path_params):
+            return {"data": "complex"}
+
+        return app
+
+    def test_comprehensive_spec_validation(self, api):
+        """Test validation of comprehensive OpenAPI spec."""
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
+
+        # Should validate successfully
+        api_client.assert_openapi_valid(spec)
+
+    def test_edge_cases_spec_validation(self, api):
+        """Test validation with edge cases."""
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
+
+        # Should still validate
+        api_client.assert_openapi_valid(spec)

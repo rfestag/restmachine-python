@@ -84,12 +84,22 @@ class HttpResponse:
         return 500 <= self.status_code < 600
 
     def has_header(self, name: str) -> bool:
-        """Check if response has a specific header."""
-        return name in self.headers
+        """Check if response has a specific header (case-insensitive)."""
+        # HTTP headers are case-insensitive per RFC 7230
+        name_lower = name.lower()
+        for header_name in self.headers:
+            if header_name.lower() == name_lower:
+                return True
+        return False
 
     def get_header(self, name: str) -> Optional[str]:
-        """Get header value."""
-        return self.headers.get(name)
+        """Get header value (case-insensitive lookup)."""
+        # HTTP headers are case-insensitive per RFC 7230
+        name_lower = name.lower()
+        for header_name, header_value in self.headers.items():
+            if header_name.lower() == name_lower:
+                return header_value
+        return None
 
     def get_json_body(self):
         """Get response body as JSON object or list."""
@@ -121,6 +131,11 @@ class RestApiDsl:
     def __init__(self, driver):
         """Initialize with a driver that knows how to execute requests."""
         self._driver = driver
+
+    @property
+    def driver(self):
+        """Access the underlying driver for driver-specific operations."""
+        return self._driver
 
     # Request builders (fluent interface)
     def get(self, path: str) -> HttpRequest:
