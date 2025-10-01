@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
+from http import HTTPStatus
 from typing import Dict, List, Optional
 
 # Set up logger for this module
@@ -216,7 +217,7 @@ class Response:
             self.headers["Content-Type"] = self.content_type
 
         # Automatically inject Content-Length header
-        if self.status_code != 204:  # Do not include Content-Length for 204 responses
+        if self.status_code != HTTPStatus.NO_CONTENT:  # Do not include Content-Length for No Content responses
             if self.body is not None:
                 # Calculate byte length of body
                 body_bytes = self.body.encode('utf-8') if isinstance(self.body, str) else self.body

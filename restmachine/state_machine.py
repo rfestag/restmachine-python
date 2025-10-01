@@ -6,6 +6,7 @@ import inspect
 import json
 import logging
 from datetime import datetime
+from http import HTTPStatus
 from typing import Any, Callable, Dict, List, Optional, Union, get_origin, get_args
 
 from .content_renderers import ContentRenderer
@@ -184,7 +185,7 @@ class RequestStateMachine:
         # in case a bug is intorduced where we choose not to continue processing,
         # but also fail to provide a response
         default_response = Response(
-            500,
+            HTTPStatus.INTERNAL_SERVER_ERROR,
             json.dumps({"error": "Unexpected error occured."}),
             content_type="application/json",
         )
@@ -293,7 +294,7 @@ class RequestStateMachine:
                 trace_id=trace_id
             )
             return Response(
-                422,
+                HTTPStatus.UNPROCESSABLE_ENTITY,
                 error_response.model_dump_json(),
                 content_type="application/json",
             )
@@ -304,10 +305,10 @@ class RequestStateMachine:
         if route_match is None:
             # Check if ANY route exists for this path (regardless of method)
             if self.app._path_has_routes(self.request.path):
-                # Route exists but method not allowed -> 405
-                return StateMachineResult(False, self._create_error_response(405, "Method Not Allowed"))
+                # Route exists but method not allowed -> HTTPStatus.METHOD_NOT_ALLOWED
+                return StateMachineResult(False, self._create_error_response(HTTPStatus.METHOD_NOT_ALLOWED, "Method Not Allowed"))
 
-            # No route exists at all for this path -> 404
+            # No route exists at all for this path -> HTTPStatus.NOT_FOUND
             callback = self._get_callback("route_not_found")
             if callback:
                 try:
@@ -315,16 +316,16 @@ class RequestStateMachine:
                     if isinstance(response, Response):
                         return StateMachineResult(False, response)
                     return StateMachineResult(
-                        False, self._create_error_response(404, str(response) if response else "Not Found")
+                        False, self._create_error_response(HTTPStatus.NOT_FOUND, str(response) if response else "Not Found")
                     )
                 except Exception as e:
                     logger.error(f"Error in route_not_found callback for {self.request.method.value} {self.request.path}: {e}")
                     self.app._dependency_cache.set("exception", e)
                     return StateMachineResult(
                         False,
-                        self._create_error_response(500, f"Error in route_not_found callback: {str(e)}"),
+                        self._create_error_response(HTTPStatus.INTERNAL_SERVER_ERROR, f"Error in route_not_found callback: {str(e)}"),
                     )
-            return StateMachineResult(False, self._create_error_response(404, "Not Found"))
+            return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found"))
 
         self.route_handler, path_params = route_match
         self.request.path_params = path_params
@@ -356,12 +357,12 @@ class RequestStateMachine:
                 available = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not available:
                     return StateMachineResult(
-                        False, self._create_error_response(503, "Service Unavailable")
+                        False, self._create_error_response(HTTPStatus.SERVICE_UNAVAILABLE, "Service Unavailable")
                     )
             except Exception as e:
                 self.app._dependency_cache.set("exception", e)
                 return StateMachineResult(
-                    False, self._create_error_response(503, f"Service check failed: {str(e)}")
+                    False, self._create_error_response(HTTPStatus.SERVICE_UNAVAILABLE, f"Service check failed: {str(e)}")
                 )
         return StateMachineResult(True)
 
@@ -372,11 +373,11 @@ class RequestStateMachine:
             try:
                 known = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not known:
-                    return StateMachineResult(False, self._create_error_response(501, "Not Implemented"))
+                    return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_IMPLEMENTED, "Not Implemented"))
             except Exception as e:
                 self.app._dependency_cache.set("exception", e)
                 return StateMachineResult(
-                    False, self._create_error_response(501, f"Method check failed: {str(e)}")
+                    False, self._create_error_response(HTTPStatus.NOT_IMPLEMENTED, f"Method check failed: {str(e)}")
                 )
         else:
             # Default: check if method is in our known methods
@@ -388,7 +389,7 @@ class RequestStateMachine:
                 HTTPMethod.PATCH,
             }
             if self.request.method not in known_methods:
-                return StateMachineResult(False, self._create_error_response(501, "Not Implemented"))
+                return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_IMPLEMENTED, "Not Implemented"))
         return StateMachineResult(True)
 
     def state_uri_too_long(self) -> StateMachineResult:
@@ -398,16 +399,16 @@ class RequestStateMachine:
             try:
                 too_long = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if too_long:
-                    return StateMachineResult(False, self._create_error_response(414, "URI Too Long"))
+                    return StateMachineResult(False, self._create_error_response(HTTPStatus.REQUEST_URI_TOO_LONG, "URI Too Long"))
             except Exception as e:
                 self.app._dependency_cache.set("exception", e)
                 return StateMachineResult(
-                    False, self._create_error_response(414, f"URI length check failed: {str(e)}")
+                    False, self._create_error_response(HTTPStatus.REQUEST_URI_TOO_LONG, f"URI length check failed: {str(e)}")
                 )
         else:
             # Default: check if URI is longer than 2048 characters
             if len(self.request.path) > 2048:
-                return StateMachineResult(False, self._create_error_response(414, "URI Too Long"))
+                return StateMachineResult(False, self._create_error_response(HTTPStatus.REQUEST_URI_TOO_LONG, "URI Too Long"))
         return StateMachineResult(True)
 
     def state_method_allowed(self) -> StateMachineResult:
@@ -418,12 +419,12 @@ class RequestStateMachine:
                 allowed = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not allowed:
                     return StateMachineResult(
-                        False, self._create_error_response(405, "Method Not Allowed")
+                        False, self._create_error_response(HTTPStatus.METHOD_NOT_ALLOWED, "Method Not Allowed")
                     )
             except Exception as e:
                 self.app._dependency_cache.set("exception", e)
                 return StateMachineResult(
-                    False, self._create_error_response(405, f"Method check failed: {str(e)}")
+                    False, self._create_error_response(HTTPStatus.METHOD_NOT_ALLOWED, f"Method check failed: {str(e)}")
                 )
         return StateMachineResult(True)
 
@@ -434,11 +435,11 @@ class RequestStateMachine:
             try:
                 malformed = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if malformed:
-                    return StateMachineResult(False, self._create_error_response(400, "Bad Request"))
+                    return StateMachineResult(False, self._create_error_response(HTTPStatus.BAD_REQUEST, "Bad Request"))
             except Exception as e:
                 self.app._dependency_cache.set("exception", e)
                 return StateMachineResult(
-                    False, self._create_error_response(400, f"Request validation failed: {str(e)}")
+                    False, self._create_error_response(HTTPStatus.BAD_REQUEST, f"Request validation failed: {str(e)}")
                 )
         return StateMachineResult(True)
 
@@ -450,12 +451,12 @@ class RequestStateMachine:
                 authorized = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not authorized:
                     logger.error(f"Authorization failed for {self.request.method.value} {self.request.path}")
-                    return StateMachineResult(False, self._create_error_response(401, "Unauthorized"))
+                    return StateMachineResult(False, self._create_error_response(HTTPStatus.UNAUTHORIZED, "Unauthorized"))
             except Exception as e:
                 logger.error(f"Authorization check exception for {self.request.method.value} {self.request.path}: {e}")
                 self.app._dependency_cache.set("exception", e)
                 return StateMachineResult(
-                    False, self._create_error_response(401, f"Authorization check failed: {str(e)}")
+                    False, self._create_error_response(HTTPStatus.UNAUTHORIZED, f"Authorization check failed: {str(e)}")
                 )
         return StateMachineResult(True)
 
@@ -474,22 +475,22 @@ class RequestStateMachine:
                         )
                         if resolved_value is None:
                             logger.error(f"Access forbidden for {self.request.method.value} {self.request.path}")
-                            return StateMachineResult(False, self._create_error_response(403, "Forbidden"))
+                            return StateMachineResult(False, self._create_error_response(HTTPStatus.FORBIDDEN, "Forbidden"))
                     except Exception as e:
                         logger.error(f"Forbidden check exception for {self.request.method.value} {self.request.path}: {e}")
                         self.app._dependency_cache.set("exception", e)
-                        return StateMachineResult(False, self._create_error_response(403, "Forbidden"))
+                        return StateMachineResult(False, self._create_error_response(HTTPStatus.FORBIDDEN, "Forbidden"))
                 else:
                     # Use the regular callback
                     forbidden = self.app._call_with_injection(callback, self.request, self.route_handler)
                     if forbidden:
                         logger.error(f"Access forbidden for {self.request.method.value} {self.request.path}")
-                        return StateMachineResult(False, self._create_error_response(403, "Forbidden"))
+                        return StateMachineResult(False, self._create_error_response(HTTPStatus.FORBIDDEN, "Forbidden"))
             except Exception as e:
                 logger.error(f"Permission check exception for {self.request.method.value} {self.request.path}: {e}")
                 self.app._dependency_cache.set("exception", e)
                 return StateMachineResult(
-                    False, self._create_error_response(403, f"Permission check failed: {str(e)}")
+                    False, self._create_error_response(HTTPStatus.FORBIDDEN, f"Permission check failed: {str(e)}")
                 )
         return StateMachineResult(True)
 
@@ -501,12 +502,12 @@ class RequestStateMachine:
                 valid = self.app._call_with_injection(callback, self.request, self.route_handler)
                 if not valid:
                     return StateMachineResult(
-                        False, self._create_error_response(400, "Bad Request - Invalid Headers")
+                        False, self._create_error_response(HTTPStatus.BAD_REQUEST, "Bad Request - Invalid Headers")
                     )
             except Exception as e:
                 self.app._dependency_cache.set("exception", e)
                 return StateMachineResult(
-                    False, self._create_error_response(400, f"Header validation failed: {str(e)}")
+                    False, self._create_error_response(HTTPStatus.BAD_REQUEST, f"Header validation failed: {str(e)}")
                 )
         return StateMachineResult(True)
 
@@ -527,7 +528,7 @@ class RequestStateMachine:
                             # Resource doesn't exist - check if we can create it from request (for POST)
                             if self.request.method == HTTPMethod.POST:
                                 return self._try_resource_from_request()
-                            return StateMachineResult(False, self._create_error_response(404, "Not Found"))
+                            return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found"))
                         # Cache the resolved value for later use in the handler
                         self.app._dependency_cache.set(
                             wrapper.original_name, resolved_value
@@ -537,7 +538,7 @@ class RequestStateMachine:
                         if self.request.method == HTTPMethod.POST:
                             return self._try_resource_from_request()
                         return StateMachineResult(
-                            False, self._create_error_response(404, "Resource Not Found")
+                            False, self._create_error_response(HTTPStatus.NOT_FOUND, "Resource Not Found")
                         )
                 else:
                     # Use the regular callback
@@ -546,14 +547,14 @@ class RequestStateMachine:
                         # Resource doesn't exist - check if we can create it from request (for POST)
                         if self.request.method == HTTPMethod.POST:
                             return self._try_resource_from_request()
-                        return StateMachineResult(False, self._create_error_response(404, "Not Found"))
+                        return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found"))
             except Exception as e:
                 # Resource doesn't exist - check if we can create it from request (for POST)
                 if self.request.method == HTTPMethod.POST:
                     return self._try_resource_from_request()
                 self.app._dependency_cache.set("exception", e)
                 return StateMachineResult(
-                    False, self._create_error_response(404, f"Resource check failed: {str(e)}")
+                    False, self._create_error_response(HTTPStatus.NOT_FOUND, f"Resource check failed: {str(e)}")
                 )
         return StateMachineResult(True)
 
@@ -579,15 +580,15 @@ class RequestStateMachine:
                     return StateMachineResult(True)
                 else:
                     # resource_from_request returned None, can't create resource
-                    return StateMachineResult(False, self._create_error_response(400, "Bad Request"))
+                    return StateMachineResult(False, self._create_error_response(HTTPStatus.BAD_REQUEST, "Bad Request"))
             except Exception as e:
                 self.app._dependency_cache.set("exception", e)
                 return StateMachineResult(
-                    False, self._create_error_response(400, f"Resource creation failed: {str(e)}")
+                    False, self._create_error_response(HTTPStatus.BAD_REQUEST, f"Resource creation failed: {str(e)}")
                 )
 
         # No resource_from_request callback available
-        return StateMachineResult(False, self._create_error_response(404, "Not Found"))
+        return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found"))
 
     def state_if_match(self) -> StateMachineResult:
         """Check If-Match precondition (RFC 7232)."""
@@ -599,7 +600,7 @@ class RequestStateMachine:
         current_etag = self._get_resource_etag()
         if not current_etag:
             # If resource doesn't have an ETag, If-Match fails
-            return StateMachineResult(False, self._create_error_response(412, "Precondition Failed"))
+            return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
 
         # Special case: If-Match: *
         if "*" in if_match_etags:
@@ -612,7 +613,7 @@ class RequestStateMachine:
                 return StateMachineResult(True)
 
         # No ETag matches
-        return StateMachineResult(False, self._create_error_response(412, "Precondition Failed"))
+        return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
 
     def state_if_unmodified_since(self) -> StateMachineResult:
         """Check If-Unmodified-Since precondition (RFC 7232)."""
@@ -624,11 +625,11 @@ class RequestStateMachine:
         last_modified = self._get_resource_last_modified()
         if not last_modified:
             # If resource doesn't have a Last-Modified date, precondition fails
-            return StateMachineResult(False, self._create_error_response(412, "Precondition Failed"))
+            return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
 
         # Check if resource was modified after the If-Unmodified-Since date
         if last_modified > if_unmodified_since:
-            return StateMachineResult(False, self._create_error_response(412, "Precondition Failed"))
+            return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
 
         return StateMachineResult(True)
 
@@ -643,11 +644,11 @@ class RequestStateMachine:
 
         # Special case: If-None-Match: *
         if "*" in if_none_match_etags:
-            # Resource exists, so * matches - return 304 for GET/HEAD, 412 for others
+            # Resource exists, so * matches - return HTTPStatus.NOT_MODIFIED for GET/HEAD, HTTPStatus.PRECONDITION_FAILED for others
             if self.request.method in [HTTPMethod.GET]:
-                return StateMachineResult(False, Response(304, headers={"ETag": current_etag} if current_etag else {}))
+                return StateMachineResult(False, Response(HTTPStatus.NOT_MODIFIED, headers={"ETag": current_etag} if current_etag else {}))
             else:
-                return StateMachineResult(False, self._create_error_response(412, "Precondition Failed"))
+                return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
 
         # If resource doesn't have an ETag, If-None-Match succeeds
         if not current_etag:
@@ -656,11 +657,11 @@ class RequestStateMachine:
         # Check if current ETag matches any of the requested ETags (weak comparison for If-None-Match)
         for requested_etag in if_none_match_etags:
             if etags_match(current_etag, requested_etag, strong_comparison=False):
-                # ETag matches - return 304 for GET/HEAD, 412 for others
+                # ETag matches - return HTTPStatus.NOT_MODIFIED for GET/HEAD, HTTPStatus.PRECONDITION_FAILED for others
                 if self.request.method in [HTTPMethod.GET]:
-                    return StateMachineResult(False, Response(304, headers={"ETag": current_etag}))
+                    return StateMachineResult(False, Response(HTTPStatus.NOT_MODIFIED, headers={"ETag": current_etag}))
                 else:
-                    return StateMachineResult(False, self._create_error_response(412, "Precondition Failed"))
+                    return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
 
         # No ETag matches, continue processing
         return StateMachineResult(True)
@@ -683,14 +684,14 @@ class RequestStateMachine:
 
         # Check if resource was modified after the If-Modified-Since date
         if last_modified <= if_modified_since:
-            # Resource hasn't been modified, return 304
+            # Resource hasn't been modified, return HTTPStatus.NOT_MODIFIED
             headers = {}
             if last_modified:
                 headers["Last-Modified"] = last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
             current_etag = self._get_resource_etag()
             if current_etag:
                 headers["ETag"] = current_etag
-            return StateMachineResult(False, Response(304, headers=headers))
+            return StateMachineResult(False, Response(HTTPStatus.NOT_MODIFIED, headers=headers))
 
         return StateMachineResult(True)
 
@@ -786,7 +787,7 @@ class RequestStateMachine:
         if not available_types:
             logger.error(f"No content renderers available for {self.request.method.value} {self.request.path}")
             return StateMachineResult(
-                False, self._create_error_response(500, "No content renderers available")
+                False, self._create_error_response(HTTPStatus.INTERNAL_SERVER_ERROR, "No content renderers available")
             )
 
         return StateMachineResult(True)
@@ -816,7 +817,7 @@ class RequestStateMachine:
         return StateMachineResult(
             False,
             Response(
-                406,
+                HTTPStatus.NOT_ACCEPTABLE,
                 f"Not Acceptable. Available types: {', '.join(set(available_types))}",
                 headers={"Content-Type": "text/plain"},
                 request=self.request,
@@ -877,9 +878,9 @@ class RequestStateMachine:
                 self.route_handler.handler, self.request, self.route_handler
             )
 
-            # Check if handler returned None (regardless of annotation) -> return 204 No Content
+            # Check if handler returned None (regardless of annotation) -> return HTTPStatus.NO_CONTENT No Content
             if main_result is None:
-                return Response(204, pre_calculated_headers=processed_headers)
+                return Response(HTTPStatus.NO_CONTENT, pre_calculated_headers=processed_headers)
 
             # Add ETag and Last-Modified to processed headers if available (after handler execution)
             current_etag = self._get_resource_etag()
@@ -896,8 +897,8 @@ class RequestStateMachine:
 
             # Handle different return type scenarios
             if return_annotation is None or return_annotation is type(None):
-                # Explicitly annotated as None -> return 204 No Content
-                return Response(204, pre_calculated_headers=processed_headers)
+                # Explicitly annotated as None -> return HTTPStatus.NO_CONTENT No Content
+                return Response(HTTPStatus.NO_CONTENT, pre_calculated_headers=processed_headers)
             elif return_annotation != inspect.Signature.empty and PYDANTIC_AVAILABLE:
                 # Has return type annotation -> validate response
                 try:
@@ -948,7 +949,7 @@ class RequestStateMachine:
                             main_result = validated_response.model_dump()
                 except ValidationError as e:
                     return Response(
-                        422,
+                        HTTPStatus.UNPROCESSABLE_ENTITY,
                         json.dumps(
                             {
                                 "error": "Response validation failed",
@@ -996,7 +997,7 @@ class RequestStateMachine:
 
                 # Otherwise, treat the rendered result as the body
                 return Response(
-                    200,
+                    HTTPStatus.OK,
                     str(rendered_result),
                     content_type=self.chosen_renderer.media_type,
                     pre_calculated_headers=processed_headers,
@@ -1023,7 +1024,7 @@ class RequestStateMachine:
             if self.chosen_renderer:
                 rendered_body = self.chosen_renderer.render(result, self.request)
                 return Response(
-                    200,
+                    HTTPStatus.OK,
                     rendered_body,
                     content_type=self.chosen_renderer.media_type,
                     pre_calculated_headers=processed_headers,
@@ -1031,7 +1032,7 @@ class RequestStateMachine:
             else:
                 # Fallback to plain text
                 return Response(
-                    200,
+                    HTTPStatus.OK,
                     str(result),
                     content_type="text/plain",
                     pre_calculated_headers=processed_headers,
@@ -1042,7 +1043,7 @@ class RequestStateMachine:
             # Use processed headers if available, otherwise fallback to basic headers
             fallback_headers = processed_headers or {}
             # Create a custom response for validation errors with details
-            response = self._create_error_response(422, "Validation failed", details=e.errors(include_url=False))
+            response = self._create_error_response(HTTPStatus.UNPROCESSABLE_ENTITY, "Validation failed", details=e.errors(include_url=False))
             if fallback_headers:
                 response.pre_calculated_headers = fallback_headers
                 response.__post_init__()
@@ -1050,9 +1051,9 @@ class RequestStateMachine:
         except AcceptsParsingError as e:
             # Set exception in cache for custom error handlers
             self.app._dependency_cache.set("exception", e)
-            # Handle accepts parsing errors with 422 status
+            # Handle accepts parsing errors with HTTPStatus.UNPROCESSABLE_ENTITY status
             fallback_headers = processed_headers or {}
-            response = self._create_error_response(422, "Parsing failed")
+            response = self._create_error_response(HTTPStatus.UNPROCESSABLE_ENTITY, "Parsing failed")
             # If default response (not custom handler), add message
             if response.body == json.dumps({"error": "Parsing failed"}):
                 response.body = json.dumps({"error": "Parsing failed", "message": e.message})
@@ -1068,10 +1069,10 @@ class RequestStateMachine:
             fallback_headers = processed_headers or {}
 
             if "Unsupported Media Type - 415" in error_message:
-                response = self._create_error_response(415, "Unsupported Media Type")
+                response = self._create_error_response(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported Media Type")
             else:
-                # Other ValueError cases return 400 Bad Request
-                response = self._create_error_response(400, f"Bad Request: {error_message}")
+                # Other ValueError cases return Bad Request
+                response = self._create_error_response(HTTPStatus.BAD_REQUEST, f"Bad Request: {error_message}")
 
             if fallback_headers:
                 response.pre_calculated_headers = fallback_headers
@@ -1082,7 +1083,7 @@ class RequestStateMachine:
             self.app._dependency_cache.set("exception", e)
             # Use processed headers if available, otherwise fallback to basic headers
             fallback_headers = processed_headers or {}
-            response = self._create_error_response(500, f"Internal Server Error: {str(e)}")
+            response = self._create_error_response(HTTPStatus.INTERNAL_SERVER_ERROR, f"Internal Server Error: {str(e)}")
             if fallback_headers:
                 response.pre_calculated_headers = fallback_headers
                 response.__post_init__()

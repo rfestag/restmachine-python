@@ -7,6 +7,8 @@ capabilities, a webmachine-inspired state machine, flexible content negotiation,
 and comprehensive request/response validation using Pydantic models.
 """
 
+from http import HTTPStatus
+
 from .application import RestApplication
 from .content_renderers import (
     ContentRenderer,
@@ -42,6 +44,7 @@ __all__ = [
     "Request",
     "Response",
     "HTTPMethod",
+    "HTTPStatus",
     "JSONRenderer",
     "HTMLRenderer",
     "PlainTextRenderer",
