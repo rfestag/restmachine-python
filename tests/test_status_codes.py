@@ -256,6 +256,61 @@ class TestMethodNotAllowed(MultiDriverTestBase):
         assert "Method Not Allowed" in response.get_text_body()
 
 
+class TestWrongMethodOnExistingRoute(MultiDriverTestBase):
+    """Test 405 when using wrong HTTP method on existing route."""
+
+    def create_app(self) -> RestApplication:
+        """Create app with routes for specific methods."""
+        app = RestApplication()
+
+        @app.get("/users")
+        def get_users():
+            return {"users": []}
+
+        @app.post("/items")
+        def create_item(json_body):
+            return {"created": True}
+
+        @app.put("/resources/{id}")
+        def update_resource(path_params):
+            return {"updated": True}
+
+        return app
+
+    def test_405_post_to_get_only_route(self, api):
+        """Test that POST to GET-only route returns 405."""
+        api_client, driver_name = api
+
+        request = api_client.post("/users").with_json_body({}).accepts("application/json")
+        response = api_client.execute(request)
+        assert response.status_code == 405
+        assert "Method Not Allowed" in response.get_text_body()
+
+    def test_405_get_to_post_only_route(self, api):
+        """Test that GET to POST-only route returns 405."""
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/items")
+        assert response.status_code == 405
+        assert "Method Not Allowed" in response.get_text_body()
+
+    def test_405_delete_to_put_only_route(self, api):
+        """Test that DELETE to PUT-only route returns 405."""
+        api_client, driver_name = api
+
+        response = api_client.delete_resource("/resources/123")
+        assert response.status_code == 405
+        assert "Method Not Allowed" in response.get_text_body()
+
+    def test_404_for_nonexistent_route(self, api):
+        """Test that nonexistent routes still return 404 (not 405)."""
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/nonexistent")
+        assert response.status_code == 404
+        assert "Not Found" in response.get_text_body()
+
+
 class TestMethodAndResourceErrors(MultiDriverTestBase):
     """Test method and resource-related errors across all drivers."""
 

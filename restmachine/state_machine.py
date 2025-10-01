@@ -157,6 +157,12 @@ class RequestStateMachine:
         """B13: Check if route exists."""
         route_match = self.app._find_route(self.request.method, self.request.path)
         if route_match is None:
+            # Check if ANY route exists for this path (regardless of method)
+            if self.app._path_has_routes(self.request.path):
+                # Route exists but method not allowed -> 405
+                return StateMachineResult(False, Response(405, "Method Not Allowed"))
+
+            # No route exists at all for this path -> 404
             callback = self._get_callback("route_not_found")
             if callback:
                 try:

@@ -570,6 +570,14 @@ class RestApplication:
                     return route, match.groupdict()
         return None
 
+    def _path_has_routes(self, path: str) -> bool:
+        """Check if any route exists for the given path (regardless of method)."""
+        for route in self._routes:
+            match = re.match(route.path_pattern, path)
+            if match:
+                return True
+        return False
+
     def execute(self, request: Request) -> Response:
         """Execute a request through the state machine."""
         try:

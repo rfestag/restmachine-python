@@ -181,3 +181,5 @@ class TestResponseRendering(MultiDriverTestBase):
         request = api_client.get("/resource").accepts("application/pdf")
         response = api_client.execute(request)
 
+        assert response.status_code == 406  # Not Acceptable
+
