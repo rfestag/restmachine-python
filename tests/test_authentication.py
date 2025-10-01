@@ -1,80 +1,12 @@
 """
-REST framework tests using multi-driver approach.
+Authentication and authorization tests across all drivers.
 
-Tests basic API operations and authentication across all drivers.
+Tests for authentication workflows, protected endpoints, authorization checks,
+and forbidden resource handling.
 """
 
 from restmachine import RestApplication
 from tests.framework import MultiDriverTestBase
-
-
-class TestBasicApiOperations(MultiDriverTestBase):
-    """Test basic API operations across all drivers."""
-
-    def create_app(self) -> RestApplication:
-        """Create app with basic CRUD operations."""
-        app = RestApplication()
-
-        @app.get("/")
-        def home():
-            return {"message": "Hello World"}
-
-        @app.get("/users/{user_id}")
-        def get_user(path_params):
-            user_id = path_params["user_id"]
-            return {"id": int(user_id), "name": f"User {user_id}"}
-
-        @app.post("/users")
-        def create_user(json_body):
-            return {"id": 123, "name": json_body["name"], "email": json_body["email"]}
-
-        @app.delete("/users/{user_id}")
-        def delete_user(path_params):
-            return None  # 204 No Content
-
-        return app
-
-    def test_can_get_home_page(self, api):
-        """Test that we can retrieve the home page."""
-        api_client, driver_name = api
-
-        response = api_client.get_resource("/")
-        data = api_client.expect_successful_retrieval(response)
-        assert data["message"] == "Hello World"
-
-    def test_can_get_user_by_id(self, api):
-        """Test that we can retrieve a user by ID."""
-        api_client, driver_name = api
-
-        response = api_client.get_resource("/users/42")
-        data = api_client.expect_successful_retrieval(response)
-        assert data["id"] == 42
-        assert data["name"] == "User 42"
-
-    def test_can_create_user(self, api):
-        """Test that we can create a new user."""
-        api_client, driver_name = api
-
-        user_data = {"name": "John Doe", "email": "john@example.com"}
-        response = api_client.create_resource("/users", user_data)
-
-        data = api_client.expect_successful_creation(response, ["id", "name", "email"])
-        assert data["name"] == "John Doe"
-        assert data["email"] == "john@example.com"
-
-    def test_can_delete_user(self, api):
-        """Test that we can delete a user."""
-        api_client, driver_name = api
-
-        response = api_client.delete_resource("/users/123")
-        api_client.expect_no_content(response)
-
-    def test_nonexistent_resource_returns_404(self, api):
-        """Test that accessing nonexistent resources returns 404."""
-        api_client, driver_name = api
-
-        response = api_client.get_resource("/nonexistent")
-        api_client.expect_not_found(response)
 
 
 class TestAuthentication(MultiDriverTestBase):
@@ -165,3 +97,84 @@ class TestAuthentication(MultiDriverTestBase):
 
         data = api_client.expect_successful_retrieval(response)
         assert data["stats"] == "Admin only stats"
+
+
+class TestAuthenticationAndAuthorization(MultiDriverTestBase):
+    """Test authentication and authorization scenarios with 401 and 403 status codes."""
+
+    def create_app(self) -> RestApplication:
+        """Create app with auth scenarios."""
+        app = RestApplication()
+
+        @app.default_authorized
+        def authorized(request):
+            auth_header = request.get_authorization_header() or ""
+            if request.path == "/public":
+                return True
+            return auth_header.startswith("Bearer valid")
+
+        @app.default_forbidden
+        def forbidden(request):
+            auth_header = request.get_authorization_header() or ""
+            if request.path == "/admin" and "admin" not in auth_header:
+                return True
+            return False
+
+        @app.forbidden
+        def permission_check(request):
+            if request.path == "/forbidden-dependency":
+                return None
+            return True
+
+        @app.get("/public")
+        def public_endpoint():
+            return {"message": "Public content"}
+
+        @app.get("/protected")
+        def protected_endpoint():
+            return {"message": "Protected content"}
+
+        @app.get("/admin")
+        def admin_endpoint():
+            return {"message": "Admin content"}
+
+        @app.get("/forbidden-dependency")
+        def forbidden_handler(permission_check):
+            return {"message": "Should not reach here"}
+
+        return app
+
+    def test_401_unauthorized(self, api):
+        """Test 401 Unauthorized from authorization failure."""
+        api_client, driver_name = api
+
+        response = api_client.access_protected_resource("/protected")
+        api_client.expect_unauthorized(response)
+
+    def test_403_forbidden_callback(self, api):
+        """Test 403 Forbidden from forbidden callback."""
+        api_client, driver_name = api
+
+        # Use valid auth to pass authorization, but forbidden callback will trigger
+        request = api_client.get("/admin").with_auth("valid_user_token").accepts("application/json")
+        response = api_client.execute(request)
+        assert response.status_code == 403
+        assert "Forbidden" in response.get_text_body()
+
+    def test_403_forbidden_dependency(self, api):
+        """Test 403 Forbidden from forbidden dependency returning None."""
+        api_client, driver_name = api
+
+        # Use valid auth to pass authorization check first
+        request = api_client.get("/forbidden-dependency").with_auth("valid_user").accepts("application/json")
+        response = api_client.execute(request)
+        assert response.status_code == 403
+        assert "Forbidden" in response.get_text_body()
+
+    def test_public_endpoint_access(self, api):
+        """Test that public endpoint is accessible without auth."""
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/public")
+        data = api_client.expect_successful_retrieval(response)
+        assert data["message"] == "Public content"

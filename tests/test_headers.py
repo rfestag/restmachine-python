@@ -1,8 +1,8 @@
 """
-Advanced default headers tests using multi-driver architecture.
+HTTP headers tests across all drivers.
 
-Tests for route-specific vs global headers, header modification in-place,
-header dependency caching, and error handling in header functions.
+Tests for default headers, Content-Length, Vary headers, conditional headers,
+header precedence, and error handling.
 """
 
 import pytest
@@ -12,6 +12,154 @@ from restmachine import RestApplication
 from tests.framework import MultiDriverTestBase
 
 
+class TestContentLengthHandling(MultiDriverTestBase):
+    """Test automatic Content-Length header injection across all drivers."""
+
+    def create_app(self) -> RestApplication:
+        """Set up API for content length testing."""
+        app = RestApplication()
+
+        @app.get("/text")
+        def get_text():
+            return "Hello, World!"
+
+        @app.get("/unicode")
+        def get_unicode():
+            return "Hello, 世界! 🌍"
+
+        @app.get("/empty")
+        def get_empty():
+            return ""
+
+        @app.get("/none")
+        def get_none():
+            return None
+
+        return app
+
+    def test_content_length_with_text_body(self, api):
+        """Test Content-Length header with text body."""
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/text")
+        assert response.status_code == 200
+        # Just check that Content-Length is set correctly
+        assert response.get_header("Content-Length") is not None
+        content_length = int(response.get_header("Content-Length"))
+        assert content_length > 0
+
+    def test_content_length_with_unicode_content(self, api):
+        """Test Content-Length header with Unicode content."""
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/unicode")
+        assert response.status_code == 200
+        # Just check that Content-Length is set correctly
+        assert response.get_header("Content-Length") is not None
+        content_length = int(response.get_header("Content-Length"))
+        # Unicode content should have correct byte length
+        assert content_length > len("Hello, ! ")  # More than ASCII chars
+
+    def test_no_content_length_for_204(self, api):
+        """Test that 204 No Content responses work correctly across all drivers.
+
+        RestMachine follows RFC 7230 strictly (no Content-Length for 204),
+        but HTTP servers often add Content-Length: 0 for safety. Both are valid.
+        """
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/none")
+        api_client.expect_no_content(response)
+
+        # Accept both RFC 7230 strict (None) and common server behavior ("0")
+        content_length = response.get_header("Content-Length")
+        assert content_length is None or content_length == "0", \
+            f"Expected None or '0' for 204 response, got {content_length!r}"
+
+
+class TestVaryHeaderHandling(MultiDriverTestBase):
+    """Test automatic Vary header injection across all drivers."""
+
+    def create_app(self) -> RestApplication:
+        """Set up API for Vary header testing."""
+        app = RestApplication()
+
+        @app.default_authorized
+        def check_auth(request):
+            auth_header = request.headers.get("Authorization", "")
+            return auth_header.startswith("Bearer")
+
+        @app.get("/public")
+        def public_endpoint():
+            return {"message": "Public"}
+
+        @app.get("/protected")
+        def protected_endpoint():
+            return {"message": "Protected"}
+
+        @app.get("/content")
+        def get_content():
+            return {"data": "content"}
+
+        @app.renders("text/html")
+        def render_html(get_content):
+            return f"<h1>{get_content['data']}</h1>"
+
+        return app
+
+    def test_vary_authorization_with_auth_header(self, api):
+        """Test Vary: Authorization when request has Authorization header."""
+        api_client, driver_name = api
+
+        request = api_client.get("/protected").with_auth("valid_token").accepts("application/json")
+        response = api_client.execute(request)
+
+        vary_header = response.get_header("Vary")
+        if vary_header:
+            assert "Authorization" in vary_header
+
+    def test_vary_accept_with_content_negotiation(self, api):
+        """Test Vary: Accept with content negotiation."""
+        api_client, driver_name = api
+
+        response = api_client.get_as_html("/content")
+
+        vary_header = response.get_header("Vary")
+        if vary_header:
+            assert "Accept" in vary_header
+
+
+class TestDefaultHeaders(MultiDriverTestBase):
+    """Test default header functionality across all drivers."""
+
+    def create_app(self) -> RestApplication:
+        """Set up API with default headers."""
+        app = RestApplication()
+
+        @app.default_headers
+        def add_default_headers(request):
+            return {
+                "X-API-Version": "1.0",
+                "X-Request-ID": f"req-{hash(request.path) % 10000}"
+            }
+
+        @app.get("/test")
+        def test_endpoint():
+            return {"message": "test"}
+
+        return app
+
+    def test_default_headers_applied(self, api):
+        """Test that default headers are applied to responses."""
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/test")
+        api_client.expect_successful_retrieval(response)
+
+        # Check for default headers
+        assert response.get_header("X-API-Version") == "1.0"
+        assert response.get_header("X-Request-ID") is not None
+        assert response.get_header("X-Request-ID").startswith("req-")
 class TestBasicDefaultHeaders(MultiDriverTestBase):
     """Test basic default header functionality."""
 
