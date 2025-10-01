@@ -109,6 +109,8 @@ class RestApplication:
         self._dependency_cache = DependencyCache()
         self._content_renderers: Dict[str, ContentRenderer] = {}
         self._error_handlers: List[ErrorHandler] = []
+        self._request_id_provider: Optional[Callable] = None
+        self._trace_id_provider: Optional[Callable] = None
 
         # Add default content renderers
         self.add_content_renderer(JSONRenderer())
@@ -375,6 +377,37 @@ class RestApplication:
             return func
         return decorator
 
+    # Request/Trace ID decorators
+    def request_id(self, func: Callable):
+        """Decorator to register a custom request ID generator.
+
+        The decorated function should accept a Request object and return a string.
+        If not provided, a default UUID-based generator will be used.
+
+        Example:
+            @app.request_id
+            def generate_request_id(request):
+                # Check for existing request ID in headers
+                return request.headers.get('X-Request-ID', str(uuid.uuid4()))
+        """
+        self._request_id_provider = func
+        return func
+
+    def trace_id(self, func: Callable):
+        """Decorator to register a custom trace ID generator.
+
+        The decorated function should accept a Request object and return a string.
+        If not provided, a default UUID-based generator will be used.
+
+        Example:
+            @app.trace_id
+            def generate_trace_id(request):
+                # Check for existing trace ID in headers
+                return request.headers.get('X-Trace-ID', str(uuid.uuid4()))
+        """
+        self._trace_id_provider = func
+        return func
+
     # HTTP method decorators
     def get(self, path: str):
         """Decorator to register a GET route handler."""
@@ -452,7 +485,8 @@ class RestApplication:
         builtin_names = [
             "request", "exception", "body", "query_params", "path_params",
             "request_headers", "response_headers", "headers",
-            "json_body", "form_body", "multipart_body", "text_body"
+            "json_body", "form_body", "multipart_body", "text_body",
+            "request_id", "trace_id"
         ]
         return param_name in builtin_names or param_type == Request
 
@@ -496,6 +530,22 @@ class RestApplication:
                 def __init__(self, value):
                     self.value = value
             return _BuiltinResolved(self._parse_body(request, route, content_type_map[param_name]))
+        elif param_name == "request_id":
+            # Generate request ID using custom provider or default
+            if self._request_id_provider:
+                return self._call_with_injection(self._request_id_provider, request, route)
+            else:
+                # Default: generate UUID
+                import uuid
+                return str(uuid.uuid4())
+        elif param_name == "trace_id":
+            # Generate trace ID using custom provider or default
+            if self._trace_id_provider:
+                return self._call_with_injection(self._trace_id_provider, request, route)
+            else:
+                # Default: generate UUID
+                import uuid
+                return str(uuid.uuid4())
         return None
 
     def _resolve_accepts_dependency(self, param_name: str, request: Request, route: Optional[RouteHandler]) -> Any:

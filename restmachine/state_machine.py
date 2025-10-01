@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, List, Optional, Union, get_origin, get_a
 
 from .content_renderers import ContentRenderer
 from .dependencies import DependencyWrapper
+from .error_models import ErrorResponse
 from .exceptions import PYDANTIC_AVAILABLE, ValidationError, AcceptsParsingError
 from .models import HTTPMethod, Request, Response, etags_match
 
@@ -37,12 +38,13 @@ class RequestStateMachine:
         self.dependency_callbacks: Dict[str, DependencyWrapper] = {}
         self.handler_result: Any = None
 
-    def _create_error_response(self, status_code: int, message: str, **kwargs) -> Response:
+    def _create_error_response(self, status_code: int, message: str, details=None, **kwargs) -> Response:
         """Create an error response respecting content negotiation.
 
         Args:
             status_code: HTTP status code
             message: Error message
+            details: Optional validation error details (follows Pydantic error schema)
             **kwargs: Additional Response parameters (headers, etc.)
 
         Returns:
@@ -117,6 +119,16 @@ class RequestStateMachine:
                         # Fall through to default behavior
 
         # Default error response behavior (no custom handler or handler failed)
+        # Get request_id and trace_id using dependency resolution
+        request_id = None
+        trace_id = None
+        try:
+            request_id = self.app._resolve_builtin_dependency("request_id", None, self.request, self.route_handler)
+            trace_id = self.app._resolve_builtin_dependency("trace_id", None, self.request, self.route_handler)
+        except Exception:
+            # If dependency resolution fails, continue without IDs
+            pass
+
         # Determine if client wants JSON
         prefers_json = False
         if accept_header:
@@ -133,10 +145,16 @@ class RequestStateMachine:
             prefers_json = True
 
         if prefers_json:
-            # Return JSON error response
+            # Return JSON error response using ErrorResponse model
+            error_response = ErrorResponse(
+                error=message,
+                details=details,
+                request_id=request_id,
+                trace_id=trace_id
+            )
             return Response(
                 status_code,
-                json.dumps({"error": message}),
+                error_response.model_dump_json(),
                 content_type="application/json",
                 **kwargs
             )
@@ -259,9 +277,24 @@ class RequestStateMachine:
 
         except ValidationError as e:
             logger.warning(f"Validation error in request processing: {e}")
+            # Get request_id and trace_id
+            request_id = None
+            trace_id = None
+            try:
+                request_id = self.app._resolve_builtin_dependency("request_id", None, self.request, self.route_handler)
+                trace_id = self.app._resolve_builtin_dependency("trace_id", None, self.request, self.route_handler)
+            except Exception:
+                pass
+
+            error_response = ErrorResponse.from_validation_error(
+                e,
+                message="Validation failed",
+                request_id=request_id,
+                trace_id=trace_id
+            )
             return Response(
                 422,
-                json.dumps({"error": "Validation failed", "details": e.errors()}),
+                error_response.model_dump_json(),
                 content_type="application/json",
             )
 
@@ -1008,11 +1041,8 @@ class RequestStateMachine:
             self.app._dependency_cache.set("exception", e)
             # Use processed headers if available, otherwise fallback to basic headers
             fallback_headers = processed_headers or {}
-            # Create a custom response for validation errors
-            response = self._create_error_response(422, "Validation failed")
-            # If default response (not custom handler), add details
-            if response.body == json.dumps({"error": "Validation failed"}):
-                response.body = json.dumps({"error": "Validation failed", "details": e.errors()})
+            # Create a custom response for validation errors with details
+            response = self._create_error_response(422, "Validation failed", details=e.errors(include_url=False))
             if fallback_headers:
                 response.pre_calculated_headers = fallback_headers
                 response.__post_init__()

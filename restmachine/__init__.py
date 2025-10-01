@@ -15,6 +15,7 @@ from .content_renderers import (
     PlainTextRenderer,
 )
 from .drivers import AwsApiGatewayDriver, Driver
+from .error_models import ErrorResponse
 from .exceptions import ValidationError
 from .models import HTTPMethod, Request, Response
 
@@ -45,6 +46,7 @@ __all__ = [
     "HTMLRenderer",
     "PlainTextRenderer",
     "ContentRenderer",
+    "ErrorResponse",
     "ValidationError",
     "Driver",
     "AwsApiGatewayDriver",
