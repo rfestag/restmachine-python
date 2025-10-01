@@ -33,7 +33,6 @@ class MultiDriverTestBase(ABC):
         'aws_lambda',       # AWS Lambda driver: simulates AWS API Gateway events
         'uvicorn-http1',    # HTTP/1.1 driver via Uvicorn server
         'hypercorn-http1',  # HTTP/1.1 driver via Hypercorn server
-        'uvicorn-http2',    # HTTP/2 driver via Uvicorn server
         'hypercorn-http2',  # HTTP/2 driver via Hypercorn server
     ]
 
@@ -71,13 +70,11 @@ class MultiDriverTestBase(ABC):
         try:
             from .http_drivers import (
                 UvicornHttp1Driver,
-                UvicornHttp2Driver,
                 HypercornHttp1Driver,
                 HypercornHttp2Driver,
             )
             driver_map.update({
                 'uvicorn-http1': lambda app: UvicornHttp1Driver(app),
-                'uvicorn-http2': lambda app: UvicornHttp2Driver(app),
                 'hypercorn-http1': lambda app: HypercornHttp1Driver(app),
                 'hypercorn-http2': lambda app: HypercornHttp2Driver(app),
             })

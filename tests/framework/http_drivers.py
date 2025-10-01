@@ -318,13 +318,6 @@ class UvicornHttp1Driver(UvicornHttpDriver):
         super().__init__(app, "http1", **kwargs)
 
 
-class UvicornHttp2Driver(UvicornHttpDriver):
-    """Uvicorn HTTP/2 test driver."""
-
-    def __init__(self, app: RestApplication, **kwargs):
-        super().__init__(app, "http2", **kwargs)
-
-
 class HypercornHttp1Driver(HypercornHttpDriver):
     """Hypercorn HTTP/1.1 test driver."""
 

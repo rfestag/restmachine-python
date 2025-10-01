@@ -13,6 +13,64 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
+class CaseInsensitiveDict(dict):
+    """
+    Case-insensitive dictionary for HTTP headers.
+
+    HTTP headers are case-insensitive per RFC 7230, but Python dicts are case-sensitive.
+    This class provides case-insensitive key lookups while preserving the original casing
+    of keys for display purposes.
+
+    Example:
+        headers = CaseInsensitiveDict({'Content-Type': 'application/json'})
+        headers.get('content-type')  # Returns 'application/json'
+        headers.get('CONTENT-TYPE')  # Returns 'application/json'
+        headers['content-type']      # Returns 'application/json'
+    """
+
+    def get(self, key, default=None):
+        """Get value with case-insensitive key lookup."""
+        if not isinstance(key, str):
+            return super().get(key, default)
+
+        key_lower = key.lower()
+        for k, v in self.items():
+            if k.lower() == key_lower:
+                return v
+        return default
+
+    def __getitem__(self, key):
+        """Support bracket notation with case-insensitive lookup."""
+        if not isinstance(key, str):
+            return super().__getitem__(key)
+
+        key_lower = key.lower()
+        for k, v in self.items():
+            if k.lower() == key_lower:
+                return v
+        raise KeyError(key)
+
+    def __contains__(self, key):
+        """Support 'in' operator with case-insensitive lookup."""
+        if not isinstance(key, str):
+            return super().__contains__(key)
+
+        key_lower = key.lower()
+        return any(k.lower() == key_lower for k in self.keys())
+
+    def __setitem__(self, key, value):
+        """Set item, removing any existing keys with same name (case-insensitive)."""
+        if isinstance(key, str):
+            # Remove any existing key with the same name (case-insensitive)
+            key_lower = key.lower()
+            existing_keys = [k for k in self.keys() if k.lower() == key_lower]
+            for existing_key in existing_keys:
+                super().__delitem__(existing_key)
+
+        # Set the new value
+        super().__setitem__(key, value)
+
+
 class HTTPMethod(Enum):
     """Enumeration of supported HTTP methods."""
 
@@ -33,6 +91,11 @@ class Request:
     body: Optional[str] = None
     query_params: Optional[Dict[str, str]] = None
     path_params: Optional[Dict[str, str]] = None
+
+    def __post_init__(self):
+        """Ensure headers is a CaseInsensitiveDict for case-insensitive header lookups."""
+        if not isinstance(self.headers, CaseInsensitiveDict):
+            self.headers = CaseInsensitiveDict(self.headers)
 
     def get_accept_header(self) -> str:
         """Get the Accept header, defaulting to */* if not present."""
@@ -140,7 +203,9 @@ class Response:
 
     def __post_init__(self):
         if self.headers is None:
-            self.headers = {}
+            self.headers = CaseInsensitiveDict()
+        elif not isinstance(self.headers, CaseInsensitiveDict):
+            self.headers = CaseInsensitiveDict(self.headers)
 
         # If we have pre-calculated headers, use them first
         if self.pre_calculated_headers:

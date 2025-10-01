@@ -257,10 +257,6 @@ class TestAuthentication(MultiDriverTestBase):
         response = api_client.access_protected_resource("/protected")
         api_client.expect_unauthorized(response)
 
-    @skip_driver('uvicorn-http1', 'HTTP driver auth handling differs from direct driver')
-    @skip_driver('uvicorn-http2', 'HTTP driver auth handling differs from direct driver')
-    @skip_driver('hypercorn-http1', 'HTTP driver auth handling differs from direct driver')
-    @skip_driver('hypercorn-http2', 'HTTP driver auth handling differs from direct driver')
     def test_protected_endpoint_accessible_with_auth(self, api):
         """Test that protected endpoints are accessible with valid auth."""
         api_client, driver_name = api
@@ -279,10 +275,6 @@ class TestAuthentication(MultiDriverTestBase):
         # Will be unauthorized since user_token doesn't exist in sessions
         api_client.expect_unauthorized(response)
 
-    @skip_driver('uvicorn-http1', 'HTTP driver auth handling differs from direct driver')
-    @skip_driver('uvicorn-http2', 'HTTP driver auth handling differs from direct driver')
-    @skip_driver('hypercorn-http1', 'HTTP driver auth handling differs from direct driver')
-    @skip_driver('hypercorn-http2', 'HTTP driver auth handling differs from direct driver')
     def test_admin_endpoint_accessible_for_admin(self, api):
         """Test that admin endpoints are accessible for admin users."""
         api_client, driver_name = api

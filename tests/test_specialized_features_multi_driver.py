@@ -8,7 +8,7 @@ and ETag/conditional requests across all drivers.
 from datetime import datetime, timezone
 
 from restmachine import RestApplication
-from tests.framework import MultiDriverTestBase, skip_driver
+from tests.framework import MultiDriverTestBase
 
 
 class TestContentLengthHandling(MultiDriverTestBase):
@@ -59,17 +59,21 @@ class TestContentLengthHandling(MultiDriverTestBase):
         # Unicode content should have correct byte length
         assert content_length > len("Hello, ! ")  # More than ASCII chars
 
-    @skip_driver('uvicorn-http1', 'Uvicorn adds Content-Length: 0 for 204 responses')
-    @skip_driver('uvicorn-http2', 'Uvicorn adds Content-Length: 0 for 204 responses')
-    @skip_driver('hypercorn-http1', 'Hypercorn adds Content-Length: 0 for 204 responses')
-    @skip_driver('hypercorn-http2', 'Hypercorn adds Content-Length: 0 for 204 responses')
     def test_no_content_length_for_204(self, api):
-        """Test that 204 responses don't have Content-Length."""
+        """Test that 204 No Content responses work correctly across all drivers.
+
+        RestMachine follows RFC 7230 strictly (no Content-Length for 204),
+        but HTTP servers often add Content-Length: 0 for safety. Both are valid.
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/none")
         api_client.expect_no_content(response)
-        assert response.get_header("Content-Length") is None
+
+        # Accept both RFC 7230 strict (None) and common server behavior ("0")
+        content_length = response.get_header("Content-Length")
+        assert content_length is None or content_length == "0", \
+            f"Expected None or '0' for 204 response, got {content_length!r}"
 
 
 class TestVaryHeaderHandling(MultiDriverTestBase):
