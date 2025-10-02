@@ -61,6 +61,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Base64 encoding/decoding support for binary content
   - Robust handling of platform-specific edge cases (null values, missing fields)
   - Comprehensive test coverage and example implementations
+- **Dependency Scopes**: Support for request and session-scoped dependencies
+  - `scope="request"` (default): Dependencies are evaluated once per request and cleared between requests
+  - `scope="session"`: Dependencies are evaluated once and cached across all requests (perfect for database connections, API clients, etc.)
+  - All dependency decorators now support scope parameter: `@app.dependency()`, `@app.resource_exists()`, `@app.authorized()`, `@app.validates()`, etc.
+  - Separate caching for request and session scopes
+  - Request cache automatically cleared between requests, session cache persists
+  - Full backward compatibility - existing code uses default request scope
+  - Example: `@app.dependency(name="db", scope="session")` for reusable database connections
+  - Comprehensive test coverage with 20 new tests covering all scope behaviors
 
 ### Changed
 - **Terminology Change**: Renamed "driver" to "adapter" for platform adapters (BREAKING CHANGE)

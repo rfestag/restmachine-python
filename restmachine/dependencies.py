@@ -2,34 +2,73 @@
 Dependency injection system for the REST framework.
 """
 
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Literal
+
+DependencyScope = Literal["request", "session"]
 
 
 class DependencyCache:
-    """Cache for dependency injection results within a single request."""
+    """Cache for dependency injection results with support for request and session scopes.
+
+    - Request scope: Dependencies are cached for a single request and cleared between requests.
+    - Session scope: Dependencies are cached across all requests and never cleared automatically.
+    """
 
     def __init__(self):
-        self._cache: Dict[str, Any] = {}
+        self._request_cache: Dict[str, Any] = {}
+        self._session_cache: Dict[str, Any] = {}
 
-    def get(self, key: str) -> Any:
-        return self._cache.get(key)
+    def get(self, key: str, scope: DependencyScope = "request") -> Any:
+        """Get a cached value from the specified scope.
 
-    def set(self, key: str, value: Any) -> None:
-        self._cache[key] = value
+        Args:
+            key: The dependency key
+            scope: The scope to check ("request" or "session")
+
+        Returns:
+            The cached value, or None if not found
+        """
+        if scope == "session":
+            return self._session_cache.get(key)
+        return self._request_cache.get(key)
+
+    def set(self, key: str, value: Any, scope: DependencyScope = "request") -> None:
+        """Set a cached value in the specified scope.
+
+        Args:
+            key: The dependency key
+            value: The value to cache
+            scope: The scope to use ("request" or "session")
+        """
+        if scope == "session":
+            self._session_cache[key] = value
+        else:
+            self._request_cache[key] = value
 
     def clear(self) -> None:
-        self._cache.clear()
+        """Clear only the request-scoped cache. Session cache persists."""
+        self._request_cache.clear()
+
+
+class Dependency:
+    """Simple wrapper to track scope for regular dependencies."""
+
+    def __init__(self, func: Callable, scope: DependencyScope = "request"):
+        self.func = func
+        self.name = func.__name__
+        self.scope = scope
 
 
 class ValidationWrapper:
     """Wrapper for validation functions that return Pydantic models."""
 
-    def __init__(self, func: Callable):
+    def __init__(self, func: Callable, scope: DependencyScope = "request"):
         import inspect
 
         self.func = func
         self.name = func.__name__
         self.original_name = func.__name__
+        self.scope = scope
 
         # Store return annotation and inspect function signature
         sig = inspect.signature(func)
@@ -62,11 +101,12 @@ class ValidationWrapper:
 class DependencyWrapper:
     """Wrapper for dependencies with state machine callback behavior."""
 
-    def __init__(self, func: Callable, state_name: str, name: str):
+    def __init__(self, func: Callable, state_name: str, name: str, scope: DependencyScope = "request"):
         self.func = func
         self.state_name = state_name
         self.name = name
         self.original_name = func.__name__
+        self.scope = scope
 
 
 class HeadersWrapper:

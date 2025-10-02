@@ -30,7 +30,9 @@ from .content_renderers import (
 from .dependencies import (
     AcceptsWrapper,
     ContentNegotiationWrapper,
+    Dependency,
     DependencyCache,
+    DependencyScope,
     DependencyWrapper,
     HeadersWrapper,
     ValidationWrapper,
@@ -78,7 +80,7 @@ class RouteHandler:
         self.content_renderers: Dict[str, ContentNegotiationWrapper] = {}
         self.validation_wrappers: List[ValidationWrapper] = []
         # Per-route dependency tracking
-        self.dependencies: Dict[str, Union[Callable, DependencyWrapper]] = {}
+        self.dependencies: Dict[str, Union[Callable, DependencyWrapper, Dependency]] = {}
         self.validation_dependencies: Dict[str, ValidationWrapper] = {}
         self.headers_dependencies: Dict[str, HeadersWrapper] = {}
         self.accepts_dependencies: Dict[str, AcceptsWrapper] = {}
@@ -101,7 +103,7 @@ class RestApplication:
 
     def __init__(self):
         self._routes: List[RouteHandler] = []
-        self._dependencies: Dict[str, Union[Callable, DependencyWrapper]] = {}
+        self._dependencies: Dict[str, Union[Callable, DependencyWrapper, Dependency]] = {}
         self._validation_dependencies: Dict[str, ValidationWrapper] = {}
         self._headers_dependencies: Dict[str, HeadersWrapper] = {}
         self._accepts_dependencies: Dict[str, AcceptsWrapper] = {}
@@ -121,20 +123,31 @@ class RestApplication:
         """Add a global content renderer."""
         self._content_renderers[renderer.media_type] = renderer
 
-    def dependency(self, name: Optional[str] = None):
-        """Decorator to register a dependency provider."""
+    def dependency(self, name: Optional[str] = None, scope: DependencyScope = "request"):
+        """Decorator to register a dependency provider.
+
+        Args:
+            name: Optional name for the dependency. If not provided, uses the function name.
+            scope: Dependency scope - "request" (default) or "session".
+                   - "request": Cached per request, cleared between requests
+                   - "session": Cached across all requests, never cleared automatically
+        """
 
         def decorator(func: Callable):
             dep_name = name or func.__name__
-            self._dependencies[dep_name] = func
+            self._dependencies[dep_name] = Dependency(func, scope)
             return func
 
         return decorator
 
     # State machine callback decorators for dependencies
-    def resource_exists(self, func: Callable):
-        """Decorator to wrap a dependency with resource existence checking."""
-        wrapper = DependencyWrapper(func, "resource_exists", func.__name__)
+    def resource_exists(self, func: Callable, scope: DependencyScope = "request"):
+        """Decorator to wrap a dependency with resource existence checking.
+
+        Args:
+            scope: Dependency scope - "request" (default) or "session"
+        """
+        wrapper = DependencyWrapper(func, "resource_exists", func.__name__, scope)
         # Add to most recent route if it exists, otherwise add globally
         if self._routes:
             route = self._routes[-1]
@@ -143,9 +156,13 @@ class RestApplication:
             self._dependencies[func.__name__] = wrapper
         return func
 
-    def resource_from_request(self, func: Callable):
-        """Decorator to wrap a dependency for creating resource from request (for POST)."""
-        wrapper = DependencyWrapper(func, "resource_from_request", func.__name__)
+    def resource_from_request(self, func: Callable, scope: DependencyScope = "request"):
+        """Decorator to wrap a dependency for creating resource from request (for POST).
+
+        Args:
+            scope: Dependency scope - "request" (default) or "session"
+        """
+        wrapper = DependencyWrapper(func, "resource_from_request", func.__name__, scope)
         # Add to most recent route if it exists, otherwise add globally
         if self._routes:
             route = self._routes[-1]
@@ -154,9 +171,13 @@ class RestApplication:
             self._dependencies[func.__name__] = wrapper
         return func
 
-    def forbidden(self, func: Callable):
-        """Decorator to wrap a dependency with forbidden checking."""
-        wrapper = DependencyWrapper(func, "forbidden", func.__name__)
+    def forbidden(self, func: Callable, scope: DependencyScope = "request"):
+        """Decorator to wrap a dependency with forbidden checking.
+
+        Args:
+            scope: Dependency scope - "request" (default) or "session"
+        """
+        wrapper = DependencyWrapper(func, "forbidden", func.__name__, scope)
         # Add to most recent route if it exists, otherwise add globally
         if self._routes:
             route = self._routes[-1]
@@ -165,9 +186,13 @@ class RestApplication:
             self._dependencies[func.__name__] = wrapper
         return func
 
-    def authorized(self, func: Callable):
-        """Decorator to wrap a dependency with authorization checking."""
-        wrapper = DependencyWrapper(func, "authorized", func.__name__)
+    def authorized(self, func: Callable, scope: DependencyScope = "request"):
+        """Decorator to wrap a dependency with authorization checking.
+
+        Args:
+            scope: Dependency scope - "request" (default) or "session"
+        """
+        wrapper = DependencyWrapper(func, "authorized", func.__name__, scope)
         # Add to most recent route if it exists, otherwise add globally
         if self._routes:
             route = self._routes[-1]
@@ -189,9 +214,13 @@ class RestApplication:
             self._dependencies[func.__name__] = func
         return func
 
-    def generate_etag(self, func: Callable):
-        """Decorator to wrap a dependency with ETag generation for conditional requests."""
-        wrapper = DependencyWrapper(func, "generate_etag", func.__name__)
+    def generate_etag(self, func: Callable, scope: DependencyScope = "request"):
+        """Decorator to wrap a dependency with ETag generation for conditional requests.
+
+        Args:
+            scope: Dependency scope - "request" (default) or "session"
+        """
+        wrapper = DependencyWrapper(func, "generate_etag", func.__name__, scope)
         # Add to most recent route if it exists, otherwise add globally
         if self._routes:
             route = self._routes[-1]
@@ -200,9 +229,13 @@ class RestApplication:
             self._dependencies[func.__name__] = wrapper
         return func
 
-    def last_modified(self, func: Callable):
-        """Decorator to wrap a dependency with Last-Modified date for conditional requests."""
-        wrapper = DependencyWrapper(func, "last_modified", func.__name__)
+    def last_modified(self, func: Callable, scope: DependencyScope = "request"):
+        """Decorator to wrap a dependency with Last-Modified date for conditional requests.
+
+        Args:
+            scope: Dependency scope - "request" (default) or "session"
+        """
+        wrapper = DependencyWrapper(func, "last_modified", func.__name__, scope)
         # Add to most recent route if it exists, otherwise add globally
         if self._routes:
             route = self._routes[-1]
@@ -212,8 +245,13 @@ class RestApplication:
         return func
 
     # Content negotiation decorators
-    def renders(self, content_type: str):
-        """Decorator to register a content-type specific renderer for an endpoint."""
+    def renders(self, content_type: str, scope: DependencyScope = "request"):
+        """Decorator to register a content-type specific renderer for an endpoint.
+
+        Args:
+            content_type: The content type this renderer produces
+            scope: Dependency scope - "request" (default) or "session"
+        """
 
         def decorator(func: Callable):
             # Find the most recently added route (should be the one this renderer is for)
@@ -224,30 +262,39 @@ class RestApplication:
                 route.add_content_renderer(content_type, wrapper)
 
                 # Also register this as a dependency so it can be injected
-                self._dependencies[func.__name__] = func
+                self._dependencies[func.__name__] = Dependency(func, scope)
             return func
 
         return decorator
 
     # Simplified validation decorator - just expects Pydantic model return
-    def validates(self, func: Callable):
-        """Decorator to mark a function as returning a validated Pydantic model."""
+    def validates(self, func: Callable, scope: DependencyScope = "request"):
+        """Decorator to mark a function as returning a validated Pydantic model.
+
+        Args:
+            scope: Dependency scope - "request" (default) or "session"
+        """
         if not PYDANTIC_AVAILABLE:
             raise ImportError("Pydantic is required for validation features")
 
-        wrapper = ValidationWrapper(func)
+        wrapper = ValidationWrapper(func, scope)
         # Add to most recent route if it exists, otherwise add globally
         if self._routes:
             route = self._routes[-1]
             route.validation_dependencies[func.__name__] = wrapper
-            route.dependencies[func.__name__] = func
+            route.dependencies[func.__name__] = Dependency(func, scope)
         else:
             self._validation_dependencies[func.__name__] = wrapper
-            self._dependencies[func.__name__] = func
+            self._dependencies[func.__name__] = Dependency(func, scope)
         return func
 
-    def accepts(self, content_type: str):
-        """Decorator to register a content-type specific body parser for an endpoint."""
+    def accepts(self, content_type: str, scope: DependencyScope = "request"):
+        """Decorator to register a content-type specific body parser for an endpoint.
+
+        Args:
+            content_type: The content type this parser handles
+            scope: Dependency scope - "request" (default) or "session"
+        """
 
         def decorator(func: Callable):
             wrapper = AcceptsWrapper(func, content_type, func.__name__)
@@ -255,10 +302,10 @@ class RestApplication:
             if self._routes:
                 route = self._routes[-1]
                 route.accepts_dependencies[content_type] = wrapper
-                route.dependencies[func.__name__] = func
+                route.dependencies[func.__name__] = Dependency(func, scope)
             else:
                 self._accepts_dependencies[content_type] = wrapper
-                self._dependencies[func.__name__] = func
+                self._dependencies[func.__name__] = Dependency(func, scope)
             return func
 
         return decorator
@@ -447,8 +494,12 @@ class RestApplication:
         self, param_name: str, param_type: Optional[Type], request: Request, route: Optional[RouteHandler] = None
     ) -> Any:
         """Resolve a dependency by name and type."""
-        # Check cache first
-        cached_value = self._dependency_cache.get(param_name)
+        # For custom dependencies, check if we have scope information
+        # We need to check scope before checking cache
+        dep_scope = self._get_dependency_scope(param_name, route)
+
+        # Check cache first (using appropriate scope)
+        cached_value = self._dependency_cache.get(param_name, dep_scope)
         if cached_value is not None:
             return cached_value
 
@@ -458,31 +509,67 @@ class RestApplication:
             # Handle sentinel values for built-in dependencies
             if builtin_value is not None and hasattr(builtin_value, 'value'):
                 actual_value = builtin_value.value
-                self._dependency_cache.set(param_name, actual_value)
+                self._dependency_cache.set(param_name, actual_value, dep_scope)
                 return actual_value
             else:
-                self._dependency_cache.set(param_name, builtin_value)
+                self._dependency_cache.set(param_name, builtin_value, dep_scope)
                 return builtin_value
 
         # Check if the parameter name is in path_params
         if request.path_params and param_name in request.path_params:
             path_value = request.path_params[param_name]
-            self._dependency_cache.set(param_name, path_value)
+            self._dependency_cache.set(param_name, path_value, dep_scope)
             return path_value
 
         # Custom accepts parser resolution
         accepts_value = self._resolve_accepts_dependency(param_name, request, route)
         if accepts_value is not None:
-            self._dependency_cache.set(param_name, accepts_value)
+            self._dependency_cache.set(param_name, accepts_value, dep_scope)
             return accepts_value
 
         # Regular and validation dependencies
         resolved_value = self._resolve_custom_dependency(param_name, request, route)
         if resolved_value is not None:
-            self._dependency_cache.set(param_name, resolved_value)
+            self._dependency_cache.set(param_name, resolved_value, dep_scope)
             return resolved_value
 
         raise ValueError(f"Unable to resolve dependency: {param_name}")
+
+    def _get_dependency_scope(self, param_name: str, route: Optional[RouteHandler] = None) -> DependencyScope:
+        """Get the scope for a dependency.
+
+        Args:
+            param_name: Name of the dependency
+            route: Optional route to check for route-specific dependencies
+
+        Returns:
+            The scope ("request" or "session"), defaults to "request"
+        """
+        # Check route-specific dependencies first
+        if route and param_name in route.dependencies:
+            dep_or_wrapper = route.dependencies[param_name]
+            if hasattr(dep_or_wrapper, 'scope'):
+                return dep_or_wrapper.scope
+
+        # Check global dependencies
+        if param_name in self._dependencies:
+            dep_or_wrapper = self._dependencies[param_name]
+            if hasattr(dep_or_wrapper, 'scope'):
+                return dep_or_wrapper.scope
+
+        # Check validation dependencies
+        if route and param_name in route.validation_dependencies:
+            validation_wrapper = route.validation_dependencies[param_name]
+            if hasattr(validation_wrapper, 'scope'):
+                return validation_wrapper.scope
+
+        if param_name in self._validation_dependencies:
+            validation_wrapper = self._validation_dependencies[param_name]
+            if hasattr(validation_wrapper, 'scope'):
+                return validation_wrapper.scope
+
+        # Default to request scope
+        return "request"
 
     def _is_builtin_dependency(self, param_name: str, param_type: Optional[Type]) -> bool:
         """Check if a parameter is a built-in dependency."""
@@ -593,6 +680,16 @@ class RestApplication:
         if dep_or_wrapper is not None:
             if isinstance(dep_or_wrapper, DependencyWrapper):
                 return self._call_with_injection(dep_or_wrapper.func, request, route)
+            elif isinstance(dep_or_wrapper, Dependency):
+                # Unwrap the Dependency wrapper
+                if validation_dependency is not None:
+                    result = self._call_with_injection(dep_or_wrapper.func, request, route)
+                    if hasattr(result, "model_validate") or hasattr(result, "model_dump"):
+                        return result
+                    else:
+                        raise ValueError(f"Validation function {param_name} must return a Pydantic model")
+                else:
+                    return self._call_with_injection(dep_or_wrapper.func, request, route)
             elif validation_dependency is not None:
                 result = self._call_with_injection(dep_or_wrapper, request, route)
                 if hasattr(result, "model_validate") or hasattr(result, "model_dump"):

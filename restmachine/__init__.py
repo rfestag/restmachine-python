@@ -17,6 +17,7 @@ from .content_renderers import (
     PlainTextRenderer,
 )
 from .adapters import Adapter, AwsApiGatewayAdapter
+from .dependencies import DependencyScope
 from .error_models import ErrorResponse
 from .exceptions import ValidationError
 from .models import HTTPMethod, Request, Response
@@ -50,6 +51,7 @@ __all__ = [
     "HTMLRenderer",
     "PlainTextRenderer",
     "ContentRenderer",
+    "DependencyScope",
     "ErrorResponse",
     "ValidationError",
     "Adapter",
