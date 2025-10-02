@@ -20,6 +20,7 @@ from .drivers import AwsApiGatewayDriver, Driver
 from .error_models import ErrorResponse
 from .exceptions import ValidationError
 from .models import HTTPMethod, Request, Response
+from .template_helpers import render
 
 # Server functionality (optional imports)
 try:
@@ -53,6 +54,7 @@ __all__ = [
     "ValidationError",
     "Driver",
     "AwsApiGatewayDriver",
+    "render",
 ]
 
 # Add server exports if available

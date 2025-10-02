@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title|default('Items List') }}{% endblock %}
+
+{% block header %}{{ header|default('Items') }}{% endblock %}
+
+{% block content %}
+<div class="list-container">
+    {% if items %}
+    <ul class="items-list">
+        {% for item in items %}
+        <li class="item">
+            {% if item is mapping %}
+                <div class="item-details">
+                    {% for key, value in item.items() %}
+                    <div class="item-field">
+                        <span class="key">{{ key }}:</span>
+                        <span class="value">{{ value }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <span class="value">{{ item }}</span>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="no-items">No items to display.</p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block styles %}
+.items-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.item {
+    padding: 15px;
+    margin-bottom: 10px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    border-left: 3px solid #3498db;
+}
+.item-details {
+    display: flex;
+    flex-direction: column;
+}
+.item-field {
+    margin: 5px 0;
+}
+.no-items {
+    color: #7f8c8d;
+    font-style: italic;
+}
+{% endblock %}

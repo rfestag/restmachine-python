@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}User: {{ user.name }}{% endblock %}
+
+{% block header %}User Details{% endblock %}
+
+{% block content %}
+<div class="user-detail">
+    <h2>{{ user.name }}</h2>
+    {% if user.email %}
+    <p class="user-email">
+        <span class="key">Email:</span>
+        <span class="value">{{ user.email }}</span>
+    </p>
+    {% endif %}
+    {% if user.id %}
+    <p class="user-id">
+        <span class="key">ID:</span>
+        <span class="value">{{ user.id }}</span>
+    </p>
+    {% endif %}
+    {% if user.created_at %}
+    <p class="user-created">
+        <span class="key">Member since:</span>
+        <span class="value">{{ user.created_at }}</span>
+    </p>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block styles %}
+.user-detail h2 {
+    margin-top: 0;
+    color: #2c3e50;
+}
+.user-detail p {
+    margin: 10px 0;
+    font-size: 16px;
+}
+{% endblock %}

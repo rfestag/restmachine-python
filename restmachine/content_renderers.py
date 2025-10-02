@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from .models import Request
+from .template_helpers import render
 
 
 class ContentRenderer:
@@ -63,18 +64,23 @@ class JSONRenderer(ContentRenderer):
 
 
 class HTMLRenderer(ContentRenderer):
-    """HTML content renderer."""
+    """HTML content renderer with Jinja2 template support."""
 
     def __init__(self):
         super().__init__("text/html")
 
     def render(self, data: Any, request: Request) -> str:
-        """Render data as HTML."""
+        """Render data as HTML.
+
+        This renderer now supports Jinja2 templates via the render() helper.
+        For backward compatibility, it still accepts pre-rendered HTML strings.
+        """
         if isinstance(data, str) and data.strip().startswith("<"):
-            # Already HTML
+            # Already HTML (backward compatibility)
             return data
 
-        # Simple HTML wrapper for non-HTML data
+        # Use default inline template for automatic rendering
+        # This maintains backward compatibility while using Jinja2
         if isinstance(data, dict):
             content = self._dict_to_html(data)
         elif isinstance(data, list):
@@ -82,26 +88,29 @@ class HTMLRenderer(ContentRenderer):
         else:
             content = f"<p>{str(data)}</p>"
 
-        return f"""<!DOCTYPE html>
+        # Use inline template for the default wrapper
+        template_str = """<!DOCTYPE html>
 <html>
 <head>
     <title>API Response</title>
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 40px; }}
-        .key {{ font-weight: bold; color: #333; }}
-        .value {{ margin-left: 20px; color: #666; }}
-        ul {{ list-style-type: none; padding-left: 0; }}
-        li {{ margin: 5px 0; }}
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .key { font-weight: bold; color: #333; }
+        .value { margin-left: 20px; color: #666; }
+        ul { list-style-type: none; padding-left: 0; }
+        li { margin: 5px 0; }
     </style>
 </head>
 <body>
     <h1>API Response</h1>
-    {content}
+    {{ content|safe }}
 </body>
 </html>"""
 
+        return render(inline=template_str, content=content)
+
     def _dict_to_html(self, data: dict) -> str:
-        """Convert dictionary to HTML."""
+        """Convert dictionary to HTML using Jinja2."""
         items = []
         for key, value in data.items():
             if isinstance(value, dict):
@@ -114,7 +123,7 @@ class HTMLRenderer(ContentRenderer):
         return f"<ul>{''.join(items)}</ul>"
 
     def _list_to_html(self, data: list) -> str:
-        """Convert list to HTML."""
+        """Convert list to HTML using Jinja2."""
         items = []
         for item in data:
             if isinstance(item, dict):

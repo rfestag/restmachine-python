@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}{{ post.title }}{% endblock %}
+
+{% block header %}Blog Post{% endblock %}
+
+{% block content %}
+<article class="post">
+    <h2>{{ post.title }}</h2>
+    {% if author %}
+    <p class="post-meta">
+        <span class="key">Author:</span>
+        <span class="value">{{ author.name }}</span>
+    </p>
+    {% endif %}
+    {% if post.created_at %}
+    <p class="post-meta">
+        <span class="key">Published:</span>
+        <span class="value">{{ post.created_at }}</span>
+    </p>
+    {% endif %}
+    <div class="post-content">
+        {{ post.content|safe }}
+    </div>
+    {% if post.tags %}
+    <div class="post-tags">
+        <span class="key">Tags:</span>
+        {% for tag in post.tags %}
+        <span class="tag">{{ tag }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</article>
+{% endblock %}
+
+{% block styles %}
+.post h2 {
+    margin-top: 0;
+    color: #2c3e50;
+    font-size: 32px;
+}
+.post-meta {
+    color: #7f8c8d;
+    font-size: 14px;
+    margin: 5px 0;
+}
+.post-content {
+    margin: 30px 0;
+    line-height: 1.8;
+    font-size: 16px;
+}
+.post-tags {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+}
+.tag {
+    display: inline-block;
+    background-color: #ecf0f1;
+    color: #2c3e50;
+    padding: 5px 12px;
+    border-radius: 4px;
+    margin-right: 8px;
+    font-size: 14px;
+}
+{% endblock %}
