@@ -15,6 +15,7 @@ A lightweight REST framework with pytest-like dependency injection, webmachine-s
 
 ### Basic Installation
 
+*** Note *** This has not been released yet and cannot be installed yet.
 ```bash
 pip install restmachine
 ```

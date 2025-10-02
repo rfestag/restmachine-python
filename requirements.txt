@@ -1,1 +1,11 @@
+# Core dependencies are defined in pyproject.toml
+# To install the package with all dependencies:
+#   pip install -e .
+#
+# To install with optional dependencies:
+#   pip install -e .[dev]        # Development dependencies
+#   pip install -e .[server]     # Server dependencies (uvicorn + hypercorn)
+#   pip install -e .[validation] # Pydantic validation
+#
+# For compatibility, core dependencies are listed below:
 jinja2>=3.0.0

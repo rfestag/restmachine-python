@@ -10,7 +10,7 @@ import base64
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 
-from restmachine import RestApplication, HTTPMethod, Request as RestMachineRequest, AwsApiGatewayDriver
+from restmachine import RestApplication, HTTPMethod, Request as RestMachineRequest, AwsApiGatewayAdapter
 from .dsl import HttpRequest, HttpResponse
 
 
@@ -122,7 +122,7 @@ class AwsLambdaDriver(DriverInterface):
             app: The RestApplication to wrap
             enable_debugging: If True, stores last event/response for inspection
         """
-        self.aws_driver = AwsApiGatewayDriver(app)
+        self.aws_driver = AwsApiGatewayAdapter(app)
         self.app = app
         self.enable_debugging = enable_debugging
         self.last_event = None

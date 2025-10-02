@@ -1,2 +1,6 @@
+# Development dependencies
+# All dependency versions are defined in pyproject.toml [project.optional-dependencies]
+# This file provides a convenient way to install all dev dependencies at once
+
 -e .[dev,validation,server]
 tox

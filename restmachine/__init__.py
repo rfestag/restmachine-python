@@ -16,7 +16,7 @@ from .content_renderers import (
     JSONRenderer,
     PlainTextRenderer,
 )
-from .drivers import AwsApiGatewayDriver, Driver
+from .adapters import Adapter, AwsApiGatewayAdapter
 from .error_models import ErrorResponse
 from .exceptions import ValidationError
 from .models import HTTPMethod, Request, Response
@@ -52,8 +52,8 @@ __all__ = [
     "ContentRenderer",
     "ErrorResponse",
     "ValidationError",
-    "Driver",
-    "AwsApiGatewayDriver",
+    "Adapter",
+    "AwsApiGatewayAdapter",
     "render",
 ]
 

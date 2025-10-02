@@ -1,17 +1,17 @@
 """
-Example demonstrating how to use the AWS API Gateway driver with a REST application.
+Example demonstrating how to use the AWS API Gateway adapter with a REST application.
 
 This example shows how to set up a REST application that can be deployed as an AWS Lambda
 function and handle API Gateway events.
 """
 
-from restmachine import AwsApiGatewayDriver, RestApplication
+from restmachine import AwsApiGatewayAdapter, RestApplication
 
 # Create the REST application
 app = RestApplication()
 
-# Create the AWS API Gateway driver
-driver = AwsApiGatewayDriver(app)
+# Create the AWS API Gateway adapter
+adapter = AwsApiGatewayAdapter(app)
 
 
 # Define some routes
@@ -75,7 +75,7 @@ def lambda_handler(event, context):
     Returns:
         API Gateway response
     """
-    return driver.handle_event(event, context)
+    return adapter.handle_event(event, context)
 
 
 # Example usage and testing
