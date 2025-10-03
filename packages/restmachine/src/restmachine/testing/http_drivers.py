@@ -266,14 +266,11 @@ class HttpServerDriver(DriverInterface):
             self.session = None
 
         # Shut down the server
-        if self.server_instance:
-            # Uvicorn server shutdown
-            if hasattr(self.server_instance, 'should_exit'):
-                self.server_instance.should_exit = True
-
-        # Hypercorn shutdown
-        if hasattr(self, 'shutdown_event') and self.shutdown_event:
-            # Signal hypercorn to shut down
+        if self.server_type == "uvicorn" and self.server_instance:
+            # Uvicorn: set should_exit flag for fast shutdown
+            self.server_instance.should_exit = True
+        elif self.server_type == "hypercorn" and hasattr(self, 'shutdown_event'):
+            # Hypercorn: signal shutdown event
             if self.event_loop and not self.event_loop.is_closed():
                 try:
                     self.event_loop.call_soon_threadsafe(self.shutdown_event.set)
@@ -282,7 +279,7 @@ class HttpServerDriver(DriverInterface):
 
         # Give server time to shut down gracefully
         if self.server_thread and self.server_thread.is_alive():
-            self.server_thread.join(timeout=2.0)
+            self.server_thread.join(timeout=1.0)  # Give enough time for clean shutdown
 
         # Force cleanup of event loop if still exists
         if self.event_loop and not self.event_loop.is_closed():

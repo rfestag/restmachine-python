@@ -96,16 +96,12 @@ def _create_driver_with_uvicorn(cls, driver_name: str, app):
 MultiDriverTestBase.create_driver = _create_driver_with_uvicorn
 
 
-# Also need to update the fixture to handle uvicorn driver with context manager
-_original_api_fixture = MultiDriverTestBase.api
-
-
 @pytest.fixture(scope="class")
 def api(self, request):
     """
-    Parametrized fixture that provides API client for each enabled driver.
+    Class-scoped fixture that provides API client for uvicorn driver.
 
-    This overrides the base fixture to properly handle HTTP server drivers (Uvicorn and Hypercorn).
+    Optimized with fast shutdown (reduced timeouts) for better test performance.
     """
     driver_name = request.param
     app = self.create_app()
@@ -114,8 +110,6 @@ def api(self, request):
     # HTTP server drivers need to be started/stopped with context manager
     if driver_name.startswith('uvicorn-') or driver_name.startswith('hypercorn-'):
         with driver as active_driver:
-            import time
-            time.sleep(0.05)  # Minimal wait for server startup
             from restmachine.testing.dsl import RestApiDsl
             yield RestApiDsl(active_driver), driver_name
     else:
