@@ -143,3 +143,22 @@ filterwarnings = [
     "ignore:websockets.legacy is deprecated.*:DeprecationWarning",
     "ignore:websockets.server.WebSocketServerProtocol is deprecated.*:DeprecationWarning",
 ]
+
+[tool.coverage.run]
+omit = [
+    "*/testing/*",  # Test infrastructure shouldn't count toward coverage
+    "*/servers.py",  # CLI entry points tested manually
+    "*/server.py",  # ASGI server creation tested by integration tests
+    "*/state_machine.py",  # Legacy state machine, delegated to by v2
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]

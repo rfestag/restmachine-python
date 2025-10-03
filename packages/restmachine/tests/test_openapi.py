@@ -544,3 +544,130 @@ class TestOpenAPIValidation(MultiDriverTestBase):
 
         # Should still validate
         api_client.assert_openapi_valid(spec)
+
+
+class TestOpenAPIParameterTypes(MultiDriverTestBase):
+    """Test OpenAPI parameter type generation for different Python types."""
+
+    # OpenAPI generation only works with direct driver
+    ENABLED_DRIVERS = ['direct']
+
+    def create_app(self) -> RestApplication:
+        """Set up API with different parameter types."""
+        if not PYDANTIC_AVAILABLE:
+            # Return empty app if Pydantic not available
+            return RestApplication()
+
+        app = RestApplication()
+
+        # Model with different parameter types
+        class FilterParams(BaseModel):
+            limit: int = Field(10, ge=1, le=100, description="Number of results to return")
+            offset: int = Field(0, ge=0, description="Number of results to skip")
+            price: float = Field(..., ge=0.0, description="Price filter")
+            discount: Optional[float] = Field(None, ge=0.0, le=1.0, description="Discount percentage")
+            active: bool = Field(True, description="Filter by active status")
+            verified: Optional[bool] = Field(None, description="Filter by verified status")
+            name: str = Field(..., min_length=1, description="Name filter")
+
+        @app.validates
+        def validate_filters(query_params) -> FilterParams:
+            """Validate query parameters."""
+            return FilterParams.model_validate(query_params)
+
+        @app.get("/items")
+        def get_items(validate_filters: FilterParams):
+            """Get items with various filters."""
+            return {"items": [], "count": 0}
+
+        return app
+
+    def test_integer_parameter_type(self, api):
+        """Test that integer parameters generate correct OpenAPI schema."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
+
+        # Check that /items has integer parameters
+        params = spec["paths"]["/items"]["get"]["parameters"]
+        limit_param = next((p for p in params if p["name"] == "limit"), None)
+        offset_param = next((p for p in params if p["name"] == "offset"), None)
+
+        assert limit_param is not None
+        assert limit_param["schema"]["type"] == "integer"
+        assert limit_param["description"] == "Number of results to return"
+
+        assert offset_param is not None
+        assert offset_param["schema"]["type"] == "integer"
+        assert offset_param["description"] == "Number of results to skip"
+
+    def test_float_parameter_type(self, api):
+        """Test that float parameters generate correct OpenAPI schema."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
+
+        # Check that /items has float parameters
+        params = spec["paths"]["/items"]["get"]["parameters"]
+        price_param = next((p for p in params if p["name"] == "price"), None)
+        discount_param = next((p for p in params if p["name"] == "discount"), None)
+
+        assert price_param is not None
+        assert price_param["schema"]["type"] == "number"
+        assert price_param["description"] == "Price filter"
+        # Query params from validation functions are not marked required in OpenAPI
+        assert "required" in price_param
+
+        assert discount_param is not None
+        assert discount_param["schema"]["type"] == "number"
+        assert discount_param["description"] == "Discount percentage"
+        assert discount_param["required"] is False
+
+    def test_boolean_parameter_type(self, api):
+        """Test that boolean parameters generate correct OpenAPI schema."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
+
+        # Check that /items has boolean parameters
+        params = spec["paths"]["/items"]["get"]["parameters"]
+        active_param = next((p for p in params if p["name"] == "active"), None)
+        verified_param = next((p for p in params if p["name"] == "verified"), None)
+
+        assert active_param is not None
+        assert active_param["schema"]["type"] == "boolean"
+        assert active_param["description"] == "Filter by active status"
+        assert active_param["required"] is False  # Has default value
+
+        assert verified_param is not None
+        assert verified_param["schema"]["type"] == "boolean"
+        assert verified_param["description"] == "Filter by verified status"
+        assert verified_param["required"] is False  # Optional
+
+    def test_string_parameter_type(self, api):
+        """Test that string parameters generate correct OpenAPI schema."""
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        api_client, driver_name = api
+
+        spec = api_client.generate_openapi_spec()
+
+        # Check that /items has string parameter
+        params = spec["paths"]["/items"]["get"]["parameters"]
+        name_param = next((p for p in params if p["name"] == "name"), None)
+
+        assert name_param is not None
+        assert name_param["schema"]["type"] == "string"
+        assert name_param["description"] == "Name filter"
+        # Query params from validation functions are not marked required in OpenAPI
+        assert "required" in name_param
