@@ -52,6 +52,16 @@ def pytest_collection_modifyitems(config, items):
     """
     # Performance test class names - mark these wherever they appear
     performance_test_classes = {
+        # State machine path performance tests
+        'TestSimpleGetPath',
+        'TestAuthenticatedGetPath',
+        'TestConditionalGetPath',
+        'TestPostCreatePath',
+        'TestPutUpdatePath',
+        'TestDeletePath',
+        'TestErrorPaths',
+        'TestCRUDCyclePath',
+        # Future performance tests (placeholders)
         'TestGetRequestPerformance',
         'TestPostRequestPerformance',
         'TestPutRequestPerformance',

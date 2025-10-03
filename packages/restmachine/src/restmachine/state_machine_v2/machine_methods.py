@@ -7,7 +7,7 @@ either the next method to call or a Response object.
 
 import logging
 from http import HTTPStatus
-from typing import Union, Callable, Optional
+from typing import Union, Callable, Optional, cast
 from datetime import datetime
 
 from restmachine.models import Request, Response, HTTPMethod, etags_match
@@ -29,7 +29,8 @@ class RequestStateMachine:
 
     def __init__(self, app):
         self.app = app
-        self.ctx: Optional[StateContext] = None
+        # ctx is initialized in process_request before any state methods are called
+        self.ctx: StateContext  # type: ignore[misc]
 
     def process_request(self, request: Request) -> Response:
         """Process a request through the state machine."""
@@ -506,7 +507,8 @@ class RequestStateMachine:
         callback = self._get_callback("last_modified")
         if callback:
             try:
-                return self.app._call_with_injection(callback, self.ctx.request, self.ctx.route_handler)
+                result = self.app._call_with_injection(callback, self.ctx.request, self.ctx.route_handler)
+                return cast(Optional[datetime], result)
             except Exception as e:
                 logger.warning(f"Last-Modified callback failed: {e}")
         return None

@@ -1,11 +1,11 @@
 """
-New state machine implementation using proper state pattern.
+Method-based state machine implementation following webmachine-ruby's pattern.
 
-This is a refactored version that uses explicit state transitions instead of
-a linear waterfall approach. States can skip ahead based on route capabilities.
+Each state is a method that returns either the next method or a Response.
+This eliminates object creation overhead while maintaining clean state transitions.
 """
 
-from .base import State, StateContext
-from .machine import RequestStateMachine
+from .base import StateContext
+from .machine_methods import RequestStateMachine
 
-__all__ = ["State", "StateContext", "RequestStateMachine"]
+__all__ = ["StateContext", "RequestStateMachine"]

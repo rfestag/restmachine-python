@@ -40,7 +40,6 @@ from .dependencies import (
 )
 from .exceptions import PYDANTIC_AVAILABLE, AcceptsParsingError
 from .models import HTTPMethod, Request, Response
-from .state_machine import RequestStateMachine
 from .router import Router
 
 # Set up logger for this module
@@ -148,8 +147,6 @@ class RestApplication:
     """Main application class for the REST framework."""
 
     def __init__(self):
-        import os
-
         self._dependencies: Dict[str, Union[Callable, DependencyWrapper, Dependency]] = {}
         self._validation_dependencies: Dict[str, ValidationWrapper] = {}
         self._headers_dependencies: Dict[str, HeadersWrapper] = {}
@@ -160,9 +157,6 @@ class RestApplication:
         self._error_handlers: List[ErrorHandler] = []
         self._request_id_provider: Optional[Callable] = None
         self._trace_id_provider: Optional[Callable] = None
-
-        # Feature flag for new state machine (v2)
-        self._use_state_machine_v2 = os.environ.get('RESTMACHINE_STATE_MACHINE_V2', 'false').lower() == 'true'
 
         # Create default root router - all routes go through this
         self._root_router = Router(app=self)
@@ -859,14 +853,8 @@ class RestApplication:
         """Execute a request through the state machine."""
         try:
             # Create a new state machine for each request to avoid state pollution
-            if self._use_state_machine_v2:
-                # Use new state machine (v2) with method-based states
-                from restmachine.state_machine_v2.machine_methods import RequestStateMachine as StateMachineV2
-                state_machine = StateMachineV2(self)
-            else:
-                # Use original state machine (v1) with waterfall approach
-                state_machine = RequestStateMachine(self)
-
+            from restmachine.state_machine_v2.machine_methods import RequestStateMachine
+            state_machine = RequestStateMachine(self)
             return state_machine.process_request(request)
         except Exception as e:
             logger.error(f"Unhandled exception processing {request.method.value} {request.path}: {e}")

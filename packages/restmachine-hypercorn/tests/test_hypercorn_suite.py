@@ -91,6 +91,18 @@ from tests.test_validation import (
     TestValidationDependencies
 )
 
+# Performance benchmarks
+from tests.performance.test_state_machine_paths import (
+    TestSimpleGetPath,
+    TestAuthenticatedGetPath,
+    TestConditionalGetPath,
+    TestPostCreatePath,
+    TestPutUpdatePath,
+    TestDeletePath,
+    TestErrorPaths,
+    TestCRUDCyclePath
+)
+
 # Note: We don't import tests from test_router.py, test_http_servers.py, or test_template_rendering.py
 # because their test classes don't inherit from MultiDriverTestBase and won't work with the driver framework
 

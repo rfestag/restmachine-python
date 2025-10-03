@@ -61,11 +61,28 @@ def pytest_generate_tests(metafunc):
 
 def pytest_collection_modifyitems(config, items):
     """
-    Pytest hook to add driver-specific markers to parametrized tests.
+    Pytest hook to add driver-specific markers and performance markers to tests.
 
     This allows running tests for specific drivers using markers.
     """
+    # Performance test class names - mark these wherever they appear
+    performance_test_classes = {
+        'TestSimpleGetPath',
+        'TestAuthenticatedGetPath',
+        'TestConditionalGetPath',
+        'TestPostCreatePath',
+        'TestPutUpdatePath',
+        'TestDeletePath',
+        'TestErrorPaths',
+        'TestCRUDCyclePath',
+    }
+
     for item in items:
+        # Add performance marker based on test class name OR file path
+        test_class_name = item.cls.__name__ if item.cls else None
+        if test_class_name in performance_test_classes or "performance" in str(item.fspath):
+            item.add_marker(pytest.mark.performance)
+
         # Check if this test has a parametrized driver (look for 'driver-' in the node id)
         if 'driver-' in item.nodeid:
             # Extract driver name from the node id (e.g., "driver-uvicorn-http1" -> "uvicorn-http1")
