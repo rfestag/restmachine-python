@@ -213,7 +213,7 @@ class HttpServerDriver(DriverInterface):
             "url": url,
             "headers": request.headers,
             "params": request.query_params,
-            "timeout": 30,
+            "timeout": 5,  # Reduced from 30s - local requests complete in <1ms
         }
 
         # Add body if present
@@ -254,8 +254,9 @@ class HttpServerDriver(DriverInterface):
     def __enter__(self):
         """Context manager entry."""
         self.start_server()
-        # Minimal wait - server is already running after start_server()
-        time.sleep(0.02)  # Reduced from 0.1s
+        # Wait for server to be ready to accept connections
+        # Note: Server signals ready via event, but still needs time for socket binding
+        time.sleep(0.02)  # 20ms - ensures server is fully ready
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
