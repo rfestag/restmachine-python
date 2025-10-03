@@ -119,9 +119,88 @@ class RestApplication:
         self.add_content_renderer(HTMLRenderer())
         self.add_content_renderer(PlainTextRenderer())
 
+        # Register built-in dependencies
+        self._register_builtin_dependencies()
+
     def add_content_renderer(self, renderer: ContentRenderer):
         """Add a global content renderer."""
         self._content_renderers[renderer.media_type] = renderer
+
+    def _register_builtin_dependencies(self):
+        """Register all built-in framework dependencies.
+
+        This makes built-in dependencies use the same registration mechanism as
+        user-defined dependencies, making the system more consistent and extensible.
+        """
+        # Simple built-in dependencies
+        self._dependencies["request"] = Dependency(lambda request: request, scope="request")
+        self._dependencies["body"] = Dependency(lambda request: request.body, scope="request")
+        self._dependencies["query_params"] = Dependency(lambda request: request.query_params or {}, scope="request")
+        self._dependencies["path_params"] = Dependency(lambda request: request.path_params or {}, scope="request")
+        self._dependencies["request_headers"] = Dependency(lambda request: request.headers, scope="request")
+        self._dependencies["headers"] = Dependency(lambda request: request.headers, scope="request")  # Deprecated
+
+        # Built-in dependencies that need application context
+        self._dependencies["exception"] = Dependency(lambda: self._dependency_cache.get("exception"), scope="request")
+        self._dependencies["response_headers"] = Dependency(self._get_response_headers, scope="request")
+        self._dependencies["request_id"] = Dependency(self._get_request_id, scope="request")
+        self._dependencies["trace_id"] = Dependency(self._get_trace_id, scope="request")
+
+        # Body parser dependencies
+        self._dependencies["json_body"] = Dependency(self._get_json_body, scope="request")
+        self._dependencies["form_body"] = Dependency(self._get_form_body, scope="request")
+        self._dependencies["multipart_body"] = Dependency(self._get_multipart_body, scope="request")
+        self._dependencies["text_body"] = Dependency(self._get_text_body, scope="request")
+
+    def _get_response_headers(self, request: Request) -> Dict[str, str]:
+        """Built-in dependency provider for response_headers."""
+        headers = self._dependency_cache.get("response_headers")
+        if headers is None:
+            # Get current route from cache (set during request processing)
+            route = self._dependency_cache.get("__current_route__")
+            headers = self._get_initial_headers(request, route)
+            self._dependency_cache.set("response_headers", headers)
+        return headers
+
+    def _get_request_id(self, request: Request) -> str:
+        """Built-in dependency provider for request_id."""
+        if self._request_id_provider:
+            # Get current route from cache
+            route = self._dependency_cache.get("__current_route__")
+            return self._call_with_injection(self._request_id_provider, request, route)
+        else:
+            import uuid
+            return str(uuid.uuid4())
+
+    def _get_trace_id(self, request: Request) -> str:
+        """Built-in dependency provider for trace_id."""
+        if self._trace_id_provider:
+            # Get current route from cache
+            route = self._dependency_cache.get("__current_route__")
+            return self._call_with_injection(self._trace_id_provider, request, route)
+        else:
+            import uuid
+            return str(uuid.uuid4())
+
+    def _get_json_body(self, request: Request) -> Any:
+        """Built-in dependency provider for json_body."""
+        route = self._dependency_cache.get("__current_route__")
+        return self._parse_body(request, route, "application/json")
+
+    def _get_form_body(self, request: Request) -> Any:
+        """Built-in dependency provider for form_body."""
+        route = self._dependency_cache.get("__current_route__")
+        return self._parse_body(request, route, "application/x-www-form-urlencoded")
+
+    def _get_multipart_body(self, request: Request) -> Any:
+        """Built-in dependency provider for multipart_body."""
+        route = self._dependency_cache.get("__current_route__")
+        return self._parse_body(request, route, "multipart/form-data")
+
+    def _get_text_body(self, request: Request) -> Any:
+        """Built-in dependency provider for text_body."""
+        route = self._dependency_cache.get("__current_route__")
+        return self._parse_body(request, route, "text/plain")
 
     def dependency(self, name: Optional[str] = None, scope: DependencyScope = "request"):
         """Decorator to register a dependency provider.
@@ -493,9 +572,15 @@ class RestApplication:
     def _resolve_dependency(
         self, param_name: str, param_type: Optional[Type], request: Request, route: Optional[RouteHandler] = None
     ) -> Any:
-        """Resolve a dependency by name and type."""
-        # For custom dependencies, check if we have scope information
-        # We need to check scope before checking cache
+        """Resolve a dependency by name and type.
+
+        Raises ValueError if the dependency cannot be found, which indicates a programming error.
+        """
+        # Store route in cache so built-in dependencies can access it
+        if route is not None:
+            self._dependency_cache.set("__current_route__", route, "request")
+
+        # Get dependency scope
         dep_scope = self._get_dependency_scope(param_name, route)
 
         # Check cache first (using appropriate scope)
@@ -503,17 +588,10 @@ class RestApplication:
         if cached_value is not None:
             return cached_value
 
-        # Built-in dependencies (can be None, so check if it's a built-in first)
-        if self._is_builtin_dependency(param_name, param_type):
-            builtin_value = self._resolve_builtin_dependency(param_name, param_type, request, route)
-            # Handle sentinel values for built-in dependencies
-            if builtin_value is not None and hasattr(builtin_value, 'value'):
-                actual_value = builtin_value.value
-                self._dependency_cache.set(param_name, actual_value, dep_scope)
-                return actual_value
-            else:
-                self._dependency_cache.set(param_name, builtin_value, dep_scope)
-                return builtin_value
+        # Handle Request type annotation or "request" parameter name
+        if param_type == Request or param_name == "request":
+            self._dependency_cache.set("request", request, dep_scope)
+            return request
 
         # Check if the parameter name is in path_params
         if request.path_params and param_name in request.path_params:
@@ -521,18 +599,19 @@ class RestApplication:
             self._dependency_cache.set(param_name, path_value, dep_scope)
             return path_value
 
-        # Custom accepts parser resolution
-        accepts_value = self._resolve_accepts_dependency(param_name, request, route)
-        if accepts_value is not None:
-            self._dependency_cache.set(param_name, accepts_value, dep_scope)
-            return accepts_value
-
-        # Regular and validation dependencies
-        resolved_value = self._resolve_custom_dependency(param_name, request, route)
-        if resolved_value is not None:
+        # Check if this is a registered dependency (built-in or custom)
+        if self._dependency_exists(param_name, route):
+            resolved_value = self._resolve_registered_dependency(param_name, request, route)
             self._dependency_cache.set(param_name, resolved_value, dep_scope)
             return resolved_value
 
+        # Check if this is an accepts parser dependency
+        if self._accepts_dependency_exists(param_name, request, route):
+            accepts_value = self._resolve_accepts_dependency(param_name, request, route)
+            self._dependency_cache.set(param_name, accepts_value, dep_scope)
+            return accepts_value
+
+        # Dependency not found - this is a programming error
         raise ValueError(f"Unable to resolve dependency: {param_name}")
 
     def _get_dependency_scope(self, param_name: str, route: Optional[RouteHandler] = None) -> DependencyScope:
@@ -571,79 +650,59 @@ class RestApplication:
         # Default to request scope
         return "request"
 
-    def _is_builtin_dependency(self, param_name: str, param_type: Optional[Type]) -> bool:
-        """Check if a parameter is a built-in dependency."""
-        builtin_names = [
-            "request", "exception", "body", "query_params", "path_params",
-            "request_headers", "response_headers", "headers",
-            "json_body", "form_body", "multipart_body", "text_body",
-            "request_id", "trace_id"
-        ]
-        return param_name in builtin_names or param_type == Request
+    def _dependency_exists(self, param_name: str, route: Optional[RouteHandler] = None) -> bool:
+        """Check if a registered dependency exists (route-specific or global)."""
+        if route and param_name in route.dependencies:
+            return True
+        return param_name in self._dependencies
 
-    def _resolve_builtin_dependency(self, param_name: str, param_type: Optional[Type], request: Request, route: Optional[RouteHandler]) -> Any:
-        """Resolve built-in framework dependencies."""
-        if param_name == "request" or param_type == Request:
-            return request
-        elif param_name == "exception":
-            # Return exception from cache (set when error occurs), or None
-            return self._dependency_cache.get("exception")
-        elif param_name == "body":
-            return request.body
-        elif param_name == "query_params":
-            return request.query_params or {}
-        elif param_name == "path_params":
-            return request.path_params or {}
-        elif param_name == "request_headers":
-            # Return the actual request headers from the HTTP request
-            return request.headers
-        elif param_name == "response_headers":
-            # Return pre-calculated response headers (e.g., Vary header)
-            headers = self._dependency_cache.get("response_headers")
-            if headers is None:
-                headers = self._get_initial_headers(request, route)
-                self._dependency_cache.set("response_headers", headers)
-            return headers
-        elif param_name == "headers":
-            # Deprecated: for backwards compatibility, return request headers
-            # Users should migrate to request_headers or response_headers
-            return request.headers
-        elif param_name in ["json_body", "form_body", "multipart_body", "text_body"]:
-            # Built-in body parsers should always be resolved, even if empty/None
-            content_type_map = {
-                "json_body": "application/json",
-                "form_body": "application/x-www-form-urlencoded",
-                "multipart_body": "multipart/form-data",
-                "text_body": "text/plain"
-            }
-            # Use a sentinel to distinguish from "not found"
-            class _BuiltinResolved:
-                def __init__(self, value):
-                    self.value = value
-            return _BuiltinResolved(self._parse_body(request, route, content_type_map[param_name]))
-        elif param_name == "request_id":
-            # Generate request ID using custom provider or default
-            if self._request_id_provider:
-                return self._call_with_injection(self._request_id_provider, request, route)
-            else:
-                # Default: generate UUID
-                import uuid
-                return str(uuid.uuid4())
-        elif param_name == "trace_id":
-            # Generate trace ID using custom provider or default
-            if self._trace_id_provider:
-                return self._call_with_injection(self._trace_id_provider, request, route)
-            else:
-                # Default: generate UUID
-                import uuid
-                return str(uuid.uuid4())
-        return None
+    def _resolve_registered_dependency(self, param_name: str, request: Request, route: Optional[RouteHandler]) -> Any:
+        """Resolve a registered dependency (built-in or custom).
 
-    def _resolve_accepts_dependency(self, param_name: str, request: Request, route: Optional[RouteHandler]) -> Any:
-        """Resolve accepts parser dependencies."""
+        Returns the resolved value, which may be None for some dependencies like 'exception'.
+        Assumes _dependency_exists() was called first and returned True.
+        """
+        # Check route-specific dependencies first
+        dep_or_wrapper: Union[Callable, DependencyWrapper, Dependency, None] = None
+        validation_dependency = None
+
+        if route and param_name in route.dependencies:
+            dep_or_wrapper = route.dependencies[param_name]
+            validation_dependency = route.validation_dependencies.get(param_name)
+        elif param_name in self._dependencies:
+            dep_or_wrapper = self._dependencies[param_name]
+            validation_dependency = self._validation_dependencies.get(param_name)
+
+        # dep_or_wrapper should not be None if _dependency_exists() returned True
+        if dep_or_wrapper is None:
+            raise ValueError(f"Dependency {param_name} not found")
+
+        if isinstance(dep_or_wrapper, DependencyWrapper):
+            return self._call_with_injection(dep_or_wrapper.func, request, route)
+        elif isinstance(dep_or_wrapper, Dependency):
+            # Unwrap the Dependency wrapper
+            if validation_dependency is not None:
+                result = self._call_with_injection(dep_or_wrapper.func, request, route)
+                if hasattr(result, "model_validate") or hasattr(result, "model_dump"):
+                    return result
+                else:
+                    raise ValueError(f"Validation function {param_name} must return a Pydantic model")
+            else:
+                return self._call_with_injection(dep_or_wrapper.func, request, route)
+        elif validation_dependency is not None:
+            result = self._call_with_injection(dep_or_wrapper, request, route)
+            if hasattr(result, "model_validate") or hasattr(result, "model_dump"):
+                return result
+            else:
+                raise ValueError(f"Validation function {param_name} must return a Pydantic model")
+        else:
+            return self._call_with_injection(dep_or_wrapper, request, route)
+
+    def _accepts_dependency_exists(self, param_name: str, request: Request, route: Optional[RouteHandler]) -> bool:
+        """Check if an accepts parser dependency exists for this request."""
         content_type = request.get_content_type()
         if not content_type:
-            return None
+            return False
 
         base_content_type = content_type.split(';')[0].strip().lower()
 
@@ -654,51 +713,37 @@ class RestApplication:
         elif base_content_type in self._accepts_dependencies:
             accepts_wrapper = self._accepts_dependencies[base_content_type]
 
-        if accepts_wrapper and (param_name == accepts_wrapper.name or param_name in ['parsed_data', 'parsed_body']):
-            try:
-                return self._call_with_injection(accepts_wrapper.func, request, route)
-            except Exception as e:
-                raise AcceptsParsingError(
-                    f"Failed to parse {base_content_type} request body: {str(e)}",
-                    original_exception=e
-                )
-        return None
+        return accepts_wrapper is not None and (param_name == accepts_wrapper.name or param_name in ['parsed_data', 'parsed_body'])
 
-    def _resolve_custom_dependency(self, param_name: str, request: Request, route: Optional[RouteHandler]) -> Any:
-        """Resolve custom registered dependencies."""
-        # Check route-specific dependencies first
-        dep_or_wrapper = None
-        validation_dependency = None
+    def _resolve_accepts_dependency(self, param_name: str, request: Request, route: Optional[RouteHandler]) -> Any:
+        """Resolve accepts parser dependencies.
 
-        if route and param_name in route.dependencies:
-            dep_or_wrapper = route.dependencies[param_name]
-            validation_dependency = route.validation_dependencies.get(param_name)
-        elif param_name in self._dependencies:
-            dep_or_wrapper = self._dependencies[param_name]
-            validation_dependency = self._validation_dependencies.get(param_name)
+        Assumes _accepts_dependency_exists() was called first and returned True.
+        Returns the resolved value, which may be None.
+        """
+        content_type = request.get_content_type()
+        if content_type is None:
+            raise ValueError(f"Content-Type header is required for dependency {param_name}")
 
-        if dep_or_wrapper is not None:
-            if isinstance(dep_or_wrapper, DependencyWrapper):
-                return self._call_with_injection(dep_or_wrapper.func, request, route)
-            elif isinstance(dep_or_wrapper, Dependency):
-                # Unwrap the Dependency wrapper
-                if validation_dependency is not None:
-                    result = self._call_with_injection(dep_or_wrapper.func, request, route)
-                    if hasattr(result, "model_validate") or hasattr(result, "model_dump"):
-                        return result
-                    else:
-                        raise ValueError(f"Validation function {param_name} must return a Pydantic model")
-                else:
-                    return self._call_with_injection(dep_or_wrapper.func, request, route)
-            elif validation_dependency is not None:
-                result = self._call_with_injection(dep_or_wrapper, request, route)
-                if hasattr(result, "model_validate") or hasattr(result, "model_dump"):
-                    return result
-                else:
-                    raise ValueError(f"Validation function {param_name} must return a Pydantic model")
-            else:
-                return self._call_with_injection(dep_or_wrapper, request, route)
-        return None
+        base_content_type = content_type.split(';')[0].strip().lower()
+
+        # Check route-specific accepts dependencies first
+        accepts_wrapper: Optional[AcceptsWrapper] = None
+        if route and base_content_type in route.accepts_dependencies:
+            accepts_wrapper = route.accepts_dependencies[base_content_type]
+        elif base_content_type in self._accepts_dependencies:
+            accepts_wrapper = self._accepts_dependencies[base_content_type]
+
+        if accepts_wrapper is None:
+            raise ValueError(f"Accepts parser for {base_content_type} not found")
+
+        try:
+            return self._call_with_injection(accepts_wrapper.func, request, route)
+        except Exception as e:
+            raise AcceptsParsingError(
+                f"Failed to parse {base_content_type} request body: {str(e)}",
+                original_exception=e
+            )
 
     def _call_with_injection(self, func: Callable, request: Request, route: Optional[RouteHandler] = None) -> Any:
         """Call a function with dependency injection."""

@@ -109,7 +109,7 @@ except ImportError:
         def model_dump_json(self, **kwargs):
             """Serialize to JSON string."""
             import json
-            data = {"error": self.error}
+            data: Dict[str, Any] = {"error": self.error}
             if self.details is not None:
                 data["details"] = self.details
             if self.request_id is not None:
@@ -121,7 +121,7 @@ except ImportError:
         def model_dump(self, **kwargs):
             """Serialize to dict."""
             exclude_none = kwargs.get('exclude_none', True)
-            data = {"error": self.error}
+            data: Dict[str, Any] = {"error": self.error}
             if self.details is not None or not exclude_none:
                 if self.details is not None or not exclude_none:
                     data["details"] = self.details

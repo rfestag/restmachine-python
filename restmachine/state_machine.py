@@ -124,8 +124,8 @@ class RequestStateMachine:
         request_id = None
         trace_id = None
         try:
-            request_id = self.app._resolve_builtin_dependency("request_id", None, self.request, self.route_handler)
-            trace_id = self.app._resolve_builtin_dependency("trace_id", None, self.request, self.route_handler)
+            request_id = self.app._resolve_dependency("request_id", None, self.request, self.route_handler)
+            trace_id = self.app._resolve_dependency("trace_id", None, self.request, self.route_handler)
         except Exception as e:
             # If dependency resolution fails, continue without IDs
             logger.warning(f"Failed to resolve request_id/trace_id for error response: {e}")
@@ -282,8 +282,8 @@ class RequestStateMachine:
             request_id = None
             trace_id = None
             try:
-                request_id = self.app._resolve_builtin_dependency("request_id", None, self.request, self.route_handler)
-                trace_id = self.app._resolve_builtin_dependency("trace_id", None, self.request, self.route_handler)
+                request_id = self.app._resolve_dependency("request_id", None, self.request, self.route_handler)
+                trace_id = self.app._resolve_dependency("trace_id", None, self.request, self.route_handler)
             except Exception as dep_error:
                 logger.warning(f"Failed to resolve request_id/trace_id for validation error: {dep_error}")
 
@@ -868,6 +868,10 @@ class RequestStateMachine:
 
     def state_execute_and_render(self) -> Response:
         """Execute the route handler and render the response."""
+        # route_handler is guaranteed to be set by state_route_exists before this is called
+        if self.route_handler is None:
+            raise RuntimeError("route_handler must be set before executing handler")
+
         processed_headers = None
         try:
             # Process headers dependencies first to get final headers

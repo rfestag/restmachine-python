@@ -72,6 +72,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Comprehensive test coverage with 20 new tests covering all scope behaviors
 
 ### Changed
+- **Built-in Dependency Registration**: Refactored built-in dependencies to use the same registration mechanism as user-defined dependencies
+  - Built-in dependencies (`request`, `body`, `exception`, `request_id`, `trace_id`, etc.) now registered during application initialization
+  - Removed separate code paths for built-in vs. custom dependencies (~70 lines of special-case logic eliminated)
+  - Simplified dependency resolution with unified handling for all dependency types
+  - Makes it trivial to add new built-in dependencies (just add one line to `_register_builtin_dependencies()`)
+  - No breaking changes - all existing functionality preserved
+  - Improved type safety with explicit type annotations
 - **Terminology Change**: Renamed "driver" to "adapter" for platform adapters (BREAKING CHANGE)
   - `Driver` class renamed to `Adapter`
   - `AwsApiGatewayDriver` renamed to `AwsApiGatewayAdapter`
@@ -113,11 +120,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - See `docs/MIGRATION_TO_PYPROJECT.md` for details
 
 ### Fixed
+- **Type Checking**: Enhanced type safety with stricter mypy checks
+  - Added `--check-untyped-defs` flag to catch more type errors
+  - Fixed type annotations in error_models.py for dict construction
+  - Added runtime validation for route_handler state
+  - All type checks now pass with stricter validation
 - **Type Checking**: Fixed mypy type errors in template_helpers.py
   - Added proper type annotations for Jinja2 loaders
   - Used `Optional[BaseLoader]` for flexible loader types
   - All type checks now pass without errors
 - **Security Issues**: Resolved bandit security warnings
+  - Replaced `assert` with proper `if/raise` checks (prevents removal with Python -O flag)
   - Replaced broad `except Exception` with specific exceptions
   - Added `# nosec B701` comment for intentional autoescape control
   - Documented security considerations for `unsafe` parameter
