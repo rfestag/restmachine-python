@@ -129,11 +129,13 @@ testpaths = ["packages/*/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+# Exclude performance tests by default (use -m performance to run them)
+addopts = "-v --tb=short -m 'not performance'"
 markers = [
     "driver_direct: Tests using direct driver",
     "driver_aws_lambda: Tests using AWS Lambda driver",
     "driver_uvicorn_http1: Tests using Uvicorn HTTP/1.1 driver",
     "driver_hypercorn_http1: Tests using Hypercorn HTTP/1.1 driver",
     "driver_hypercorn_http2: Tests using Hypercorn HTTP/2 driver",
+    "performance: Performance benchmark tests (deselect with '-m \"not performance\"')",
 ]

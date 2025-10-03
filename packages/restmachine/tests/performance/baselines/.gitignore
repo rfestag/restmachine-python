@@ -1,0 +1,5 @@
+# Ignore all benchmark baseline files
+*.json
+
+# But keep the directory in git
+!.gitignore

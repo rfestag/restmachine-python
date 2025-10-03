@@ -50,7 +50,31 @@ def pytest_collection_modifyitems(config, items):
         pytest -m "driver_direct or driver_aws_lambda"
         pytest -m "not driver_uvicorn_http1"
     """
+    # Performance test class names - mark these wherever they appear
+    performance_test_classes = {
+        'TestGetRequestPerformance',
+        'TestPostRequestPerformance',
+        'TestPutRequestPerformance',
+        'TestDeleteRequestPerformance',
+        'TestMixedOperationsPerformance',
+        'TestPathParameterPerformance',
+        'TestQueryParameterPerformance',
+        'TestComplexRoutingPerformance',
+        'TestMixedParametersPerformance',
+        'TestSmallPayloadPerformance',
+        'TestMediumPayloadPerformance',
+        'TestLargePayloadPerformance',
+        'TestNestedJsonPerformance',
+        'TestVariousDataTypesPerformance',
+    }
+
     for item in items:
+        # Add performance marker based on test class name OR file path
+        # This catches performance tests wherever they're imported
+        test_class_name = item.cls.__name__ if item.cls else None
+        if test_class_name in performance_test_classes or "performance" in str(item.fspath):
+            item.add_marker(pytest.mark.performance)
+
         # Check if this test has a parametrized driver (look for 'driver-' in the node id)
         if 'driver-' in item.nodeid:
             # Extract driver name from the node id (e.g., "driver-direct" -> "direct")

@@ -37,11 +37,13 @@ validation = [
 test = [
     "pytest>=6.0",
     "pytest-cov",
+    "pytest-benchmark>=4.0.0",
     "requests>=2.25.0",  # For test framework HTTP client
 ]
 dev = [
     "pytest>=6.0",
     "pytest-cov",
+    "pytest-benchmark>=4.0.0",
     "ruff",
     "mypy",
     "openapi-spec-validator>=0.7.0",
@@ -64,4 +66,15 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v --tb=short"
+# Exclude performance tests by default (use -m performance to run them)
+addopts = "-v --tb=short -m 'not performance'"
+markers = [
+    "performance: Performance benchmark tests (deselect with '-m \"not performance\"')",
+]
+
+[tool.pytest.benchmark]
+# Store separate baselines for each driver in performance/baselines/
+min_rounds = 5
+max_time = 1.0
+calibration_precision = 10
+warmup = true
