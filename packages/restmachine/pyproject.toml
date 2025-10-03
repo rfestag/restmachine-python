@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
 authors = [
-    {name = "REST Framework Contributors", email = "contributors@restmachine.example.com"}
+    {name = "Ryan Festag", email = "rfestag@gmail.com"}
 ]
 keywords = ["rest", "api", "framework", "webmachine", "state-machine", "dependency-injection"]
 classifiers = [
@@ -39,6 +39,7 @@ test = [
     "pytest-cov",
     "pytest-benchmark>=4.0.0",
     "requests>=2.25.0",  # For test framework HTTP client
+    "pydantic>=2.0.0",
 ]
 dev = [
     "pytest>=6.0",
@@ -48,13 +49,13 @@ dev = [
     "mypy",
     "openapi-spec-validator>=0.7.0",
     "requests>=2.25.0",
+    "pydantic>=2.0.0",
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/restmachine"
-Documentation = "https://restmachine.readthedocs.io/"
-Repository = "https://github.com/yourusername/restmachine"
-"Bug Reports" = "https://github.com/yourusername/restmachine/issues"
+Homepage = "https://github.com/rfestag/restmachine-python"
+Repository = "https://github.com/rfestag/restmachine-python"
+"Bug Reports" = "https://github.com/rfestag/restmachine-python/issues"
 
 [tool.setuptools.packages.find]
 where = ["src", "tests"]
