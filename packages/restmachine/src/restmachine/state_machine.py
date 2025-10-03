@@ -330,22 +330,15 @@ class RequestStateMachine:
         self.route_handler, path_params = route_match
         self.request.path_params = path_params
 
-        # Analyze handler dependencies
-        sig = inspect.signature(self.route_handler.handler)
-        self.handler_dependencies = list(sig.parameters.keys())
+        # Handler dependencies are already cached in route.param_info
+        self.handler_dependencies = list(self.route_handler.param_info.keys())
 
-        # Find dependency callbacks that will be used - check route-specific first, then global
-        for dep_name in self.handler_dependencies:
-            # Check route-specific dependencies first
-            if dep_name in self.route_handler.dependencies:
-                dep = self.route_handler.dependencies[dep_name]
-                if isinstance(dep, DependencyWrapper):
-                    self.dependency_callbacks[dep.state_name] = dep
-            # Fall back to global dependencies
-            elif dep_name in self.app._dependencies:
-                dep = self.app._dependencies[dep_name]
-                if isinstance(dep, DependencyWrapper):
-                    self.dependency_callbacks[dep.state_name] = dep
+        # State machine callbacks are pre-resolved in route.state_callbacks
+        # Copy them to dependency_callbacks for backward compatibility
+        for state_name, callback in self.route_handler.state_callbacks.items():
+            # Create a temporary DependencyWrapper for compatibility
+            wrapper = DependencyWrapper(callback, state_name, callback.__name__)
+            self.dependency_callbacks[state_name] = wrapper
 
         return StateMachineResult(True)
 
@@ -833,19 +826,8 @@ class RequestStateMachine:
             headers = self.app._get_initial_headers(self.request, self.route_handler)
             self.app._dependency_cache.set("headers", headers)
 
-        # Find all headers dependencies (route-specific first, then global)
-        headers_deps = []
-
-        # Collect route-specific headers dependencies
-        if self.route_handler and self.route_handler.headers_dependencies:
-            for dep_name, wrapper in self.route_handler.headers_dependencies.items():
-                headers_deps.append((dep_name, wrapper))
-
-        # Collect global headers dependencies
-        for dep_name, wrapper in self.app._headers_dependencies.items():
-            # Avoid duplicates if already added from route-specific
-            if not any(dep[0] == dep_name for dep in headers_deps):
-                headers_deps.append((dep_name, wrapper))
+        # Collect all global headers dependencies
+        headers_deps = list(self.app._headers_dependencies.items())
 
         # Process each headers dependency in order
         for dep_name, wrapper in headers_deps:

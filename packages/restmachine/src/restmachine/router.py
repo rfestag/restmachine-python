@@ -224,11 +224,8 @@ class Router:
             normalized_path = normalize_path(prefix, route.path)
             # Create a new RouteHandler with the normalized path
             normalized_route = RouteHandler(route.method, normalized_path, route.handler)
-            # Copy over route-specific attributes (dependencies dicts are empty but kept for compatibility)
-            normalized_route.dependencies = route.dependencies.copy()
-            normalized_route.validation_dependencies = route.validation_dependencies.copy()
-            normalized_route.accepts_dependencies = route.accepts_dependencies.copy()
-            normalized_route.headers_dependencies = route.headers_dependencies.copy()
+            # Copy over route-specific attributes
+            normalized_route.state_callbacks = route.state_callbacks.copy()
             normalized_route.content_renderers = route.content_renderers.copy()
             normalized_route.validation_wrappers = route.validation_wrappers.copy()
             routes.append((normalized_path, normalized_route))
@@ -268,6 +265,10 @@ class Router:
         def decorator(func: Callable):
             route = RouteHandler(method, path, func)
             self._routes.append(route)
+
+            # Resolve state machine callbacks if app is available
+            if self.app:
+                route.resolve_state_callbacks(self.app)
 
             # Add to tree immediately
             segments = [s for s in path.split('/') if s]

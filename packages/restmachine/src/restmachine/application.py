@@ -81,8 +81,19 @@ class RouteHandler:
         self.path_pattern = self._compile_path_pattern(path)
         self.content_renderers: Dict[str, ContentNegotiationWrapper] = {}
         self.validation_wrappers: List[ValidationWrapper] = []
-        # Route-specific dependency tracking (kept for compatibility, but unused)
-        # All dependencies are now global
+
+        # Cache signature and parameter info for performance
+        self.handler_signature = inspect.signature(handler)
+        self.param_info: Dict[str, Optional[Type]] = {
+            name: (param.annotation if param.annotation != inspect.Parameter.empty else None)
+            for name, param in self.handler_signature.parameters.items()
+        }
+
+        # State machine callbacks resolved from handler dependencies
+        # These are the ONLY route-specific lookups we maintain
+        self.state_callbacks: Dict[str, Callable] = {}
+
+        # Deprecated - kept for compatibility but should not be used
         self.dependencies: Dict[str, Union[Callable, DependencyWrapper, Dependency]] = {}
         self.validation_dependencies: Dict[str, ValidationWrapper] = {}
         self.headers_dependencies: Dict[str, HeadersWrapper] = {}
@@ -99,6 +110,26 @@ class RouteHandler:
 
     def add_validation_wrapper(self, wrapper: ValidationWrapper):
         self.validation_wrappers.append(wrapper)
+
+    def resolve_state_callbacks(self, app: 'RestApplication') -> None:
+        """Analyze handler dependencies and resolve state machine callbacks.
+
+        This traverses the dependency graph to find state machine callbacks
+        that apply to this route's handler, enabling O(1) lookup during request processing.
+        """
+        # State machine callback types to look for
+        state_callback_types = {
+            'resource_exists', 'resource_from_request', 'forbidden', 'authorized',
+            'generate_etag', 'last_modified'
+        }
+
+        # Analyze each parameter of the handler
+        for param_name in self.param_info.keys():
+            # Check if this parameter is directly wrapped with a state callback
+            if param_name in app._dependencies:
+                dep = app._dependencies[param_name]
+                if isinstance(dep, DependencyWrapper) and dep.state_name in state_callback_types:
+                    self.state_callbacks[dep.state_name] = dep.func
 
 
 class RestApplication:
@@ -682,7 +713,12 @@ class RestApplication:
 
     def _call_with_injection(self, func: Callable, request: Request, route: Optional[RouteHandler] = None) -> Any:
         """Call a function with dependency injection."""
-        sig = inspect.signature(func)
+        # Use cached signature if this is the route handler
+        if route and func == route.handler:
+            sig = route.handler_signature
+        else:
+            sig = inspect.signature(func)
+
         kwargs = {}
 
         for param_name, param in sig.parameters.items():
@@ -742,16 +778,12 @@ class RestApplication:
         return self._parse_with_builtin_parser(request.body, expected_content_type)
 
     def _get_accepts_wrapper(self, content_type: str, route: Optional[RouteHandler]):
-        """Get accepts wrapper for content type, checking route-specific first."""
-        if route and content_type in route.accepts_dependencies:
-            return route.accepts_dependencies[content_type]
+        """Get accepts wrapper for content type from global dependencies."""
         return self._accepts_dependencies.get(content_type)
 
     def _get_supported_content_types(self, route: Optional[RouteHandler]) -> set:
         """Get all supported content types for validation."""
         supported_types = set(self._accepts_dependencies.keys())
-        if route:
-            supported_types.update(route.accepts_dependencies.keys())
         supported_types.update([
             "application/json",
             "application/x-www-form-urlencoded",
@@ -956,20 +988,6 @@ class RestApplication:
 
     def _infer_schema_from_validation_dependencies(self, param_name: str, collect_schema_func, route: Optional[RouteHandler] = None) -> Optional[Dict[str, Any]]:
         """Infer schema from validation dependencies that might use the given parameter (e.g. json_body)."""
-        # Check route-specific validation dependencies first
-        if route and hasattr(route, 'validation_dependencies'):
-            for validation_name, validation_wrapper in route.validation_dependencies.items():
-                sig = inspect.signature(validation_wrapper.func)
-                if param_name in sig.parameters:
-                    # This validation function takes the parameter as input
-                    return_annotation = sig.return_annotation
-                    if return_annotation and return_annotation != inspect.Parameter.empty:
-                        if self._is_pydantic_model(return_annotation):
-                            # Collect the schema and return a reference
-                            schema_name = collect_schema_func(return_annotation)
-                            if schema_name:
-                                return {"$ref": f"#/components/schemas/{schema_name}"}
-
         # Look for global validation dependencies that take the parameter as input
         for validation_name, validation_wrapper in self._validation_dependencies.items():
             sig = inspect.signature(validation_wrapper.func)
@@ -986,12 +1004,8 @@ class RestApplication:
 
     def _get_primary_content_type_for_route(self, route: RouteHandler) -> Optional[str]:
         """Get the primary content type that this route expects for request bodies."""
-        # For now, assume application/json as the primary content type
-        # In the future, this could be more sophisticated and look at accepts dependencies
-        if hasattr(route, 'accepts_dependencies') and route.accepts_dependencies:
-            # Return the first accepts dependency content type
-            return next(iter(route.accepts_dependencies.keys()))
-        elif self._accepts_dependencies:
+        # Check global accepts dependencies
+        if self._accepts_dependencies:
             # Return the first global accepts dependency content type
             return next(iter(self._accepts_dependencies.keys()))
         else:
@@ -1053,12 +1067,8 @@ class RestApplication:
             path_params_from_validation = []
 
             for param_name, param in sig.parameters.items():
-                # Check if this parameter corresponds to a validation dependency (route-specific first, then global)
-                validation_wrapper = None
-                if hasattr(route, 'validation_dependencies') and param_name in route.validation_dependencies:
-                    validation_wrapper = route.validation_dependencies[param_name]
-                elif param_name in self._validation_dependencies:
-                    validation_wrapper = self._validation_dependencies[param_name]
+                # Check if this parameter corresponds to a global validation dependency
+                validation_wrapper = self._validation_dependencies.get(param_name)
 
                 if validation_wrapper:
                     # Check if this validation function depends on path_params
@@ -1120,12 +1130,8 @@ class RestApplication:
             # Look at the route handler's parameters to find validation dependencies
             sig = inspect.signature(route.handler)
             for param_name, param in sig.parameters.items():
-                # Check if this parameter corresponds to a validation dependency (route-specific first, then global)
-                validation_wrapper = None
-                if hasattr(route, 'validation_dependencies') and param_name in route.validation_dependencies:
-                    validation_wrapper = route.validation_dependencies[param_name]
-                elif param_name in self._validation_dependencies:
-                    validation_wrapper = self._validation_dependencies[param_name]
+                # Check if this parameter corresponds to a global validation dependency
+                validation_wrapper = self._validation_dependencies.get(param_name)
 
                 if validation_wrapper:
                     # Check if this validation function depends on query_params
@@ -1171,12 +1177,8 @@ class RestApplication:
 
             # First, check validation dependencies that depend on body
             for param_name, param in sig.parameters.items():
-                # Check if this parameter corresponds to a validation dependency (route-specific first, then global)
-                validation_wrapper = None
-                if hasattr(route, 'validation_dependencies') and param_name in route.validation_dependencies:
-                    validation_wrapper = route.validation_dependencies[param_name]
-                elif param_name in self._validation_dependencies:
-                    validation_wrapper = self._validation_dependencies[param_name]
+                # Check if this parameter corresponds to a global validation dependency
+                validation_wrapper = self._validation_dependencies.get(param_name)
 
                 if validation_wrapper:
                     # Check if this validation function depends on body
@@ -1221,19 +1223,6 @@ class RestApplication:
                 # Look for accepts dependencies that match this route
                 content_type = self._get_primary_content_type_for_route(route)
                 if content_type:
-                    # Check route-specific accepts dependencies
-                    if hasattr(route, 'accepts_dependencies') and content_type in route.accepts_dependencies:
-                        accepts_wrapper = route.accepts_dependencies[content_type]
-                        return_annotation = inspect.signature(accepts_wrapper.func).return_annotation
-                        if return_annotation and return_annotation != inspect.Parameter.empty:
-                            if self._is_pydantic_model(return_annotation):
-                                schema_name = _collect_schema(return_annotation)
-                                if schema_name:
-                                    return _get_schema_ref(schema_name)
-                            else:
-                                # For non-Pydantic return types, infer basic schema
-                                return self._infer_basic_schema_from_type(return_annotation)
-
                     # Check global accepts dependencies
                     if content_type in self._accepts_dependencies:
                         accepts_wrapper = self._accepts_dependencies[content_type]

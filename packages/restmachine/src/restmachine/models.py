@@ -29,26 +29,27 @@ class CaseInsensitiveDict(dict):
         headers['content-type']      # Returns 'application/json'
     """
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Maintain a lowercase key -> actual key mapping for O(1) lookups
+        self._lower_index: Dict[str, str] = {k.lower(): k for k in self.keys() if isinstance(k, str)}
+
     def get(self, key, default=None):
         """Get value with case-insensitive key lookup."""
         if not isinstance(key, str):
             return super().get(key, default)
 
-        key_lower = key.lower()
-        for k, v in self.items():
-            if k.lower() == key_lower:
-                return v
-        return default
+        actual_key = self._lower_index.get(key.lower())
+        return super().get(actual_key, default) if actual_key else default
 
     def __getitem__(self, key):
         """Support bracket notation with case-insensitive lookup."""
         if not isinstance(key, str):
             return super().__getitem__(key)
 
-        key_lower = key.lower()
-        for k, v in self.items():
-            if k.lower() == key_lower:
-                return v
+        actual_key = self._lower_index.get(key.lower())
+        if actual_key:
+            return super().__getitem__(actual_key)
         raise KeyError(key)
 
     def __contains__(self, key):
@@ -56,20 +57,38 @@ class CaseInsensitiveDict(dict):
         if not isinstance(key, str):
             return super().__contains__(key)
 
-        key_lower = key.lower()
-        return any(k.lower() == key_lower for k in self.keys())
+        return key.lower() in self._lower_index
 
     def __setitem__(self, key, value):
         """Set item, removing any existing keys with same name (case-insensitive)."""
         if isinstance(key, str):
-            # Remove any existing key with the same name (case-insensitive)
             key_lower = key.lower()
-            existing_keys = [k for k in self.keys() if k.lower() == key_lower]
-            for existing_key in existing_keys:
+            # Remove existing key if present
+            if key_lower in self._lower_index:
+                existing_key = self._lower_index[key_lower]
                 super().__delitem__(existing_key)
+            # Update index
+            self._lower_index[key_lower] = key
 
         # Set the new value
         super().__setitem__(key, value)
+
+    def __delitem__(self, key):
+        """Delete item with case-insensitive key."""
+        if isinstance(key, str):
+            actual_key = self._lower_index.get(key.lower())
+            if actual_key:
+                del self._lower_index[key.lower()]
+                super().__delitem__(actual_key)
+                return
+        super().__delitem__(key)
+
+    def update(self, *args, **kwargs):
+        """Update dict and maintain lowercase index."""
+        # Let dict.update handle the updates
+        super().update(*args, **kwargs)
+        # Rebuild the index
+        self._lower_index = {k.lower(): k for k in self.keys() if isinstance(k, str)}
 
 
 class HTTPMethod(Enum):
