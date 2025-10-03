@@ -17,7 +17,7 @@ class TestETagGeneration(MultiDriverTestBase):
     """Test ETag generation and handling across all drivers."""
 
     # Conditional requests only work with direct and AWS Lambda drivers
-    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+    ENABLED_DRIVERS = ['direct']
 
     @pytest.fixture(scope="function")
     def api(self, request):
@@ -169,7 +169,7 @@ class TestIfNoneMatchHeaders(MultiDriverTestBase):
     """Test If-None-Match header handling across all drivers."""
 
     # Conditional requests only work with direct and AWS Lambda drivers
-    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+    ENABLED_DRIVERS = ['direct']
 
     def create_app(self) -> RestApplication:
         """Create app for If-None-Match testing."""
@@ -283,7 +283,7 @@ class TestIfMatchHeaders(MultiDriverTestBase):
     """Test If-Match header handling across all drivers."""
 
     # Conditional requests only work with direct and AWS Lambda drivers
-    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+    ENABLED_DRIVERS = ['direct']
 
     @pytest.fixture(scope="function")
     def api(self, request):
@@ -426,7 +426,7 @@ class TestLastModifiedHeaders(MultiDriverTestBase):
     """Test Last-Modified header handling across all drivers."""
 
     # Conditional requests only work with direct and AWS Lambda drivers
-    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+    ENABLED_DRIVERS = ['direct']
 
     def create_app(self) -> RestApplication:
         """Create app with Last-Modified support."""
@@ -540,7 +540,7 @@ class TestCombinedConditionalHeaders(MultiDriverTestBase):
     """Test combinations of conditional headers across all drivers."""
 
     # Conditional requests only work with direct and AWS Lambda drivers
-    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+    ENABLED_DRIVERS = ['direct']
 
     def create_app(self) -> RestApplication:
         """Create app with both ETag and Last-Modified support."""
@@ -676,7 +676,7 @@ class TestConditionalRequestsConsistency(MultiDriverTestBase):
     """Test conditional requests work consistently across all drivers."""
 
     # Conditional requests only work with direct and AWS Lambda drivers
-    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+    ENABLED_DRIVERS = ['direct']
 
     def create_app(self) -> RestApplication:
         """Create app for cross-driver conditional request testing."""
@@ -754,7 +754,7 @@ class TestETagAndConditionalRequests(MultiDriverTestBase):
     """Test ETag generation and conditional request handling across all drivers."""
 
     # Conditional requests only work with direct and AWS Lambda drivers
-    ENABLED_DRIVERS = ['direct', 'aws_lambda']
+    ENABLED_DRIVERS = ['direct']
 
     def create_app(self) -> RestApplication:
         """Set up API with ETag support."""

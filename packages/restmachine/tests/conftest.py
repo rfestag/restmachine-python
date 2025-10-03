@@ -15,12 +15,19 @@ def pytest_generate_tests(metafunc):
 
     This ensures every test method in classes that inherit from MultiDriverTestBase
     gets run against all enabled drivers.
+
+    Only affects tests in the restmachine/tests directory (not adapter packages).
     """
     # Check if this is a test class that inherits from MultiDriverTestBase
     if (hasattr(metafunc, 'cls') and
         metafunc.cls is not None and
         issubclass(metafunc.cls, MultiDriverTestBase) and
         'api' in metafunc.fixturenames):
+
+        # Only parametrize tests in this package (packages/restmachine/tests)
+        # Check if the test file is in our tests directory (not imported into adapter packages)
+        if "/packages/restmachine/tests/" not in metafunc.module.__file__:
+            return
 
         # Get the available drivers for this test class
         drivers = metafunc.cls.get_available_drivers()

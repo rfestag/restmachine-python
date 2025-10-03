@@ -305,10 +305,14 @@ class RestApiDsl:
         """Generate OpenAPI specification from the application."""
         if hasattr(self._driver, 'get_openapi_spec'):
             return self._driver.get_openapi_spec()
-        elif hasattr(self._driver, 'app') and hasattr(self._driver.app, 'generate_openapi'):
-            return self._driver.app.generate_openapi()
-        else:
-            raise NotImplementedError("Driver does not support OpenAPI generation")
+        elif hasattr(self._driver, 'app'):
+            # Try different method names for OpenAPI generation
+            if hasattr(self._driver.app, 'generate_openapi_json'):
+                return self._driver.app.generate_openapi_json()
+            elif hasattr(self._driver.app, 'generate_openapi'):
+                return self._driver.app.generate_openapi()
+
+        raise NotImplementedError("Driver does not support OpenAPI generation")
 
     def save_openapi_spec(self, directory: str = "docs", filename: str = "openapi.json") -> str:
         """Save OpenAPI specification to file and return the path."""

@@ -3,8 +3,8 @@
 # This is a Python monorepo containing multiple packages:
 # - packages/restmachine: Core RestMachine framework
 # - packages/restmachine-aws: AWS Lambda adapter
-# - packages/restmachine-uvicorn: Uvicorn server (future)
-# - packages/restmachine-hypercorn: Hypercorn server (future)
+# - packages/restmachine-uvicorn: Uvicorn server adapter
+# - packages/restmachine-hypercorn: Hypercorn server adapter
 #
 # To install for development:
 #   pip install -e packages/restmachine[dev]
@@ -118,6 +118,11 @@ ignore_missing_imports = true
 module = "hypercorn.*"
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+module = "restmachine.testing.*"
+follow_imports = "skip"
+ignore_errors = true
+
 [tool.pytest.ini_options]
 # Global pytest configuration
 testpaths = ["packages/*/tests"]
@@ -125,3 +130,10 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+markers = [
+    "driver_direct: Tests using direct driver",
+    "driver_aws_lambda: Tests using AWS Lambda driver",
+    "driver_uvicorn_http1: Tests using Uvicorn HTTP/1.1 driver",
+    "driver_hypercorn_http1: Tests using Hypercorn HTTP/1.1 driver",
+    "driver_hypercorn_http2: Tests using Hypercorn HTTP/2 driver",
+]

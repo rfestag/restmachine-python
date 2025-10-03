@@ -29,9 +29,6 @@ class MultiDriverTestBase(ABC):
     # Override this in subclasses to control which drivers to test
     ENABLED_DRIVERS = [
         'direct',           # Direct driver: calls RestMachine directly
-        'uvicorn-http1',    # HTTP/1.1 driver via Uvicorn server
-        'hypercorn-http1',  # HTTP/1.1 driver via Hypercorn server
-        'hypercorn-http2',  # HTTP/2 driver via Hypercorn server
     ]
 
     # Optional: Override to exclude specific drivers for certain test files
@@ -62,20 +59,8 @@ class MultiDriverTestBase(ABC):
             'mock': lambda app: MockDriver()  # Note: MockDriver doesn't use app
         }
 
-        # Try to import HTTP drivers (may not be available)
-        try:
-            from .http_drivers import (
-                UvicornHttp1Driver,
-                HypercornHttp1Driver,
-                HypercornHttp2Driver,
-            )
-            driver_map.update({
-                'uvicorn-http1': lambda app: UvicornHttp1Driver(app),
-                'hypercorn-http1': lambda app: HypercornHttp1Driver(app),
-                'hypercorn-http2': lambda app: HypercornHttp2Driver(app),
-            })
-        except ImportError:
-            pass  # HTTP drivers not available
+        # HTTP drivers have been moved to separate packages (restmachine-uvicorn, restmachine-hypercorn)
+        # They can be added back via conftest.py monkey-patching in those packages
 
         if driver_name not in driver_map:
             pytest.skip(f"Driver '{driver_name}' not available. Available: {list(driver_map.keys())}")
@@ -94,15 +79,9 @@ class MultiDriverTestBase(ABC):
         app = self.create_app()
         driver = self.create_driver(driver_name, app)
 
-        # HTTP drivers need to be started/stopped with context manager
-        if driver_name.startswith('uvicorn-') or driver_name.startswith('hypercorn-'):
-            with driver as active_driver:
-                import time
-                time.sleep(0.05)  # Reduced from 0.1s - minimal time needed
-                yield RestApiDsl(active_driver), driver_name
-        else:
-            # Direct and Lambda drivers don't need context manager
-            yield RestApiDsl(driver), driver_name
+        # HTTP drivers need context managers - but they're in separate packages now
+        # Direct driver doesn't need context manager
+        yield RestApiDsl(driver), driver_name
 
 
 def multi_driver_test_class(enabled_drivers: List[str] = None,

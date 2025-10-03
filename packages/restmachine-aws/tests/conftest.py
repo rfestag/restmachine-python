@@ -36,12 +36,19 @@ def pytest_generate_tests(metafunc):
 
     This runs tests only against the AWS Lambda driver, unlike the core package which tests
     against multiple drivers.
+
+    Only affects tests in the restmachine-aws/tests directory.
     """
     # Check if this is a test class that inherits from MultiDriverTestBase
     if (hasattr(metafunc, 'cls') and
         metafunc.cls is not None and
         issubclass(metafunc.cls, MultiDriverTestBase) and
         'api' in metafunc.fixturenames):
+
+        # Only parametrize tests in this package (packages/restmachine-aws/tests)
+        # Check if the test file is in our tests directory (not core tests)
+        if "/packages/restmachine-aws/tests/" not in metafunc.module.__file__:
+            return
 
         # Only use aws_lambda driver for AWS package tests
         drivers = ['aws_lambda']

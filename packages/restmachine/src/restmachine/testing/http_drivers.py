@@ -15,8 +15,8 @@ import pytest
 import requests
 
 from restmachine import RestApplication
-from tests.framework.dsl import HttpRequest, HttpResponse
-from tests.framework.drivers import DriverInterface
+from .dsl import HttpRequest, HttpResponse
+from .drivers import DriverInterface
 
 
 class HttpServerDriver(DriverInterface):
@@ -297,36 +297,4 @@ class HttpServerDriver(DriverInterface):
         return False  # Don't suppress exceptions
 
 
-class UvicornHttpDriver(HttpServerDriver):
-    """Test driver for Uvicorn HTTP server."""
-
-    def __init__(self, app: RestApplication, http_version: str = "http1", **kwargs):
-        super().__init__(app, "uvicorn", http_version, **kwargs)
-
-
-class HypercornHttpDriver(HttpServerDriver):
-    """Test driver for Hypercorn HTTP server."""
-
-    def __init__(self, app: RestApplication, http_version: str = "http1", **kwargs):
-        super().__init__(app, "hypercorn", http_version, **kwargs)
-
-
-class UvicornHttp1Driver(UvicornHttpDriver):
-    """Uvicorn HTTP/1.1 test driver."""
-
-    def __init__(self, app: RestApplication, **kwargs):
-        super().__init__(app, "http1", **kwargs)
-
-
-class HypercornHttp1Driver(HypercornHttpDriver):
-    """Hypercorn HTTP/1.1 test driver."""
-
-    def __init__(self, app: RestApplication, **kwargs):
-        super().__init__(app, "http1", **kwargs)
-
-
-class HypercornHttp2Driver(HypercornHttpDriver):
-    """Hypercorn HTTP/2 test driver."""
-
-    def __init__(self, app: RestApplication, **kwargs):
-        super().__init__(app, "http2", **kwargs)
+# Uvicorn drivers moved to restmachine-uvicorn package
