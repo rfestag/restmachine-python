@@ -126,16 +126,30 @@ class RouteHandler:
         # Analyze each parameter of the handler
         for param_name in self.param_info.keys():
             # Check if this parameter is directly wrapped with a state callback
+            # Two cases:
+            # 1. param_name directly maps to a dependency (e.g., @dependency(name='foo'))
+            # 2. param_name matches a state_name from a DependencyWrapper (e.g., generate_etag)
+
+            # Case 1: Direct dependency lookup
             if param_name in app._dependencies:
                 dep = app._dependencies[param_name]
                 if isinstance(dep, DependencyWrapper) and dep.state_name in state_callback_types:
                     self.state_callbacks[dep.state_name] = dep.func
+
+            # Case 2: Search for matching state_name across all dependencies
+            if param_name in state_callback_types:
+                for dep_key, dep_value in app._dependencies.items():
+                    if isinstance(dep_value, DependencyWrapper) and dep_value.state_name == param_name:
+                        self.state_callbacks[param_name] = dep_value.func
+                        break
 
 
 class RestApplication:
     """Main application class for the REST framework."""
 
     def __init__(self):
+        import os
+
         self._dependencies: Dict[str, Union[Callable, DependencyWrapper, Dependency]] = {}
         self._validation_dependencies: Dict[str, ValidationWrapper] = {}
         self._headers_dependencies: Dict[str, HeadersWrapper] = {}
@@ -146,6 +160,9 @@ class RestApplication:
         self._error_handlers: List[ErrorHandler] = []
         self._request_id_provider: Optional[Callable] = None
         self._trace_id_provider: Optional[Callable] = None
+
+        # Feature flag for new state machine (v2)
+        self._use_state_machine_v2 = os.environ.get('RESTMACHINE_STATE_MACHINE_V2', 'false').lower() == 'true'
 
         # Create default root router - all routes go through this
         self._root_router = Router(app=self)
@@ -842,7 +859,14 @@ class RestApplication:
         """Execute a request through the state machine."""
         try:
             # Create a new state machine for each request to avoid state pollution
-            state_machine = RequestStateMachine(self)
+            if self._use_state_machine_v2:
+                # Use new state machine (v2) with method-based states
+                from restmachine.state_machine_v2.machine_methods import RequestStateMachine as StateMachineV2
+                state_machine = StateMachineV2(self)
+            else:
+                # Use original state machine (v1) with waterfall approach
+                state_machine = RequestStateMachine(self)
+
             return state_machine.process_request(request)
         except Exception as e:
             logger.error(f"Unhandled exception processing {request.method.value} {request.path}: {e}")

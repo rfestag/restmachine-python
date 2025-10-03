@@ -91,31 +91,6 @@ from tests.test_validation import (
     TestValidationDependencies
 )
 
-# Performance benchmarks
-from tests.performance.test_basic_operations import (
-    TestGetRequestPerformance,
-    TestPostRequestPerformance,
-    TestPutRequestPerformance,
-    TestDeleteRequestPerformance,
-    TestMixedOperationsPerformance
-)
-
-from tests.performance.test_routing import (
-    TestPathParameterPerformance,
-    TestQueryParameterPerformance,
-    TestComplexRoutingPerformance,
-    TestMixedParametersPerformance
-)
-
-from tests.performance.test_json_handling import (
-    TestSmallPayloadPerformance,
-    TestMediumPayloadPerformance,
-    TestLargePayloadPerformance,
-    TestNestedJsonPerformance,
-    TestVariousDataTypesPerformance
-)
-
-
 # Note: We don't import tests from test_router.py, test_http_servers.py, or test_template_rendering.py
 # because their test classes don't inherit from MultiDriverTestBase and won't work with the driver framework
 

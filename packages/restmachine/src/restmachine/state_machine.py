@@ -878,8 +878,8 @@ class RequestStateMachine:
                 processed_headers["Last-Modified"] = current_last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
 
             # Check return type annotation for response validation
-            sig = inspect.signature(self.route_handler.handler)
-            return_annotation = sig.return_annotation
+            # Use cached signature instead of recalculating
+            return_annotation = self.route_handler.handler_signature.return_annotation
 
             # Handle different return type scenarios
             if return_annotation is None or return_annotation is type(None):
