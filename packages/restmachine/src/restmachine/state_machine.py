@@ -7,7 +7,7 @@ import json
 import logging
 from datetime import datetime
 from http import HTTPStatus
-from typing import Any, Callable, Dict, List, Optional, Union, get_origin, get_args
+from typing import Any, Callable, Dict, List, Optional, Union, cast, get_origin, get_args
 
 from .content_renderers import ContentRenderer
 from .dependencies import DependencyWrapper
@@ -864,7 +864,7 @@ class RequestStateMachine:
                 logger.warning(f"Headers dependency injection failed: {e}")
                 pass
 
-        return headers
+        return cast(Dict[str, str], headers)
 
     def state_execute_and_render(self) -> Response:
         """Execute the route handler and render the response."""
@@ -1100,4 +1100,4 @@ class RequestStateMachine:
             return self.dependency_callbacks[state_name].func
 
         # Fall back to default callbacks
-        return self.app._default_callbacks.get(state_name)
+        return cast(Optional[Callable], self.app._default_callbacks.get(state_name))

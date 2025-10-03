@@ -17,6 +17,7 @@ from typing import (
     Tuple,
     Type,
     Union,
+    cast,
     get_args,
     get_origin,
 )
@@ -182,14 +183,14 @@ class RestApplication:
             route = self._dependency_cache.get("__current_route__")
             headers = self._get_initial_headers(request, route)
             self._dependency_cache.set("response_headers", headers)
-        return headers
+        return cast(Dict[str, str], headers)
 
     def _get_request_id(self, request: Request) -> str:
         """Built-in dependency provider for request_id."""
         if self._request_id_provider:
             # Get current route from cache
             route = self._dependency_cache.get("__current_route__")
-            return self._call_with_injection(self._request_id_provider, request, route)
+            return cast(str, self._call_with_injection(self._request_id_provider, request, route))
         else:
             import uuid
             return str(uuid.uuid4())
@@ -199,7 +200,7 @@ class RestApplication:
         if self._trace_id_provider:
             # Get current route from cache
             route = self._dependency_cache.get("__current_route__")
-            return self._call_with_injection(self._trace_id_provider, request, route)
+            return cast(str, self._call_with_injection(self._trace_id_provider, request, route))
         else:
             import uuid
             return str(uuid.uuid4())
@@ -1026,12 +1027,12 @@ class RestApplication:
         # Keep track of all schemas we've seen to avoid duplicates
         collected_schemas: Dict[str, Dict[str, Any]] = {}
 
-        def _collect_schema(model_class) -> Optional[str]:
+        def _collect_schema(model_class: Type[Any]) -> Optional[str]:
             """Collect a Pydantic model schema and return its reference name."""
             if not self._is_pydantic_model(model_class):
                 return None
 
-            schema_name = model_class.__name__
+            schema_name: str = model_class.__name__
             if schema_name not in collected_schemas:
                 collected_schemas[schema_name] = self._get_pydantic_schema(model_class)
 
@@ -1255,7 +1256,7 @@ class RestApplication:
 
             # Check if return type is explicitly None
             if return_annotation is type(None):
-                return None  # No schema for 204 responses
+                return cast(None, None)  # No schema for 204 responses
 
             # Check if no annotation is provided
             if return_annotation == inspect.Parameter.empty:

@@ -3,7 +3,7 @@ Test framework for RESTful API testing using 4-layer architecture.
 """
 
 from .dsl import RestApiDsl, HttpRequest, HttpResponse
-from .drivers import RestMachineDriver, AwsLambdaDriver, HttpDriver, MockDriver
+from .drivers import RestMachineDriver, HttpDriver, MockDriver
 from .multi_driver_base import (
     MultiDriverTestBase,
     multi_driver_test_class,
@@ -30,7 +30,6 @@ __all__ = [
     'HttpRequest',
     'HttpResponse',
     'RestMachineDriver',
-    'AwsLambdaDriver',
     'HttpDriver',
     'MockDriver',
     'MultiDriverTestBase',

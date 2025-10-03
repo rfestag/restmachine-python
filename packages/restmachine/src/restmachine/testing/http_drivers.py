@@ -278,7 +278,7 @@ class HttpServerDriver(DriverInterface):
                 try:
                     self.event_loop.call_soon_threadsafe(self.shutdown_event.set)
                 except Exception:
-                    pass  # Loop might already be closing
+                    pass  # Loop might already be closing  # nosec B110
 
         # Give server time to shut down gracefully
         if self.server_thread and self.server_thread.is_alive():
@@ -292,7 +292,7 @@ class HttpServerDriver(DriverInterface):
                 for task in pending:
                     task.cancel()
             except Exception:
-                pass  # Loop might be in bad state
+                pass  # Loop might be in bad state  # nosec B110
 
         return False  # Don't suppress exceptions
 

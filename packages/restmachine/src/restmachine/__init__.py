@@ -16,7 +16,7 @@ from .content_renderers import (
     JSONRenderer,
     PlainTextRenderer,
 )
-from .adapters import Adapter, AwsApiGatewayAdapter
+from .adapters import Adapter
 from .dependencies import DependencyScope
 from .error_models import ErrorResponse
 from .exceptions import ValidationError
@@ -57,7 +57,6 @@ __all__ = [
     "ErrorResponse",
     "ValidationError",
     "Adapter",
-    "AwsApiGatewayAdapter",
     "render",
 ]
 

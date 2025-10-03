@@ -14,7 +14,6 @@ from .dsl import RestApiDsl
 from .drivers import (
     DriverInterface,
     RestMachineDriver,
-    AwsLambdaDriver,
     MockDriver
 )
 
@@ -30,7 +29,6 @@ class MultiDriverTestBase(ABC):
     # Override this in subclasses to control which drivers to test
     ENABLED_DRIVERS = [
         'direct',           # Direct driver: calls RestMachine directly
-        'aws_lambda',       # AWS Lambda driver: simulates AWS API Gateway events
         'uvicorn-http1',    # HTTP/1.1 driver via Uvicorn server
         'hypercorn-http1',  # HTTP/1.1 driver via Hypercorn server
         'hypercorn-http2',  # HTTP/2 driver via Hypercorn server
@@ -61,8 +59,6 @@ class MultiDriverTestBase(ABC):
         """Create a driver instance for the given driver name."""
         driver_map = {
             'direct': lambda app: RestMachineDriver(app),
-            'aws_lambda': lambda app: AwsLambdaDriver(app),
-            'aws_lambda_debug': lambda app: AwsLambdaDriver(app, enable_debugging=True),
             'mock': lambda app: MockDriver()  # Note: MockDriver doesn't use app
         }
 

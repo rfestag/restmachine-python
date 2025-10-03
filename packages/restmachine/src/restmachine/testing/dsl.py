@@ -249,55 +249,56 @@ class RestApiDsl:
         return self.execute(request)
 
     # Testing helpers for assertions
+    # Note: assert statements are intentional in test framework code
     def expect_successful_creation(self, response: HttpResponse, expected_fields: List[str] = None) -> Dict[str, Any]:
         """Assert successful resource creation and return data."""
-        assert response.is_successful(), f"Expected successful response, got {response.status_code}"
-        assert response.status_code in [200, 201], f"Expected 200 or 201, got {response.status_code}"
+        assert response.is_successful(), f"Expected successful response, got {response.status_code}"  # nosec B101
+        assert response.status_code in [200, 201], f"Expected 200 or 201, got {response.status_code}"  # nosec B101
 
         data = response.get_json_body()
         if expected_fields:
             for field in expected_fields:
-                assert field in data, f"Expected field '{field}' in response"
+                assert field in data, f"Expected field '{field}' in response"  # nosec B101
 
         return data
 
     def expect_successful_retrieval(self, response: HttpResponse) -> Dict[str, Any]:
         """Assert successful resource retrieval and return data."""
-        assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+        assert response.status_code == 200, f"Expected 200, got {response.status_code}"  # nosec B101
         return response.get_json_body()
 
     def expect_not_found(self, response: HttpResponse):
         """Assert resource not found."""
-        assert response.status_code == 404, f"Expected 404, got {response.status_code}"
+        assert response.status_code == 404, f"Expected 404, got {response.status_code}"  # nosec B101
 
     def expect_unauthorized(self, response: HttpResponse):
         """Assert unauthorized access."""
-        assert response.status_code == 401, f"Expected 401, got {response.status_code}"
+        assert response.status_code == 401, f"Expected 401, got {response.status_code}"  # nosec B101
 
     def expect_forbidden(self, response: HttpResponse):
         """Assert forbidden access."""
-        assert response.status_code == 403, f"Expected 403, got {response.status_code}"
+        assert response.status_code == 403, f"Expected 403, got {response.status_code}"  # nosec B101
 
     def expect_validation_error(self, response: HttpResponse) -> Dict[str, Any]:
         """Assert validation error and return error details."""
-        assert response.status_code == 422, f"Expected 422, got {response.status_code}"
+        assert response.status_code == 422, f"Expected 422, got {response.status_code}"  # nosec B101
         return response.get_json_body()
 
     def expect_conflict(self, response: HttpResponse):
         """Assert resource conflict."""
-        assert response.status_code == 409, f"Expected 409, got {response.status_code}"
+        assert response.status_code == 409, f"Expected 409, got {response.status_code}"  # nosec B101
 
     def expect_not_modified(self, response: HttpResponse):
         """Assert not modified response."""
-        assert response.status_code == 304, f"Expected 304, got {response.status_code}"
+        assert response.status_code == 304, f"Expected 304, got {response.status_code}"  # nosec B101
 
     def expect_precondition_failed(self, response: HttpResponse):
         """Assert precondition failed."""
-        assert response.status_code == 412, f"Expected 412, got {response.status_code}"
+        assert response.status_code == 412, f"Expected 412, got {response.status_code}"  # nosec B101
 
     def expect_no_content(self, response: HttpResponse):
         """Assert no content response."""
-        assert response.status_code == 204, f"Expected 204, got {response.status_code}"
+        assert response.status_code == 204, f"Expected 204, got {response.status_code}"  # nosec B101
 
     # OpenAPI testing helpers
     def generate_openapi_spec(self) -> Dict[str, Any]:
@@ -339,19 +340,19 @@ class RestApiDsl:
         """Assert that OpenAPI spec is valid."""
         if spec is None:
             spec = self.generate_openapi_spec()
-        assert self.validate_openapi_spec(spec), "OpenAPI specification is invalid"
+        assert self.validate_openapi_spec(spec), "OpenAPI specification is invalid"  # nosec B101
 
     def assert_has_path(self, spec: Dict[str, Any], path: str, method: str):
         """Assert that OpenAPI spec has a specific path and method."""
-        assert "paths" in spec, "OpenAPI spec missing paths"
-        assert path in spec["paths"], f"Path {path} not found in OpenAPI spec"
-        assert method.lower() in spec["paths"][path], f"Method {method} not found for path {path}"
+        assert "paths" in spec, "OpenAPI spec missing paths"  # nosec B101
+        assert path in spec["paths"], f"Path {path} not found in OpenAPI spec"  # nosec B101
+        assert method.lower() in spec["paths"][path], f"Method {method} not found for path {path}"  # nosec B101
 
     def assert_has_schema(self, spec: Dict[str, Any], schema_name: str):
         """Assert that OpenAPI spec has a specific schema."""
-        assert "components" in spec, "OpenAPI spec missing components"
-        assert "schemas" in spec["components"], "OpenAPI spec missing schemas"
-        assert schema_name in spec["components"]["schemas"], f"Schema {schema_name} not found"
+        assert "components" in spec, "OpenAPI spec missing components"  # nosec B101
+        assert "schemas" in spec["components"], "OpenAPI spec missing schemas"  # nosec B101
+        assert schema_name in spec["components"]["schemas"], f"Schema {schema_name} not found"  # nosec B101
 
     def get_path_operation(self, spec: Dict[str, Any], path: str, method: str) -> Dict[str, Any]:
         """Get path operation from OpenAPI spec."""
@@ -360,20 +361,20 @@ class RestApiDsl:
     def assert_request_body_schema(self, spec: Dict[str, Any], path: str, method: str, expected_schema: str):
         """Assert that path operation has expected request body schema."""
         operation = self.get_path_operation(spec, path, method)
-        assert "requestBody" in operation, f"Path {path} {method} missing request body"
+        assert "requestBody" in operation, f"Path {path} {method} missing request body"  # nosec B101
         content = operation["requestBody"]["content"]
-        assert "application/json" in content, "Request body missing JSON content type"
+        assert "application/json" in content, "Request body missing JSON content type"  # nosec B101
         schema_ref = content["application/json"]["schema"]["$ref"]
-        assert expected_schema in schema_ref, f"Expected schema {expected_schema} in request body"
+        assert expected_schema in schema_ref, f"Expected schema {expected_schema} in request body"  # nosec B101
 
     def assert_response_schema(self, spec: Dict[str, Any], path: str, method: str, status_code: str, expected_schema: str):
         """Assert that path operation has expected response schema."""
         operation = self.get_path_operation(spec, path, method)
-        assert "responses" in operation, f"Path {path} {method} missing responses"
-        assert status_code in operation["responses"], f"Status {status_code} not found in responses"
+        assert "responses" in operation, f"Path {path} {method} missing responses"  # nosec B101
+        assert status_code in operation["responses"], f"Status {status_code} not found in responses"  # nosec B101
         response = operation["responses"][status_code]
         if "content" in response:
             content = response["content"]
-            assert "application/json" in content, "Response missing JSON content type"
+            assert "application/json" in content, "Response missing JSON content type"  # nosec B101
             schema_ref = content["application/json"]["schema"]["$ref"]
-            assert expected_schema in schema_ref, f"Expected schema {expected_schema} in response"
+            assert expected_schema in schema_ref, f"Expected schema {expected_schema} in response"  # nosec B101

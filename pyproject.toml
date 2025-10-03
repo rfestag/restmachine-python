@@ -1,81 +1,22 @@
-[build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
-
-[project]
-name = "restmachine"
-version = "0.1.0"
-description = "A lightweight REST framework with dependency injection and webmachine-style state machine"
-readme = "README.md"
-requires-python = ">=3.8"
-license = "MIT"
-authors = [
-    {name = "REST Framework Contributors", email = "contributors@restmachine.example.com"}
-]
-keywords = ["rest", "api", "framework", "webmachine", "state-machine", "dependency-injection"]
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Intended Audience :: Developers",
-    "Topic :: Software Development :: Libraries :: Python Modules",
-    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-]
-
-dependencies = [
-    "jinja2>=3.0.0",
-]
-
-[project.optional-dependencies]
-validation = [
-    "pydantic>=2.0.0",
-]
-server = [
-    "uvicorn[standard]>=0.20.0",
-    "hypercorn>=0.14.0",
-]
-uvicorn = [
-    "uvicorn[standard]>=0.20.0",
-]
-hypercorn = [
-    "hypercorn>=0.14.0",
-]
-dev = [
-    "pytest>=6.0",
-    "pytest-cov",
-    "ruff",
-    "mypy",
-    "openapi-spec-validator>=0.7.0",
-    "uvicorn[standard]>=0.20.0",
-    "hypercorn>=0.14.0",
-    "bandit[toml]",
-    "detect-secrets",
-    "pip-audit",
-]
-examples = [
-    "uvicorn",
-    "fastapi",
-]
-
-[project.urls]
-Homepage = "https://github.com/yourusername/restmachine"
-Documentation = "https://restmachine.readthedocs.io/"
-Repository = "https://github.com/yourusername/restmachine"
-"Bug Reports" = "https://github.com/yourusername/restmachine/issues"
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["restmachine*"]
-exclude = ["tests*", "examples*", "docs*"]
+# Root pyproject.toml for restmachine monorepo
+#
+# This is a Python monorepo containing multiple packages:
+# - packages/restmachine: Core RestMachine framework
+# - packages/restmachine-aws: AWS Lambda adapter
+# - packages/restmachine-uvicorn: Uvicorn server (future)
+# - packages/restmachine-hypercorn: Hypercorn server (future)
+#
+# To install for development:
+#   pip install -e packages/restmachine[dev]
+#   pip install -e packages/restmachine-aws[dev]
+#
+# To run tests:
+#   pytest packages/restmachine/tests/
+#   pytest packages/restmachine-aws/tests/
 
 [tool.bandit]
-# Bandit configuration for security scanning
-exclude_dirs = ["tests", "docs", ".tox", "build", "dist"]
+# Bandit configuration for security scanning across all packages
+exclude_dirs = ["tests", "docs", ".tox", "build", "dist", ".venv"]
 skips = [
     "B101",  # Skip assert_used - asserts are fine in tests
     "B601",  # Skip shell injection warnings for paramiko (if used)
@@ -139,3 +80,48 @@ filters_used = [
 ]
 
 exclude_files = "^(docs/|\\.tox/|\\.git/|.*\\.lock$|.*\\.json$|bandit-report\\.json|safety-report\\.json|semgrep-report\\.json)"
+
+[tool.ruff]
+# Ruff configuration for all packages
+target-version = "py39"
+line-length = 120
+exclude = [
+    ".git",
+    ".tox",
+    ".venv",
+    "build",
+    "dist",
+    "__pycache__",
+]
+
+[tool.mypy]
+# MyPy configuration for all packages
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = "jinja2.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "pydantic.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "uvicorn.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "hypercorn.*"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+# Global pytest configuration
+testpaths = ["packages/*/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short"
