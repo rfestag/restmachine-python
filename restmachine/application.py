@@ -40,6 +40,7 @@ from .dependencies import (
 from .exceptions import PYDANTIC_AVAILABLE, AcceptsParsingError
 from .models import HTTPMethod, Request, Response
 from .state_machine import RequestStateMachine
+from .router import Router
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -79,7 +80,8 @@ class RouteHandler:
         self.path_pattern = self._compile_path_pattern(path)
         self.content_renderers: Dict[str, ContentNegotiationWrapper] = {}
         self.validation_wrappers: List[ValidationWrapper] = []
-        # Per-route dependency tracking
+        # Route-specific dependency tracking (kept for compatibility, but unused)
+        # All dependencies are now global
         self.dependencies: Dict[str, Union[Callable, DependencyWrapper, Dependency]] = {}
         self.validation_dependencies: Dict[str, ValidationWrapper] = {}
         self.headers_dependencies: Dict[str, HeadersWrapper] = {}
@@ -102,7 +104,6 @@ class RestApplication:
     """Main application class for the REST framework."""
 
     def __init__(self):
-        self._routes: List[RouteHandler] = []
         self._dependencies: Dict[str, Union[Callable, DependencyWrapper, Dependency]] = {}
         self._validation_dependencies: Dict[str, ValidationWrapper] = {}
         self._headers_dependencies: Dict[str, HeadersWrapper] = {}
@@ -113,6 +114,9 @@ class RestApplication:
         self._error_handlers: List[ErrorHandler] = []
         self._request_id_provider: Optional[Callable] = None
         self._trace_id_provider: Optional[Callable] = None
+
+        # Create default root router - all routes go through this
+        self._root_router = Router(app=self)
 
         # Add default content renderers
         self.add_content_renderer(JSONRenderer())
@@ -125,6 +129,24 @@ class RestApplication:
     def add_content_renderer(self, renderer: ContentRenderer):
         """Add a global content renderer."""
         self._content_renderers[renderer.media_type] = renderer
+
+    def mount(self, prefix: str, router: Router):
+        """Mount a router with a given prefix.
+
+        Args:
+            prefix: The path prefix for all routes in the mounted router
+            router: The router to mount
+
+        Example:
+            app = RestApplication()
+            users_router = Router()
+            users_router.get("/")(lambda: {"users": []})
+            users_router.get("/{id}")(lambda id: {"user": id})
+
+            app.mount("/users", users_router)
+            # This creates routes: GET /users/ and GET /users/{id}
+        """
+        self._root_router.mount(prefix, router)
 
     def _register_builtin_dependencies(self):
         """Register all built-in framework dependencies.
@@ -227,12 +249,7 @@ class RestApplication:
             scope: Dependency scope - "request" (default) or "session"
         """
         wrapper = DependencyWrapper(func, "resource_exists", func.__name__, scope)
-        # Add to most recent route if it exists, otherwise add globally
-        if self._routes:
-            route = self._routes[-1]
-            route.dependencies[func.__name__] = wrapper
-        else:
-            self._dependencies[func.__name__] = wrapper
+        self._dependencies[func.__name__] = wrapper
         return func
 
     def resource_from_request(self, func: Callable, scope: DependencyScope = "request"):
@@ -242,12 +259,7 @@ class RestApplication:
             scope: Dependency scope - "request" (default) or "session"
         """
         wrapper = DependencyWrapper(func, "resource_from_request", func.__name__, scope)
-        # Add to most recent route if it exists, otherwise add globally
-        if self._routes:
-            route = self._routes[-1]
-            route.dependencies[func.__name__] = wrapper
-        else:
-            self._dependencies[func.__name__] = wrapper
+        self._dependencies[func.__name__] = wrapper
         return func
 
     def forbidden(self, func: Callable, scope: DependencyScope = "request"):
@@ -257,12 +269,7 @@ class RestApplication:
             scope: Dependency scope - "request" (default) or "session"
         """
         wrapper = DependencyWrapper(func, "forbidden", func.__name__, scope)
-        # Add to most recent route if it exists, otherwise add globally
-        if self._routes:
-            route = self._routes[-1]
-            route.dependencies[func.__name__] = wrapper
-        else:
-            self._dependencies[func.__name__] = wrapper
+        self._dependencies[func.__name__] = wrapper
         return func
 
     def authorized(self, func: Callable, scope: DependencyScope = "request"):
@@ -272,25 +279,14 @@ class RestApplication:
             scope: Dependency scope - "request" (default) or "session"
         """
         wrapper = DependencyWrapper(func, "authorized", func.__name__, scope)
-        # Add to most recent route if it exists, otherwise add globally
-        if self._routes:
-            route = self._routes[-1]
-            route.dependencies[func.__name__] = wrapper
-        else:
-            self._dependencies[func.__name__] = wrapper
+        self._dependencies[func.__name__] = wrapper
         return func
 
     def default_headers(self, func: Callable):
-        """Decorator to register a headers manipulation function."""
+        """Decorator to register a global headers manipulation function."""
         wrapper = HeadersWrapper(func, func.__name__)
-        # Add to most recent route if it exists, otherwise add globally
-        if self._routes:
-            route = self._routes[-1]
-            route.headers_dependencies[func.__name__] = wrapper
-            route.dependencies[func.__name__] = func
-        else:
-            self._headers_dependencies[func.__name__] = wrapper
-            self._dependencies[func.__name__] = func
+        self._headers_dependencies[func.__name__] = wrapper
+        self._dependencies[func.__name__] = func
         return func
 
     def generate_etag(self, func: Callable, scope: DependencyScope = "request"):
@@ -300,12 +296,7 @@ class RestApplication:
             scope: Dependency scope - "request" (default) or "session"
         """
         wrapper = DependencyWrapper(func, "generate_etag", func.__name__, scope)
-        # Add to most recent route if it exists, otherwise add globally
-        if self._routes:
-            route = self._routes[-1]
-            route.dependencies[func.__name__] = wrapper
-        else:
-            self._dependencies[func.__name__] = wrapper
+        self._dependencies[func.__name__] = wrapper
         return func
 
     def last_modified(self, func: Callable, scope: DependencyScope = "request"):
@@ -315,17 +306,15 @@ class RestApplication:
             scope: Dependency scope - "request" (default) or "session"
         """
         wrapper = DependencyWrapper(func, "last_modified", func.__name__, scope)
-        # Add to most recent route if it exists, otherwise add globally
-        if self._routes:
-            route = self._routes[-1]
-            route.dependencies[func.__name__] = wrapper
-        else:
-            self._dependencies[func.__name__] = wrapper
+        self._dependencies[func.__name__] = wrapper
         return func
 
     # Content negotiation decorators
     def renders(self, content_type: str, scope: DependencyScope = "request"):
         """Decorator to register a content-type specific renderer for an endpoint.
+
+        NOTE: This still requires the decorator to be placed after the route decorator
+        to attach the renderer to the correct route.
 
         Args:
             content_type: The content type this renderer produces
@@ -333,15 +322,15 @@ class RestApplication:
         """
 
         def decorator(func: Callable):
-            # Find the most recently added route (should be the one this renderer is for)
-            if self._routes:
-                route = self._routes[-1]
+            # Find the most recently added route in the root router
+            if self._root_router._routes:
+                route = self._root_router._routes[-1]
                 handler_name = route.handler.__name__
                 wrapper = ContentNegotiationWrapper(func, content_type, handler_name)
                 route.add_content_renderer(content_type, wrapper)
 
-                # Also register this as a dependency so it can be injected
-                self._dependencies[func.__name__] = Dependency(func, scope)
+            # Also register this as a dependency so it can be injected
+            self._dependencies[func.__name__] = Dependency(func, scope)
             return func
 
         return decorator
@@ -357,18 +346,12 @@ class RestApplication:
             raise ImportError("Pydantic is required for validation features")
 
         wrapper = ValidationWrapper(func, scope)
-        # Add to most recent route if it exists, otherwise add globally
-        if self._routes:
-            route = self._routes[-1]
-            route.validation_dependencies[func.__name__] = wrapper
-            route.dependencies[func.__name__] = Dependency(func, scope)
-        else:
-            self._validation_dependencies[func.__name__] = wrapper
-            self._dependencies[func.__name__] = Dependency(func, scope)
+        self._validation_dependencies[func.__name__] = wrapper
+        self._dependencies[func.__name__] = Dependency(func, scope)
         return func
 
     def accepts(self, content_type: str, scope: DependencyScope = "request"):
-        """Decorator to register a content-type specific body parser for an endpoint.
+        """Decorator to register a global content-type specific body parser.
 
         Args:
             content_type: The content type this parser handles
@@ -377,14 +360,8 @@ class RestApplication:
 
         def decorator(func: Callable):
             wrapper = AcceptsWrapper(func, content_type, func.__name__)
-            # Add to most recent route if it exists, otherwise add globally
-            if self._routes:
-                route = self._routes[-1]
-                route.accepts_dependencies[content_type] = wrapper
-                route.dependencies[func.__name__] = Dependency(func, scope)
-            else:
-                self._accepts_dependencies[content_type] = wrapper
-                self._dependencies[func.__name__] = Dependency(func, scope)
+            self._accepts_dependencies[content_type] = wrapper
+            self._dependencies[func.__name__] = Dependency(func, scope)
             return func
 
         return decorator
@@ -540,34 +517,24 @@ class RestApplication:
 
     # HTTP method decorators
     def get(self, path: str):
-        """Decorator to register a GET route handler."""
-        return self._route_decorator(HTTPMethod.GET, path)
+        """Decorator to register a GET route handler on the root router."""
+        return self._root_router.get(path)
 
     def post(self, path: str):
-        """Decorator to register a POST route handler."""
-        return self._route_decorator(HTTPMethod.POST, path)
+        """Decorator to register a POST route handler on the root router."""
+        return self._root_router.post(path)
 
     def put(self, path: str):
-        """Decorator to register a PUT route handler."""
-        return self._route_decorator(HTTPMethod.PUT, path)
+        """Decorator to register a PUT route handler on the root router."""
+        return self._root_router.put(path)
 
     def delete(self, path: str):
-        """Decorator to register a DELETE route handler."""
-        return self._route_decorator(HTTPMethod.DELETE, path)
+        """Decorator to register a DELETE route handler on the root router."""
+        return self._root_router.delete(path)
 
     def patch(self, path: str):
-        """Decorator to register a PATCH route handler."""
-        return self._route_decorator(HTTPMethod.PATCH, path)
-
-    def _route_decorator(self, method: HTTPMethod, path: str):
-        """Internal method to create route decorators."""
-
-        def decorator(func: Callable):
-            route = RouteHandler(method, path, func)
-            self._routes.append(route)
-            return func
-
-        return decorator
+        """Decorator to register a PATCH route handler on the root router."""
+        return self._root_router.patch(path)
 
     def _resolve_dependency(
         self, param_name: str, param_type: Optional[Type], request: Request, route: Optional[RouteHandler] = None
@@ -619,17 +586,11 @@ class RestApplication:
 
         Args:
             param_name: Name of the dependency
-            route: Optional route to check for route-specific dependencies
+            route: Optional route (unused, kept for compatibility)
 
         Returns:
             The scope ("request" or "session"), defaults to "request"
         """
-        # Check route-specific dependencies first
-        if route and param_name in route.dependencies:
-            dep_or_wrapper = route.dependencies[param_name]
-            if hasattr(dep_or_wrapper, 'scope'):
-                return dep_or_wrapper.scope
-
         # Check global dependencies
         if param_name in self._dependencies:
             dep_or_wrapper = self._dependencies[param_name]
@@ -637,11 +598,6 @@ class RestApplication:
                 return dep_or_wrapper.scope
 
         # Check validation dependencies
-        if route and param_name in route.validation_dependencies:
-            validation_wrapper = route.validation_dependencies[param_name]
-            if hasattr(validation_wrapper, 'scope'):
-                return validation_wrapper.scope
-
         if param_name in self._validation_dependencies:
             validation_wrapper = self._validation_dependencies[param_name]
             if hasattr(validation_wrapper, 'scope'):
@@ -651,9 +607,7 @@ class RestApplication:
         return "request"
 
     def _dependency_exists(self, param_name: str, route: Optional[RouteHandler] = None) -> bool:
-        """Check if a registered dependency exists (route-specific or global)."""
-        if route and param_name in route.dependencies:
-            return True
+        """Check if a registered dependency exists."""
         return param_name in self._dependencies
 
     def _resolve_registered_dependency(self, param_name: str, request: Request, route: Optional[RouteHandler]) -> Any:
@@ -662,20 +616,8 @@ class RestApplication:
         Returns the resolved value, which may be None for some dependencies like 'exception'.
         Assumes _dependency_exists() was called first and returned True.
         """
-        # Check route-specific dependencies first
-        dep_or_wrapper: Union[Callable, DependencyWrapper, Dependency, None] = None
-        validation_dependency = None
-
-        if route and param_name in route.dependencies:
-            dep_or_wrapper = route.dependencies[param_name]
-            validation_dependency = route.validation_dependencies.get(param_name)
-        elif param_name in self._dependencies:
-            dep_or_wrapper = self._dependencies[param_name]
-            validation_dependency = self._validation_dependencies.get(param_name)
-
-        # dep_or_wrapper should not be None if _dependency_exists() returned True
-        if dep_or_wrapper is None:
-            raise ValueError(f"Dependency {param_name} not found")
+        dep_or_wrapper = self._dependencies[param_name]
+        validation_dependency = self._validation_dependencies.get(param_name)
 
         if isinstance(dep_or_wrapper, DependencyWrapper):
             return self._call_with_injection(dep_or_wrapper.func, request, route)
@@ -706,12 +648,8 @@ class RestApplication:
 
         base_content_type = content_type.split(';')[0].strip().lower()
 
-        # Check route-specific accepts dependencies first
-        accepts_wrapper = None
-        if route and base_content_type in route.accepts_dependencies:
-            accepts_wrapper = route.accepts_dependencies[base_content_type]
-        elif base_content_type in self._accepts_dependencies:
-            accepts_wrapper = self._accepts_dependencies[base_content_type]
+        # Check global accepts dependencies
+        accepts_wrapper = self._accepts_dependencies.get(base_content_type)
 
         return accepts_wrapper is not None and (param_name == accepts_wrapper.name or param_name in ['parsed_data', 'parsed_body'])
 
@@ -727,12 +665,8 @@ class RestApplication:
 
         base_content_type = content_type.split(';')[0].strip().lower()
 
-        # Check route-specific accepts dependencies first
-        accepts_wrapper: Optional[AcceptsWrapper] = None
-        if route and base_content_type in route.accepts_dependencies:
-            accepts_wrapper = route.accepts_dependencies[base_content_type]
-        elif base_content_type in self._accepts_dependencies:
-            accepts_wrapper = self._accepts_dependencies[base_content_type]
+        # Check global accepts dependencies
+        accepts_wrapper: Optional[AcceptsWrapper] = self._accepts_dependencies.get(base_content_type)
 
         if accepts_wrapper is None:
             raise ValueError(f"Accepts parser for {base_content_type} not found")
@@ -858,21 +792,18 @@ class RestApplication:
     def _find_route(
         self, method: HTTPMethod, path: str
     ) -> Optional[Tuple[RouteHandler, Dict[str, str]]]:
-        """Find a matching route for the given method and path."""
-        for route in self._routes:
-            if route.method == method:
-                match = re.match(route.path_pattern, path)
-                if match:
-                    return route, match.groupdict()
-        return None
+        """Find a matching route for the given method and path.
+
+        Uses the root router's trie-based matching for efficient O(k) lookup.
+        """
+        return self._root_router.match_route(path, method)
 
     def _path_has_routes(self, path: str) -> bool:
-        """Check if any route exists for the given path (regardless of method)."""
-        for route in self._routes:
-            match = re.match(route.path_pattern, path)
-            if match:
-                return True
-        return False
+        """Check if any route exists for the given path (regardless of method).
+
+        Uses the root router's trie-based lookup for efficient checking.
+        """
+        return self._root_router.has_path(path)
 
     def execute(self, request: Request) -> Response:
         """Execute a request through the state machine."""
@@ -1453,7 +1384,10 @@ class RestApplication:
         }
 
         # Process all routes to collect schemas and build paths
-        for route in self._routes:
+        # Get routes from root router (including mounted routers)
+        all_routes = [route for path, route in self._root_router.get_all_routes()]
+
+        for route in all_routes:
             openapi_path = _convert_path_to_openapi(route.path)
 
             if openapi_path not in openapi_spec["paths"]:

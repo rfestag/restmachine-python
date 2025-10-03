@@ -72,6 +72,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Comprehensive test coverage with 20 new tests covering all scope behaviors
 
 ### Changed
+- **Router Architecture**: Unified all routing through a single root router (PERFORMANCE)
+  - All routes now go through `RestApplication._root_router` (previously had dual storage with `_routes` list)
+  - `@app.get()`, `@app.post()`, etc. now forward to the root router transparently
+  - `app.mount()` forwards to `_root_router.mount()`
+  - Eliminated duplicate route storage and matching logic (~100 lines removed)
+  - No breaking changes - all existing code works unchanged
+- **Route Matching**: Implemented trie/tree-based routing for O(k) lookup performance (PERFORMANCE)
+  - Replaced O(n) regex matching with O(k) trie lookup (k = number of path segments, typically 2-5)
+  - Routes added to trie immediately during initialization (no lazy building, no runtime overhead)
+  - Static path segments use dict lookup, dynamic segments (`{id}`) handled separately
+  - Prioritizes static matches over parameter matches for correct precedence
+  - Dramatic performance improvement for applications with many routes
+  - No breaking changes - same route syntax and behavior
+- **Dependency System**: Simplified to global-only dependency registration
+  - All dependencies are now registered globally and injected based on parameter names
+  - Removed brittle "attach to most recent route" pattern
+  - Dependencies automatically resolved by inspecting route handler parameters
+  - All dependency decorators (`@app.dependency`, `@app.validates`, `@app.accepts`, etc.) register globally
+  - Route-specific dependency dictionaries kept for backward compatibility but unused
+  - Cleaner mental model: define dependencies once, use anywhere
+  - No breaking changes - existing code continues to work
 - **Built-in Dependency Registration**: Refactored built-in dependencies to use the same registration mechanism as user-defined dependencies
   - Built-in dependencies (`request`, `body`, `exception`, `request_id`, `trace_id`, etc.) now registered during application initialization
   - Removed separate code paths for built-in vs. custom dependencies (~70 lines of special-case logic eliminated)

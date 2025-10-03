@@ -21,6 +21,7 @@ from .dependencies import DependencyScope
 from .error_models import ErrorResponse
 from .exceptions import ValidationError
 from .models import HTTPMethod, Request, Response
+from .router import Router
 from .template_helpers import render
 
 # Server functionality (optional imports)
@@ -43,6 +44,7 @@ __license__ = "MIT"
 
 __all__ = [
     "RestApplication",
+    "Router",
     "Request",
     "Response",
     "HTTPMethod",
