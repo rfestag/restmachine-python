@@ -139,3 +139,7 @@ markers = [
     "driver_hypercorn_http2: Tests using Hypercorn HTTP/2 driver",
     "performance: Performance benchmark tests (deselect with '-m \"not performance\"')",
 ]
+filterwarnings = [
+    "ignore:websockets.legacy is deprecated.*:DeprecationWarning",
+    "ignore:websockets.server.WebSocketServerProtocol is deprecated.*:DeprecationWarning",
+]

@@ -8,6 +8,7 @@ compliance, headers handling, and content negotiation.
 
 import asyncio
 import json
+import socket
 import threading
 import time
 
@@ -78,7 +79,24 @@ class HttpServerDriver(DriverInterface):
         if self.server_error:
             raise self.server_error
 
+        # Wait for server to actually be listening on the port
+        self._wait_for_port_ready(timeout=5)
+
         self._server_ready = True
+
+    def _wait_for_port_ready(self, timeout: float = 5.0):
+        """Wait for the server port to be ready to accept connections."""
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                # Try to connect to the port
+                with socket.create_connection((self.host, self.actual_port), timeout=0.1):
+                    # Connection successful, server is ready
+                    return
+            except (socket.error, OSError):
+                # Port not ready yet, wait a bit and retry
+                time.sleep(0.01)
+        raise TimeoutError(f"Server port {self.actual_port} not ready within {timeout} seconds")
 
     def _start_uvicorn(self):
         """Start Uvicorn server."""

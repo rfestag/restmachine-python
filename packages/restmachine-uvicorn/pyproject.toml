@@ -61,3 +61,11 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+markers = [
+    "driver_uvicorn_http1: Tests using Uvicorn HTTP/1.1 driver",
+    "performance: Performance benchmark tests",
+]
+filterwarnings = [
+    "ignore:websockets.legacy is deprecated.*:DeprecationWarning",
+    "ignore:websockets.server.WebSocketServerProtocol is deprecated.*:DeprecationWarning",
+]

@@ -1,5 +1,13 @@
 # Restmachine
 
+[![Build Status](https://github.com/rfestag/restmachine-python/workflows/Test/badge.svg)](https://github.com/rfestag/restmachine-python/actions)
+[![Coverage](https://raw.githubusercontent.com/rfestag/restmachine-python/main/coverage-badge.svg)](https://github.com/rfestag/restmachine-python/actions)
+[![Python Versions](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/rfestag/restmachine-python)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![Security: bandit](https://img.shields.io/badge/security-bandit-yellow.svg)](https://github.com/PyCQA/bandit)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit&logoColor=white)](https://github.com/pre-commit/pre-commit)
+
 A lightweight REST framework with pytest-like dependency injection, webmachine-style state machine, content negotiation support, and Pydantic-based validation.
 
 ## Features
@@ -29,9 +37,9 @@ pip install restmachine[validation]
 ### Development Installation
 
 ```bash
-git clone https://github.com/yourusername/restmachine.git
-cd restmachine
-pip install -e .[dev,validation]
+git clone https://github.com/rfestag/restmachine-python.git
+cd restmachine-python
+pip install -e packages/restmachine[dev]
 ```
 
 ## Quick Start
@@ -39,7 +47,7 @@ pip install -e .[dev,validation]
 ### Basic Example
 
 ```python
-from resmachine import RestApplication, Request, HTTPMethod
+from restmachine import RestApplication, Request, HTTPMethod
 
 app = RestApplication()
 
