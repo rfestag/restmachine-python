@@ -127,52 +127,24 @@ class AwsApiGatewayAdapter(Adapter):
         # Extract path (v1: uses "path")
         path = event.get("path", "/")
 
-        # Extract headers
-        headers = MultiValueHeaders()
-        if "headers" in event and event["headers"]:
-            for key, value in event["headers"].items():
-                if value is not None:
-                    headers.add(key.lower(), str(value))
+        # Extract headers using common helper
+        headers = self._extract_headers_from_event(event, use_multivalue=False)
 
-        # Extract query parameters
-        query_params = {}
-        if "queryStringParameters" in event and event["queryStringParameters"]:
-            query_params = {k: v for k, v in event["queryStringParameters"].items() if v is not None}
+        # Extract query parameters using common helper
+        query_params = self._extract_query_params_from_event(event, use_multivalue=False)
 
-        # Extract path parameters
-        path_params = None
-        if "pathParameters" in event and event["pathParameters"]:
-            path_params = {k: v for k, v in event["pathParameters"].items() if v is not None}
+        # Extract path parameters using common helper
+        path_params = self._extract_path_params_from_event(event)
 
-        # Extract and decode body
-        body = event.get("body")
-        if body and event.get("isBase64Encoded", False):
-            import base64
-            try:
-                body = base64.b64decode(body).decode("utf-8")
-            except Exception:
-                body = base64.b64decode(body).decode("latin-1")
+        # Extract and decode body using common helper
+        body = self._decode_body_from_event(event)
 
         # Extract TLS information - API Gateway always uses HTTPS
         tls = True
 
-        # Extract client certificate (v1: requestContext.identity.clientCert)
-        client_cert = None
+        # Extract client certificate using common helper (v1: requestContext.identity.clientCert)
         request_context = event.get("requestContext", {})
-        if request_context:
-            identity = request_context.get("identity", {})
-            if identity:
-                apigw_client_cert = identity.get("clientCert")
-                if apigw_client_cert:
-                    client_cert = {
-                        "subject": self._parse_cert_subject(apigw_client_cert.get("subjectDN", "")),
-                        "issuer": self._parse_cert_subject(apigw_client_cert.get("issuerDN", "")),
-                        "serial_number": apigw_client_cert.get("serialNumber"),
-                        "validity": {
-                            "notBefore": apigw_client_cert.get("validity", {}).get("notBefore"),
-                            "notAfter": apigw_client_cert.get("validity", {}).get("notAfter")
-                        }
-                    }
+        client_cert = self._extract_client_cert_from_apigw_context(request_context, "identity")
 
         return Request(
             method=method,
@@ -204,12 +176,8 @@ class AwsApiGatewayAdapter(Adapter):
         # Extract path (v2: uses "rawPath")
         path = event.get("rawPath", "/")
 
-        # Extract headers
-        headers = MultiValueHeaders()
-        if "headers" in event and event["headers"]:
-            for key, value in event["headers"].items():
-                if value is not None:
-                    headers.add(key.lower(), str(value))
+        # Extract headers using common helper
+        headers = self._extract_headers_from_event(event, use_multivalue=False)
 
         # Extract cookies (v2 has separate cookies array)
         if "cookies" in event and event["cookies"]:
@@ -217,44 +185,20 @@ class AwsApiGatewayAdapter(Adapter):
             cookie_value = "; ".join(event["cookies"])
             headers.add("cookie", cookie_value)
 
-        # Extract query parameters
-        query_params = {}
-        if "queryStringParameters" in event and event["queryStringParameters"]:
-            query_params = {k: v for k, v in event["queryStringParameters"].items() if v is not None}
+        # Extract query parameters using common helper
+        query_params = self._extract_query_params_from_event(event, use_multivalue=False)
 
-        # Extract path parameters
-        path_params = None
-        if "pathParameters" in event and event["pathParameters"]:
-            path_params = {k: v for k, v in event["pathParameters"].items() if v is not None}
+        # Extract path parameters using common helper
+        path_params = self._extract_path_params_from_event(event)
 
-        # Extract and decode body
-        body = event.get("body")
-        if body and event.get("isBase64Encoded", False):
-            import base64
-            try:
-                body = base64.b64decode(body).decode("utf-8")
-            except Exception:
-                body = base64.b64decode(body).decode("latin-1")
+        # Extract and decode body using common helper
+        body = self._decode_body_from_event(event)
 
         # Extract TLS information - API Gateway always uses HTTPS
         tls = True
 
-        # Extract client certificate (v2: requestContext.authentication.clientCert)
-        client_cert = None
-        if request_context:
-            authentication = request_context.get("authentication", {})
-            if authentication:
-                apigw_client_cert = authentication.get("clientCert")
-                if apigw_client_cert:
-                    client_cert = {
-                        "subject": self._parse_cert_subject(apigw_client_cert.get("subjectDN", "")),
-                        "issuer": self._parse_cert_subject(apigw_client_cert.get("issuerDN", "")),
-                        "serial_number": apigw_client_cert.get("serialNumber"),
-                        "validity": {
-                            "notBefore": apigw_client_cert.get("validity", {}).get("notBefore"),
-                            "notAfter": apigw_client_cert.get("validity", {}).get("notAfter")
-                        }
-                    }
+        # Extract client certificate using common helper (v2: requestContext.authentication.clientCert)
+        client_cert = self._extract_client_cert_from_apigw_context(request_context, "authentication")
 
         return Request(
             method=method,
@@ -287,40 +231,17 @@ class AwsApiGatewayAdapter(Adapter):
         # Extract path
         path = event.get("path", "/")
 
-        # Extract headers - ALB can use either headers or multiValueHeaders
-        headers = MultiValueHeaders()
-        if "multiValueHeaders" in event and event["multiValueHeaders"]:
-            # ALB with multi-value headers (preferred)
-            for key, values in event["multiValueHeaders"].items():
-                if values:  # Skip None or empty lists
-                    for value in values:
-                        if value is not None:
-                            headers.add(key.lower(), str(value))
-        elif "headers" in event and event["headers"]:
-            # ALB with single-value headers fallback
-            for key, value in event["headers"].items():
-                if value is not None:
-                    headers.add(key.lower(), str(value))
+        # Extract headers using common helper - ALB can use either headers or multiValueHeaders
+        headers = self._extract_headers_from_event(event, use_multivalue=True)
 
-        # Extract query parameters - ALB can use either format
-        query_params = {}
-        if "multiValueQueryStringParameters" in event and event["multiValueQueryStringParameters"]:
-            # ALB with multi-value query params - take first value for compatibility
-            query_params = {k: v[0] for k, v in event["multiValueQueryStringParameters"].items() if v and v[0] is not None}
-        elif "queryStringParameters" in event and event["queryStringParameters"]:
-            query_params = {k: v for k, v in event["queryStringParameters"].items() if v is not None}
+        # Extract query parameters using common helper - ALB can use either format
+        query_params = self._extract_query_params_from_event(event, use_multivalue=True)
 
         # ALB doesn't support path parameters
         path_params = None
 
-        # Extract and decode body
-        body = event.get("body")
-        if body and event.get("isBase64Encoded", False):
-            import base64
-            try:
-                body = base64.b64decode(body).decode("utf-8")
-            except Exception:
-                body = base64.b64decode(body).decode("latin-1")
+        # Extract and decode body using common helper
+        body = self._decode_body_from_event(event)
 
         # Extract TLS information - ALB always uses HTTPS
         tls = True
@@ -402,6 +323,154 @@ class AwsApiGatewayAdapter(Adapter):
         """
         request_context = event.get("requestContext", {})
         return "elb" in request_context
+
+    # Helper methods for common parsing logic
+
+    def _extract_headers_from_event(
+        self,
+        event: Dict[str, Any],
+        use_multivalue: bool = False
+    ) -> MultiValueHeaders:
+        """
+        Extract headers from AWS event.
+
+        Handles both single-value and multi-value header formats.
+
+        Args:
+            event: AWS event dictionary
+            use_multivalue: If True, use multiValueHeaders (ALB feature)
+
+        Returns:
+            MultiValueHeaders object
+        """
+        headers = MultiValueHeaders()
+
+        if use_multivalue and "multiValueHeaders" in event and event["multiValueHeaders"]:
+            # ALB with multi-value headers (preferred)
+            for key, values in event["multiValueHeaders"].items():
+                if values:  # Skip None or empty lists
+                    for value in values:
+                        if value is not None:
+                            headers.add(key.lower(), str(value))
+        elif "headers" in event and event["headers"]:
+            # Single-value headers (API Gateway v1/v2, ALB fallback)
+            for key, value in event["headers"].items():
+                if value is not None:
+                    headers.add(key.lower(), str(value))
+
+        return headers
+
+    def _extract_query_params_from_event(
+        self,
+        event: Dict[str, Any],
+        use_multivalue: bool = False
+    ) -> Dict[str, str]:
+        """
+        Extract query parameters from AWS event.
+
+        Handles both single-value and multi-value query parameter formats.
+
+        Args:
+            event: AWS event dictionary
+            use_multivalue: If True, use multiValueQueryStringParameters (ALB feature)
+
+        Returns:
+            Dictionary of query parameters (first value if multivalue)
+        """
+        if use_multivalue and "multiValueQueryStringParameters" in event and event["multiValueQueryStringParameters"]:
+            # ALB with multi-value query params - take first value for compatibility
+            return {
+                k: v[0]
+                for k, v in event["multiValueQueryStringParameters"].items()
+                if v and v[0] is not None
+            }
+        elif "queryStringParameters" in event and event["queryStringParameters"]:
+            # Single-value query parameters
+            return {k: v for k, v in event["queryStringParameters"].items() if v is not None}
+
+        return {}
+
+    def _extract_path_params_from_event(self, event: Dict[str, Any]) -> Optional[Dict[str, str]]:
+        """
+        Extract path parameters from AWS event.
+
+        Args:
+            event: AWS event dictionary
+
+        Returns:
+            Dictionary of path parameters, or None if not present
+        """
+        if "pathParameters" in event and event["pathParameters"]:
+            return {k: v for k, v in event["pathParameters"].items() if v is not None}
+        return None
+
+    def _decode_body_from_event(self, event: Dict[str, Any]) -> Optional[str]:
+        """
+        Extract and decode body from AWS event.
+
+        Handles base64-encoded bodies automatically.
+
+        Args:
+            event: AWS event dictionary
+
+        Returns:
+            Decoded body string, or None if no body
+        """
+        body = event.get("body")
+        if body and event.get("isBase64Encoded", False):
+            import base64
+            try:
+                body = base64.b64decode(body).decode("utf-8")
+            except Exception:
+                # Fallback to latin-1 if utf-8 fails
+                body = base64.b64decode(body).decode("latin-1")
+        return body
+
+    def _extract_client_cert_from_apigw_context(
+        self,
+        request_context: Dict[str, Any],
+        cert_location: str = "identity"
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Extract client certificate from API Gateway request context.
+
+        Args:
+            request_context: The requestContext dictionary
+            cert_location: Where to find cert - "identity" for v1, "authentication" for v2
+
+        Returns:
+            Client certificate dict in ASGI TLS extension format, or None
+        """
+        if not request_context:
+            return None
+
+        # Get the certificate based on location
+        if cert_location == "authentication":
+            # v2 format: requestContext.authentication.clientCert
+            authentication = request_context.get("authentication", {})
+            if not authentication:
+                return None
+            apigw_client_cert = authentication.get("clientCert")
+        else:
+            # v1 format: requestContext.identity.clientCert
+            identity = request_context.get("identity", {})
+            if not identity:
+                return None
+            apigw_client_cert = identity.get("clientCert")
+
+        if not apigw_client_cert:
+            return None
+
+        # Parse certificate into ASGI TLS format
+        return {
+            "subject": self._parse_cert_subject(apigw_client_cert.get("subjectDN", "")),
+            "issuer": self._parse_cert_subject(apigw_client_cert.get("issuerDN", "")),
+            "serial_number": apigw_client_cert.get("serialNumber"),
+            "validity": {
+                "notBefore": apigw_client_cert.get("validity", {}).get("notBefore"),
+                "notAfter": apigw_client_cert.get("validity", {}).get("notAfter")
+            }
+        }
 
     def _extract_alb_client_cert(self, headers: MultiValueHeaders) -> Optional[Dict[str, Any]]:
         """

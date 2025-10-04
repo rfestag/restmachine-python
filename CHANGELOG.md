@@ -144,6 +144,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Full backward compatibility - existing code uses default request scope
   - Example: `@app.dependency(name="db", scope="session")` for reusable database connections
   - Comprehensive test coverage with 20 new tests covering all scope behaviors
+- **Code Quality and Complexity Checks**: Integrated Radon for automated maintainability analysis
+  - New `tox -e complexity` environment enforcing quality standards
+  - Cyclomatic Complexity monitoring (target: B or better, ≤10 per function)
+  - Maintainability Index tracking (target: B or better, ≥10 per file)
+  - Raw metrics reporting (LOC, LLOC, SLOC, comments)
+  - Current project average complexity: A (3.59) - excellent
+  - Total codebase: 7,501 LOC with 9% comment coverage
+  - Detailed documentation in `docs/CODE_QUALITY_STANDARDS.md`
+  - JSON report generation available via `tox -e complexity-report`
 
 ### Changed
 - **AWS Adapter Alignment**: Updated AWS Lambda adapter to align with ASGI patterns

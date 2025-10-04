@@ -40,6 +40,7 @@ dev = [
     "pytest-cov",
     "ruff",
     "mypy",
+    "radon>=6.0.0",
 ]
 
 [project.urls]

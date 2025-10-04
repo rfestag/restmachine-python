@@ -331,6 +331,34 @@ def close_database(database):  # Injects database from startup handler
 
 The extension works automatically - no code changes needed!
 
+## Code Quality
+
+This project maintains high code quality standards with automated checks:
+
+- **Complexity Analysis**: Radon for cyclomatic complexity and maintainability index
+- **Type Safety**: MyPy with strict type checking
+- **Code Style**: Ruff for linting and formatting
+- **Security**: Bandit for security vulnerability scanning
+- **Test Coverage**: Pytest with comprehensive test suite (592 tests)
+
+```bash
+# Run all quality checks
+tox
+
+# Run specific checks
+tox -e complexity      # Code complexity analysis
+tox -e type-check      # Type checking
+tox -e lint            # Code linting
+tox -e security        # Security scanning
+```
+
+**Current Metrics:**
+- Average Complexity: A (3.59) - Excellent
+- Test Coverage: 592 tests passing
+- Total Lines of Code: 7,501
+
+See [docs/CODE_QUALITY_STANDARDS.md](docs/CODE_QUALITY_STANDARDS.md) for detailed standards and [docs/COMPLEXITY_REFACTORING_PLAN.md](docs/COMPLEXITY_REFACTORING_PLAN.md) for improvement roadmap.
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
