@@ -269,11 +269,11 @@ def secure_endpoint(request):
 - `request.tls`: True for HTTPS, False for HTTP
 - `request.client_cert`: Client certificate dict (if mTLS is configured)
 
-**AWS Lambda**: API Gateway always uses HTTPS, and mTLS certificates are automatically extracted from the event.
+**AWS Lambda**: API Gateway and ALB always use HTTPS, and mTLS certificates are automatically extracted from events.
 
 ### AWS Lambda Deployment
 
-For serverless deployment on AWS Lambda:
+For serverless deployment on AWS Lambda (API Gateway, ALB, or Function URLs):
 
 ```bash
 pip install restmachine-aws
@@ -301,6 +301,17 @@ adapter = AwsApiGatewayAdapter(app)
 def lambda_handler(event, context):
     return adapter.handle_event(event, context)
 ```
+
+**Event Types Supported**: The adapter automatically detects and handles:
+- API Gateway REST API (v1) - payload format 1.0
+- API Gateway HTTP API (v2) - payload format 2.0
+- Application Load Balancer (ALB) Lambda target events
+- Lambda Function URL events (v2 format)
+
+**ALB Features**:
+- Multi-value headers and query parameters
+- mTLS verify mode (parsed certificate headers)
+- mTLS passthrough mode (full PEM certificate)
 
 **Startup Handlers**: Automatically execute during Lambda cold start (when `AwsApiGatewayAdapter` is initialized). Return values are cached and injected as session-scoped dependencies across all requests in the same container.
 

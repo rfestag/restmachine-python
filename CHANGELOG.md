@@ -37,10 +37,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `request.tls` boolean indicating whether connection uses TLS (HTTPS)
   - `request.client_cert` dictionary containing client certificate information for mutual TLS (mTLS)
   - ASGI adapter automatically extracts TLS info from `scope["scheme"]` and `scope["extensions"]["tls"]`
-  - AWS adapter always sets `tls=True` (API Gateway uses HTTPS) and extracts mTLS client certificates from `requestContext.identity.clientCert`
+  - AWS adapter always sets `tls=True` (API Gateway/ALB use HTTPS) and extracts mTLS client certificates
+  - API Gateway: Extracts from `requestContext.identity.clientCert`
+  - ALB: Supports both verify mode (parsed headers) and passthrough mode (PEM certificate)
   - Client certificate includes subject, issuer, serial number, and validity information
   - Perfect for implementing certificate-based authentication and authorization
   - Full ASGI 3.0 TLS extension compliance
+- **AWS Application Load Balancer (ALB) Support**: Full support for ALB Lambda target groups
+  - Automatic detection of ALB vs API Gateway events
+  - Support for ALB multi-value headers and query parameters
+  - ALB mTLS verify mode: Certificate fields in `x-amzn-mtls-clientcert-subject`, `x-amzn-mtls-clientcert-issuer`, `x-amzn-mtls-clientcert-serial-number` headers
+  - ALB mTLS passthrough mode: Full PEM certificate in `x-amzn-mtls-clientcert` header
+  - Single adapter (`AwsApiGatewayAdapter`) handles both API Gateway and ALB events
+  - Separate internal parsing methods for clean separation of concerns
+- **AWS API Gateway HTTP API (v2) Support**: Full support for both v1 (REST API) and v2 (HTTP API) payload formats
+  - Single `AwsApiGatewayAdapter` handles both v1 and v2 event formats
+  - Automatic version detection based on `version` field in event
+  - v1 (REST API): Uses `httpMethod`, `path`, `requestContext.identity.clientCert`
+  - v2 (HTTP API): Uses `requestContext.http.method`, `rawPath`, `requestContext.authentication.clientCert`, `cookies` array
+  - Cookies from v2 events automatically combined into Cookie header
+  - Full feature parity between v1 and v2 (path params, query params, body, mTLS)
+  - Lambda Function URLs use v2 format and work seamlessly
 - **AWS Lambda Startup Support**: Startup handlers now execute automatically during Lambda cold start
   - `AwsApiGatewayAdapter` automatically calls `app.startup_sync()` during initialization
   - Enables database connections, API clients, and other resources to be initialized once per container
