@@ -8,6 +8,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **ASGI Adapter Support**: Built-in ASGI 3.0 adapter for deployment with any ASGI server
+  - New `ASGIAdapter` class for creating ASGI applications
+  - `create_asgi_app()` convenience function
+  - Full ASGI 3.0 protocol support (scope, receive, send)
+  - Works with Uvicorn, Hypercorn, Daphne, and other ASGI servers
+  - Proper async handling for HTTP request/response lifecycle
+  - Header normalization to lowercase (ASGI standard)
+  - UTF-8 with latin-1 fallback for body encoding
+  - Imported directly from main package: `from restmachine import ASGIAdapter, create_asgi_app`
+  - Deploy with: `uvicorn app:asgi_app` or `hypercorn app:asgi_app`
+  - Production-ready with Gunicorn workers: `gunicorn app:asgi_app -k uvicorn.workers.UvicornWorker`
+- **Multi-Value Headers**: Full HTTP spec compliance for headers that can appear multiple times
+  - New `MultiValueHeaders` class replacing `CaseInsensitiveDict`
+  - Support for multiple values per header name (Set-Cookie, Accept, Vary, etc.)
+  - `.add(name, value)` method to append header values
+  - `.get(name)` returns first value (backward compatible)
+  - `.get_all(name)` returns all values for a header
+  - `.items_all()` returns all (name, value) pairs including duplicates
+  - Case-insensitive header lookups per RFC 7230
+  - Dict-like interface for backward compatibility
+  - Proper header precedence: `.update()` replaces headers (not appends)
+  - Backward compatibility alias: `CaseInsensitiveDict = MultiValueHeaders`
 - **Jinja2 Template Rendering Support**: Rails-like template rendering with Jinja2
   - New `render()` helper function for template rendering
   - Support for file-based templates from `views` directory
@@ -72,6 +94,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Comprehensive test coverage with 20 new tests covering all scope behaviors
 
 ### Changed
+- **AWS Adapter Alignment**: Updated AWS Lambda adapter to align with ASGI patterns
+  - Headers normalized to lowercase (matching ASGI standard)
+  - Consistent query parameter parsing with ASGI adapter
+  - Improved error handling with latin-1 fallback
+  - Uses `MultiValueHeaders` internally for proper multi-value header support
+  - Automatic Content-Type header for JSON responses
+  - No breaking changes for existing Lambda functions
+- **ASGI Adapter Architecture**: Moved ASGI adapter to core package
+  - `ASGIAdapter` moved from `server.py` to `adapters.py`
+  - Clear separation: `Adapter` (sync for Lambda/Azure) vs `ASGIAdapter` (async for HTTP servers)
+  - Backward compatibility maintained via re-exports in `server.py`
+  - Updated main package exports to include `ASGIAdapter` and `create_asgi_app`
+  - Comprehensive documentation in `docs/ASGI_REFACTORING.md`
 - **Router Architecture**: Unified all routing through a single root router (PERFORMANCE)
   - All routes now go through `RestApplication._root_router` (previously had dual storage with `_routes` list)
   - `@app.get()`, `@app.post()`, etc. now forward to the root router transparently
@@ -135,12 +170,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nothing yet
 
 ### Removed
+- **restmachine-uvicorn and restmachine-hypercorn packages**: Removed separate server packages
+  - No longer necessary with built-in ASGI adapter
+  - Users should use `ASGIAdapter` directly with their preferred ASGI server
+  - Simpler architecture: one core package with ASGI support built-in
+  - To migrate: Replace `restmachine-uvicorn` with `restmachine` and use `ASGIAdapter(app)`
+  - Deploy directly: `uvicorn app:asgi_app` or `hypercorn app:asgi_app`
+  - No functionality lost - all ASGI servers still supported via the adapter
 - **setup.py**: Removed in favor of pyproject.toml-only configuration
   - Modern pip (>=21.3) works perfectly with just pyproject.toml
   - No functionality lost, cleaner project structure
   - See `docs/MIGRATION_TO_PYPROJECT.md` for details
 
 ### Fixed
+- **Multi-Value Headers**: Fixed HTTP spec violation where duplicate headers only kept last value
+  - Previous dict-based implementation only retained last value for duplicate header names
+  - Now properly supports headers that can appear multiple times per RFC 7230
+  - Critical for Set-Cookie, Accept, Vary, and other multi-value headers
+  - `.update()` now properly replaces headers instead of accumulating them
+  - Fixed header precedence issues when merging default headers with response headers
+  - All 535 tests passing with full backward compatibility
 - **Type Checking**: Enhanced type safety with stricter mypy checks
   - Added `--check-untyped-defs` flag to catch more type errors
   - Fixed type annotations in error_models.py for dict construction

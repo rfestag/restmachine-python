@@ -16,6 +16,8 @@ A lightweight REST framework with pytest-like dependency injection, webmachine-s
 - **State Machine**: Webmachine-inspired HTTP state machine for robust request processing
 - **Content Negotiation**: Automatic content type negotiation with pluggable renderers
 - **Validation**: Optional Pydantic integration for request/response validation
+- **ASGI Support**: Built-in ASGI adapter for deployment with Uvicorn, Hypercorn, Daphne, etc.
+- **Multi-Value Headers**: Full HTTP spec compliance with support for duplicate header names
 - **Lightweight**: Zero required dependencies for basic functionality
 
 ## Installation
@@ -108,6 +110,102 @@ def create_user(validate_user: UserCreate):
         "message": "User created",
         "user": validate_user.model_dump()
     }
+```
+
+## Deployment
+
+### Running with ASGI Servers
+
+RestMachine includes a built-in ASGI adapter for seamless deployment with any ASGI-compatible server.
+
+#### Using Uvicorn
+
+```python
+# app.py
+from restmachine import RestApplication, ASGIAdapter
+
+app = RestApplication()
+
+@app.get("/")
+def home():
+    return {"message": "Hello from Uvicorn!"}
+
+# Create ASGI application
+asgi_app = ASGIAdapter(app)
+```
+
+Run with Uvicorn:
+```bash
+uvicorn app:asgi_app --host 0.0.0.0 --port 8000 --reload
+```
+
+#### Using Hypercorn
+
+```python
+# app.py
+from restmachine import RestApplication, ASGIAdapter
+
+app = RestApplication()
+
+@app.get("/")
+def home():
+    return {"message": "Hello from Hypercorn!"}
+
+# Create ASGI application
+asgi_app = ASGIAdapter(app)
+```
+
+Run with Hypercorn (supports HTTP/2):
+```bash
+hypercorn app:asgi_app --bind 0.0.0.0:8000 --reload
+```
+
+#### Using Gunicorn with Uvicorn Workers
+
+For production deployments with multiple workers:
+```bash
+gunicorn app:asgi_app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000
+```
+
+#### Convenience Function
+
+You can also use the `create_asgi_app()` helper:
+```python
+from restmachine import RestApplication, create_asgi_app
+
+app = RestApplication()
+
+@app.get("/")
+def home():
+    return {"message": "Hello World!"}
+
+# Convenience function (equivalent to ASGIAdapter(app))
+asgi_app = create_asgi_app(app)
+```
+
+### AWS Lambda Deployment
+
+For serverless deployment on AWS Lambda:
+
+```bash
+pip install restmachine-aws
+```
+
+```python
+from restmachine import RestApplication
+from restmachine_aws import AwsApiGatewayAdapter
+
+app = RestApplication()
+
+@app.get("/hello")
+def hello():
+    return {"message": "Hello from Lambda!"}
+
+# Create Lambda handler
+adapter = AwsApiGatewayAdapter(app)
+
+def lambda_handler(event, context):
+    return adapter.handle_event(event, context)
 ```
 
 ## License

@@ -1,10 +1,8 @@
 # Root pyproject.toml for restmachine monorepo
 #
 # This is a Python monorepo containing multiple packages:
-# - packages/restmachine: Core RestMachine framework
+# - packages/restmachine: Core RestMachine framework (includes ASGI adapter)
 # - packages/restmachine-aws: AWS Lambda adapter
-# - packages/restmachine-uvicorn: Uvicorn server adapter
-# - packages/restmachine-hypercorn: Hypercorn server adapter
 #
 # To install for development:
 #   pip install -e packages/restmachine[dev]
