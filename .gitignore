@@ -140,6 +140,8 @@ ehthumbs.db
 Thumbs.db
 
 # Security reports
+bandit-report.sarif
 bandit-report.json
+pip-audit-report.md
 pip-audit-report.json
 semgrep-report.json

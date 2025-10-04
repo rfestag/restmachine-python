@@ -10,7 +10,7 @@ This project includes comprehensive security scanning tools to help identify vul
 - **Purpose**: Finds common security issues in Python code
 - **Run**: `tox -e bandit`
 - **Config**: `pyproject.toml` under `[tool.bandit]`
-- **Reports**: Console output + `bandit-report.json`
+- **Reports**: Console output + `bandit-report.sarif` (SARIF format for GitHub Security tab)
 
 #### Semgrep - Advanced SAST (Optional)
 - **Purpose**: Advanced pattern-based security scanning
@@ -22,7 +22,7 @@ This project includes comprehensive security scanning tools to help identify vul
 #### pip-audit - Dependency Security Scanner
 - **Purpose**: Checks dependencies for known vulnerabilities
 - **Run**: `tox -e pip-audit`
-- **Reports**: Console output + `pip-audit-report.json`
+- **Reports**: Console output + `pip-audit-report.md` (Markdown format)
 - **Database**: Uses PyPI vulnerability database
 
 ### 3. Secret Detection
@@ -74,13 +74,52 @@ tox -e semgrep
 
 ## CI/CD Integration
 
-Add this to your GitHub Actions workflow:
+### GitHub Actions
+
+This project includes automated security scanning via GitHub Actions. The workflow:
+- Runs on every push to `main` and `develop` branches
+- Runs on all pull requests to `main`
+- Runs weekly on Monday at 9am UTC (scheduled scan)
+- Uploads Bandit results to GitHub Security tab (SARIF format)
+- Uploads pip-audit markdown reports as artifacts
+
+**View security findings**: Navigate to the **Security** tab → **Code scanning** in GitHub to see Bandit findings.
+
+Manual workflow example:
 
 ```yaml
-- name: Security Scans
-  run: |
-    pip install tox
-    tox -e security
+security:
+  runs-on: ubuntu-latest
+  permissions:
+    security-events: write
+    contents: read
+
+  steps:
+  - uses: actions/checkout@v4
+
+  - name: Set up Python
+    uses: actions/setup-python@v4
+    with:
+      python-version: "3.11"
+
+  - name: Run security scans
+    run: |
+      pip install tox
+      tox -e security
+
+  - name: Upload Bandit SARIF to Security tab
+    uses: github/codeql-action/upload-sarif@v3
+    if: always()
+    with:
+      sarif_file: bandit-report.sarif
+      category: bandit
+
+  - name: Upload pip-audit report
+    uses: actions/upload-artifact@v4
+    if: always()
+    with:
+      name: pip-audit-report
+      path: pip-audit-report.md
 ```
 
 ## Suppressing False Positives
