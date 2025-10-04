@@ -76,7 +76,7 @@ tox -e semgrep
 
 ### GitHub Actions
 
-This project includes automated security scanning via GitHub Actions. The workflow:
+This project includes automated security scanning as part of the main test workflow. The security job:
 - Runs on every push to `main` and `develop` branches
 - Runs on all pull requests to `main`
 - Runs weekly on Monday at 9am UTC (scheduled scan)
@@ -84,6 +84,8 @@ This project includes automated security scanning via GitHub Actions. The workfl
 - Uploads pip-audit markdown reports as artifacts
 
 **View security findings**: Navigate to the **Security** tab → **Code scanning** in GitHub to see Bandit findings.
+
+The security scans run in parallel with unit tests, linting, and type checking as part of the CI pipeline.
 
 Manual workflow example:
 
