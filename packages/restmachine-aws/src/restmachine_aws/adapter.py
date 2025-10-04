@@ -1,12 +1,27 @@
 """AWS API Gateway adapter for RestMachine."""
 
+import json
 from typing import Any, Dict, Optional
 
 from restmachine import Adapter, Request, Response, HTTPMethod
+from restmachine.models import MultiValueHeaders
 
 
 class AwsApiGatewayAdapter(Adapter):
-    """Adapter for AWS API Gateway Lambda proxy integration events."""
+    """
+    Adapter for AWS API Gateway Lambda proxy integration events.
+
+    This adapter handles events from:
+    - API Gateway REST APIs (v1)
+    - API Gateway HTTP APIs (v2)
+    - Application Load Balancer
+    - Lambda Function URLs
+
+    Follows ASGI patterns for header and parameter handling:
+    - Headers are normalized to lowercase for case-insensitive matching
+    - Query parameters are parsed consistently
+    - Body encoding is handled transparently
+    """
 
     def __init__(self, app):
         """
@@ -36,6 +51,11 @@ class AwsApiGatewayAdapter(Adapter):
         """
         Convert AWS API Gateway event to Request object.
 
+        Follows ASGI patterns:
+        - Headers normalized to lowercase
+        - Query parameters parsed as dict
+        - Base64 body automatically decoded
+
         Args:
             event: AWS API Gateway event dictionary
             context: AWS Lambda context (optional)
@@ -49,15 +69,18 @@ class AwsApiGatewayAdapter(Adapter):
         # Extract path
         path = event.get("path", "/")
 
-        # Extract headers (case-insensitive)
-        headers = {}
+        # Extract and normalize headers (lowercase for case-insensitive matching)
+        # This aligns with ASGI adapter pattern
+        # Use MultiValueHeaders to support duplicate header names
+        headers = MultiValueHeaders()
         if "headers" in event and event["headers"]:
             for key, value in event["headers"].items():
                 if value is not None:  # API Gateway can send None values
-                    headers[key] = str(value)
+                    headers.add(key.lower(), str(value))
 
         # Extract query parameters
-        query_params = None
+        # Convert to dict, filtering out None values
+        query_params = {}
         if "queryStringParameters" in event and event["queryStringParameters"]:
             query_params = {k: v for k, v in event["queryStringParameters"].items() if v is not None}
 
@@ -66,11 +89,15 @@ class AwsApiGatewayAdapter(Adapter):
         if "pathParameters" in event and event["pathParameters"]:
             path_params = {k: v for k, v in event["pathParameters"].items() if v is not None}
 
-        # Extract body
+        # Extract and decode body
         body = event.get("body")
         if body and event.get("isBase64Encoded", False):
             import base64
-            body = base64.b64decode(body).decode("utf-8")
+            try:
+                body = base64.b64decode(body).decode("utf-8")
+            except Exception:
+                # If decoding fails, try latin-1 as fallback
+                body = base64.b64decode(body).decode("latin-1")
 
         return Request(
             method=method,
@@ -85,6 +112,8 @@ class AwsApiGatewayAdapter(Adapter):
         """
         Convert Response object to AWS API Gateway response format.
 
+        Handles proper JSON serialization and header encoding.
+
         Args:
             response: Response from the app
             event: Original AWS API Gateway event
@@ -93,16 +122,37 @@ class AwsApiGatewayAdapter(Adapter):
         Returns:
             AWS API Gateway response dictionary
         """
+        # Convert body to string
+        if response.body is None:
+            body_str = ""
+        elif isinstance(response.body, (dict, list)):
+            body_str = json.dumps(response.body)
+        elif isinstance(response.body, (str, int, float, bool)):
+            body_str = str(response.body)
+        else:
+            body_str = str(response.body)
+
         # Build the API Gateway response
+        # Convert MultiValueHeaders to dict (first value for each header)
+        if response.headers:
+            if isinstance(response.headers, MultiValueHeaders):
+                headers_dict = response.headers.to_dict()
+            else:
+                headers_dict = dict(response.headers)
+        else:
+            headers_dict = {}
+
         api_response = {
             "statusCode": response.status_code,
-            "headers": response.headers or {},
-            "body": response.body or "",
+            "headers": headers_dict,
+            "body": body_str,
             "isBase64Encoded": False
         }
 
-        # Handle cases where body might be None
-        if api_response["body"] is None:
-            api_response["body"] = ""
+        # Ensure Content-Type is set for JSON responses
+        if isinstance(response.body, (dict, list)) and "content-type" not in (
+            {k.lower(): k for k in headers_dict.keys()}
+        ):
+            api_response["headers"]["Content-Type"] = "application/json"
 
         return api_response

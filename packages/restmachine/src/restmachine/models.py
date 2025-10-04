@@ -8,87 +8,262 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from http import HTTPStatus
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple, Union
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
 
 
-class CaseInsensitiveDict(dict):
+class MultiValueHeaders:
     """
-    Case-insensitive dictionary for HTTP headers.
+    Multi-value, case-insensitive headers container.
 
-    HTTP headers are case-insensitive per RFC 7230, but Python dicts are case-sensitive.
-    This class provides case-insensitive key lookups while preserving the original casing
-    of keys for display purposes.
+    HTTP headers are case-insensitive per RFC 7230, and the same header can appear
+    multiple times. This class handles both requirements:
+    - Case-insensitive lookups
+    - Multiple values per header name
+
+    Common headers that can appear multiple times:
+    - Set-Cookie, Accept, Accept-Language, Accept-Encoding
+    - Vary, WWW-Authenticate, Warning, Via, Link
 
     Example:
-        headers = CaseInsensitiveDict({'Content-Type': 'application/json'})
-        headers.get('content-type')  # Returns 'application/json'
-        headers.get('CONTENT-TYPE')  # Returns 'application/json'
-        headers['content-type']      # Returns 'application/json'
+        headers = MultiValueHeaders()
+        headers.add('Set-Cookie', 'session=abc')
+        headers.add('Set-Cookie', 'user=123')
+        headers.get('set-cookie')      # Returns 'session=abc' (first value)
+        headers.get_all('set-cookie')  # Returns ['session=abc', 'user=123']
+        headers['content-type'] = 'application/json'  # Sets single value
+
+        # Dict-like iteration (returns first value for each header)
+        for name, value in headers.items():
+            print(f"{name}: {value}")
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Maintain a lowercase key -> actual key mapping for O(1) lookups
-        self._lower_index: Dict[str, str] = {k.lower(): k for k in self.keys() if isinstance(k, str)}
+    def __init__(self, data=None):
+        """
+        Initialize headers from dict, list of tuples, or another MultiValueHeaders.
 
-    def get(self, key, default=None):
-        """Get value with case-insensitive key lookup."""
-        if not isinstance(key, str):
-            return super().get(key, default)
+        Args:
+            data: Can be:
+                - Dict[str, str] or Dict[str, List[str]]
+                - List of (name, value) tuples
+                - Another MultiValueHeaders instance
+                - None
+        """
+        # Internal storage: Dict[lowercase_name, List[Tuple[original_name, value]]]
+        self._headers: Dict[str, List[Tuple[str, str]]] = {}
 
-        actual_key = self._lower_index.get(key.lower())
-        return super().get(actual_key, default) if actual_key else default
+        if data is not None:
+            if isinstance(data, MultiValueHeaders):
+                self._headers = {k: list(v) for k, v in data._headers.items()}
+            elif isinstance(data, dict):
+                for key, value in data.items():
+                    if isinstance(value, list):
+                        for v in value:
+                            self.add(key, v)
+                    else:
+                        self.add(key, value)
+            elif isinstance(data, (list, tuple)):
+                for key, value in data:
+                    self.add(key, value)
 
-    def __getitem__(self, key):
-        """Support bracket notation with case-insensitive lookup."""
-        if not isinstance(key, str):
-            return super().__getitem__(key)
+    def add(self, name: str, value: str) -> None:
+        """
+        Add a header value, allowing multiple values for the same name.
 
-        actual_key = self._lower_index.get(key.lower())
-        if actual_key:
-            return super().__getitem__(actual_key)
-        raise KeyError(key)
+        Args:
+            name: Header name (case-insensitive)
+            value: Header value
+        """
+        name_lower = name.lower()
+        if name_lower not in self._headers:
+            self._headers[name_lower] = []
+        self._headers[name_lower].append((name, value))
 
-    def __contains__(self, key):
-        """Support 'in' operator with case-insensitive lookup."""
-        if not isinstance(key, str):
-            return super().__contains__(key)
+    def get(self, name: str, default: Optional[str] = None) -> Optional[str]:
+        """
+        Get the first value for a header name.
 
-        return key.lower() in self._lower_index
+        Args:
+            name: Header name (case-insensitive)
+            default: Default value if header not found
 
-    def __setitem__(self, key, value):
-        """Set item, removing any existing keys with same name (case-insensitive)."""
-        if isinstance(key, str):
-            key_lower = key.lower()
-            # Remove existing key if present
-            if key_lower in self._lower_index:
-                existing_key = self._lower_index[key_lower]
-                super().__delitem__(existing_key)
-            # Update index
-            self._lower_index[key_lower] = key
+        Returns:
+            First header value or default
+        """
+        # Handle non-string keys gracefully
+        if not isinstance(name, str):
+            return default
 
-        # Set the new value
-        super().__setitem__(key, value)
+        name_lower = name.lower()
+        if name_lower in self._headers and self._headers[name_lower]:
+            return self._headers[name_lower][0][1]
+        return default
 
-    def __delitem__(self, key):
-        """Delete item with case-insensitive key."""
-        if isinstance(key, str):
-            actual_key = self._lower_index.get(key.lower())
-            if actual_key:
-                del self._lower_index[key.lower()]
-                super().__delitem__(actual_key)
-                return
-        super().__delitem__(key)
+    def get_all(self, name: str) -> List[str]:
+        """
+        Get all values for a header name.
 
-    def update(self, *args, **kwargs):
-        """Update dict and maintain lowercase index."""
-        # Let dict.update handle the updates
-        super().update(*args, **kwargs)
-        # Rebuild the index
-        self._lower_index = {k.lower(): k for k in self.keys() if isinstance(k, str)}
+        Args:
+            name: Header name (case-insensitive)
+
+        Returns:
+            List of all values for this header (empty list if not found)
+        """
+        name_lower = name.lower()
+        if name_lower in self._headers:
+            return [value for _, value in self._headers[name_lower]]
+        return []
+
+    def set(self, name: str, value: str) -> None:
+        """
+        Set a header to a single value, replacing any existing values.
+
+        Args:
+            name: Header name (case-insensitive)
+            value: Header value
+        """
+        name_lower = name.lower()
+        self._headers[name_lower] = [(name, value)]
+
+    def __setitem__(self, name: str, value: str) -> None:
+        """Set a header to a single value (dict-like interface)."""
+        self.set(name, value)
+
+    def __getitem__(self, name: str) -> str:
+        """
+        Get first value for a header (dict-like interface).
+
+        Raises:
+            KeyError: If header not found
+        """
+        # Handle non-string keys - raise KeyError
+        if not isinstance(name, str):
+            raise KeyError(name)
+
+        value = self.get(name)
+        if value is None:
+            raise KeyError(name)
+        return value
+
+    def __contains__(self, name: str) -> bool:
+        """Check if header exists (case-insensitive)."""
+        if not isinstance(name, str):
+            return False
+        return name.lower() in self._headers
+
+    def __delitem__(self, name: str) -> None:
+        """Delete all values for a header."""
+        if not isinstance(name, str):
+            raise KeyError(name)
+
+        name_lower = name.lower()
+        if name_lower in self._headers:
+            del self._headers[name_lower]
+        else:
+            raise KeyError(name)
+
+    def __iter__(self):
+        """Iterate over header names (using original casing of first occurrence)."""
+        for values in self._headers.values():
+            if values:
+                yield values[0][0]
+
+    def keys(self):
+        """Return header names (using original casing of first occurrence)."""
+        return list(self)
+
+    def values(self):
+        """Return first value for each header."""
+        return [values[0][1] for values in self._headers.values() if values]
+
+    def items(self):
+        """Return (name, first_value) pairs."""
+        return [(values[0][0], values[0][1]) for values in self._headers.values() if values]
+
+    def items_all(self):
+        """
+        Return all (name, value) pairs including duplicates.
+
+        Useful for serialization to formats that support multiple headers.
+        """
+        result = []
+        for values in self._headers.values():
+            result.extend(values)
+        return result
+
+    def to_dict(self) -> Dict[str, str]:
+        """
+        Convert to a simple dict with first value for each header.
+
+        Returns:
+            Dict with lowercase keys and first values
+        """
+        return {values[0][0]: values[0][1] for values in self._headers.values() if values}
+
+    def to_multidict(self) -> Dict[str, List[str]]:
+        """
+        Convert to a dict with lists of all values.
+
+        Returns:
+            Dict with lowercase keys and lists of all values
+        """
+        return {
+            values[0][0]: [v for _, v in values]
+            for values in self._headers.values() if values
+        }
+
+    def update(self, other) -> None:
+        """
+        Update headers from dict or iterable.
+
+        For dict-like behavior, this replaces existing headers with the same name
+        rather than adding to them. Use add() directly if you want to append values.
+        """
+        if isinstance(other, MultiValueHeaders):
+            # For MultiValueHeaders, we need to handle multi-value headers properly
+            # Group by header name first, then set all values at once
+            for name_lower, values in other._headers.items():
+                # Clear existing values for this header
+                if name_lower in self._headers:
+                    del self._headers[name_lower]
+                # Add all new values
+                for original_name, value in values:
+                    self.add(original_name, value)
+        elif isinstance(other, dict):
+            for key, value in other.items():
+                if isinstance(value, list):
+                    # Replace with all values from list
+                    self.set(key, value[0]) if value else None
+                    for v in value[1:]:
+                        self.add(key, v)
+                else:
+                    # Replace with single value
+                    self.set(key, value)
+        elif isinstance(other, (list, tuple)):
+            for key, value in other:
+                # For list of tuples, set first occurrence, add subsequent ones
+                # But since we process sequentially, we just set each one
+                # which means last one wins for simple cases
+                self.set(key, value)
+
+    def __repr__(self):
+        """String representation showing all headers."""
+        items = [(name, value) for name, value in self.items()]
+        return f"MultiValueHeaders({items!r})"
+
+    def __len__(self):
+        """Return number of distinct header names."""
+        return len(self._headers)
+
+    def copy(self):
+        """Return a shallow copy of the headers."""
+        return MultiValueHeaders(self)
+
+
+# Backward compatibility alias
+CaseInsensitiveDict = MultiValueHeaders
 
 
 class HTTPMethod(Enum):
@@ -107,20 +282,21 @@ class Request:
 
     method: HTTPMethod
     path: str
-    headers: Dict[str, str]
+    headers: Union[Dict[str, str], 'MultiValueHeaders']
     body: Optional[str] = None
     query_params: Optional[Dict[str, str]] = None
     path_params: Optional[Dict[str, str]] = None
 
     def __post_init__(self):
-        """Ensure headers is a CaseInsensitiveDict for case-insensitive header lookups."""
-        if not isinstance(self.headers, CaseInsensitiveDict):
-            self.headers = CaseInsensitiveDict(self.headers)
+        """Ensure headers is a MultiValueHeaders for case-insensitive header lookups."""
+        if not isinstance(self.headers, MultiValueHeaders):
+            self.headers = MultiValueHeaders(self.headers)
 
     def get_accept_header(self) -> str:
         """Get the Accept header, defaulting to */* if not present."""
         # Try lowercase first (from ASGI), fall back to title case (from test drivers)
-        return self.headers.get("accept") or self.headers.get("Accept", "*/*")
+        result = self.headers.get("accept") or self.headers.get("Accept")
+        return result if result else "*/*"
 
     def get_content_type(self) -> Optional[str]:
         """Get the Content-Type header."""
@@ -213,19 +389,19 @@ class Response:
 
     status_code: int
     body: Optional[str] = None
-    headers: Optional[Dict[str, str]] = None
+    headers: Optional[Union[Dict[str, str], 'MultiValueHeaders']] = None
     content_type: Optional[str] = None
     request: Optional['Request'] = None
     available_content_types: Optional[list] = None
-    pre_calculated_headers: Optional[Dict[str, str]] = None
+    pre_calculated_headers: Optional[Union[Dict[str, str], 'MultiValueHeaders']] = None
     etag: Optional[str] = None
     last_modified: Optional[datetime] = None
 
     def __post_init__(self):
         if self.headers is None:
-            self.headers = CaseInsensitiveDict()
-        elif not isinstance(self.headers, CaseInsensitiveDict):
-            self.headers = CaseInsensitiveDict(self.headers)
+            self.headers = MultiValueHeaders()
+        elif not isinstance(self.headers, MultiValueHeaders):
+            self.headers = MultiValueHeaders(self.headers)
 
         # If we have pre-calculated headers, use them first
         if self.pre_calculated_headers:

@@ -16,7 +16,7 @@ from .content_renderers import (
     JSONRenderer,
     PlainTextRenderer,
 )
-from .adapters import Adapter
+from .adapters import Adapter, ASGIAdapter, create_asgi_app
 from .dependencies import DependencyScope
 from .error_models import ErrorResponse
 from .exceptions import ValidationError
@@ -57,6 +57,8 @@ __all__ = [
     "ErrorResponse",
     "ValidationError",
     "Adapter",
+    "ASGIAdapter",
+    "create_asgi_app",
     "render",
 ]
 

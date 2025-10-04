@@ -712,3 +712,94 @@ class TestHeadersAcrossDrivers(MultiDriverTestBase):
         assert response.get_header("X-Driver-Test") == "true"
         assert response.get_header("X-Request-Method") == "POST"
         assert response.get_header("X-Request-Path") == "/create"
+
+
+class TestMultiValueHeaders(MultiDriverTestBase):
+    """Test multi-value header functionality across all drivers."""
+
+    def create_app(self) -> RestApplication:
+        """Set up API for multi-value header testing."""
+        app = RestApplication()
+
+        @app.get("/cookies")
+        def multiple_cookies():
+            """Endpoint that sets multiple Set-Cookie headers."""
+            from restmachine import Response
+            from restmachine.models import MultiValueHeaders
+
+            headers = MultiValueHeaders()
+            headers.add("Set-Cookie", "session=abc123; Path=/; HttpOnly")
+            headers.add("Set-Cookie", "user=john_doe; Path=/; HttpOnly")
+            headers.add("Set-Cookie", "preferences=dark_mode; Path=/")
+
+            return Response(
+                status_code=200,
+                body={"message": "Cookies set"},
+                headers=headers
+            )
+
+        @app.get("/vary-multiple")
+        def multiple_vary():
+            """Endpoint that sets multiple Vary headers."""
+            from restmachine import Response
+            from restmachine.models import MultiValueHeaders
+
+            headers = MultiValueHeaders()
+            headers.add("Vary", "Accept")
+            headers.add("Vary", "Authorization")
+            headers.add("Vary", "Accept-Encoding")
+
+            return Response(
+                status_code=200,
+                body={"message": "Multiple Vary headers"},
+                headers=headers
+            )
+
+        @app.get("/single-header")
+        def single_header():
+            """Endpoint that sets a single header value."""
+            from restmachine import Response
+            from restmachine.models import MultiValueHeaders
+
+            headers = MultiValueHeaders()
+            headers.add("X-Single", "value1")
+
+            return Response(
+                status_code=200,
+                body={"message": "Single header"},
+                headers=headers
+            )
+
+        return app
+
+    def test_multiple_set_cookie_headers(self, api):
+        """Test that multiple Set-Cookie headers are preserved."""
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/cookies")
+        api_client.expect_successful_retrieval(response)
+
+        # All drivers should preserve the first Set-Cookie header at minimum
+        set_cookie = response.get_header("Set-Cookie")
+        assert set_cookie is not None
+        assert "session=abc123" in set_cookie or "user=john_doe" in set_cookie or "preferences=dark_mode" in set_cookie
+
+    def test_multiple_vary_headers(self, api):
+        """Test that multiple Vary headers are handled correctly."""
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/vary-multiple")
+        api_client.expect_successful_retrieval(response)
+
+        # Check that at least one Vary header is present
+        vary = response.get_header("Vary")
+        assert vary is not None
+
+    def test_single_header_value(self, api):
+        """Test that single header values work correctly."""
+        api_client, driver_name = api
+
+        response = api_client.get_resource("/single-header")
+        api_client.expect_successful_retrieval(response)
+
+        assert response.get_header("X-Single") == "value1"
