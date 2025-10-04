@@ -128,8 +128,13 @@ class ASGIAdapter:
             receive: Async callable to receive ASGI messages
             send: Async callable to send ASGI messages
         """
+        if scope["type"] == "lifespan":
+            # Handle ASGI lifespan protocol for startup/shutdown
+            await self._handle_lifespan(receive, send)
+            return
+
         if scope["type"] != "http":
-            # Only handle HTTP requests
+            # Only handle HTTP and lifespan
             await send({
                 "type": "http.response.start",
                 "status": 404,
@@ -157,6 +162,50 @@ class ASGIAdapter:
 
         # Convert RestMachine Response to ASGI response
         await self._response_to_asgi(response, send)
+
+    async def _handle_lifespan(self, receive, send):
+        """
+        Handle ASGI lifespan protocol for startup and shutdown.
+
+        The lifespan protocol allows the application to run code on startup
+        and shutdown, such as opening/closing database connections.
+
+        Args:
+            receive: ASGI receive callable
+            send: ASGI send callable
+        """
+        while True:
+            message = await receive()
+
+            if message["type"] == "lifespan.startup":
+                try:
+                    # Run all registered startup handlers
+                    await self.app.startup()
+                    await send({"type": "lifespan.startup.complete"})
+                except Exception as e:
+                    # Startup failed - report error to server
+                    await send({
+                        "type": "lifespan.startup.failed",
+                        "message": str(e)
+                    })
+                    # Re-raise so server knows startup failed
+                    raise
+
+            elif message["type"] == "lifespan.shutdown":
+                try:
+                    # Run all registered shutdown handlers
+                    await self.app.shutdown()
+                    await send({"type": "lifespan.shutdown.complete"})
+                except Exception as e:
+                    # Log error but don't fail shutdown
+                    import logging
+                    logging.error(f"Error during shutdown: {e}", exc_info=True)
+                    await send({
+                        "type": "lifespan.shutdown.failed",
+                        "message": str(e)
+                    })
+                # Exit the lifespan loop after shutdown
+                return
 
     async def _asgi_to_request(self, scope: Dict[str, Any], receive) -> Request:
         """

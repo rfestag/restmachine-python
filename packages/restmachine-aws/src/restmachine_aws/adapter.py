@@ -27,10 +27,20 @@ class AwsApiGatewayAdapter(Adapter):
         """
         Initialize the adapter with a RestApplication instance.
 
+        Automatically executes startup handlers during cold start to ensure
+        session-scoped dependencies (database connections, API clients, etc.)
+        are initialized before the first request.
+
         Args:
             app: The RestApplication instance to execute requests against
         """
         self.app = app
+
+        # Execute startup handlers during Lambda cold start
+        # This ensures database connections, API clients, etc. are initialized
+        # before the first request is processed
+        if hasattr(app, '_startup_handlers') and app._startup_handlers:
+            app.startup_sync()
 
     def handle_event(self, event: Dict[str, Any], context: Optional[Any] = None) -> Dict[str, Any]:
         """

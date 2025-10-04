@@ -3,6 +3,11 @@ Example demonstrating how to use the AWS API Gateway adapter with a REST applica
 
 This example shows how to set up a REST application that can be deployed as an AWS Lambda
 function and handle API Gateway events.
+
+Key features demonstrated:
+- AWS Lambda cold start optimization with startup handlers
+- Database connection management via dependency injection
+- Session-scoped dependencies for resource reuse across warm invocations
 """
 
 from restmachine import AwsApiGatewayAdapter, RestApplication
@@ -10,25 +15,79 @@ from restmachine import AwsApiGatewayAdapter, RestApplication
 # Create the REST application
 app = RestApplication()
 
+
+# Startup handlers execute during Lambda cold start (before first request)
+# Their return values are cached as session-scoped dependencies
+@app.on_startup
+def database():
+    """
+    Initialize database connection during Lambda cold start.
+
+    This executes once when the Lambda container starts (cold start).
+    The connection is reused across all requests in the same container (warm starts).
+    """
+    print("Opening database connection...")
+    # In a real application, this would create a real database connection:
+    # import pymysql
+    # return pymysql.connect(host='...', user='...', password='...', db='...')
+    return {"connection": "mock_db_connection", "pool_size": 10}
+
+
+@app.on_startup
+def api_client():
+    """
+    Initialize external API client during Lambda cold start.
+
+    Like database connections, API clients are expensive to create,
+    so we initialize them once and reuse across requests.
+    """
+    print("Creating external API client...")
+    # In a real application:
+    # import requests
+    # return requests.Session()
+    return {"client": "mock_api_client", "base_url": "https://api.example.com"}
+
+
 # Create the AWS API Gateway adapter
+# IMPORTANT: Startup handlers execute automatically when adapter is initialized
 adapter = AwsApiGatewayAdapter(app)
 
 
 # Define some routes
 @app.get("/")
-def health_check():
-    """Health check endpoint."""
-    return {"status": "healthy", "message": "API is running"}
+def health_check(database, api_client):
+    """
+    Health check endpoint that uses startup dependencies.
+
+    The database and api_client parameters are automatically injected
+    from the startup handlers above - no additional configuration needed!
+    """
+    return {
+        "status": "healthy",
+        "message": "API is running",
+        "database_status": "connected" if database else "disconnected",
+        "api_client_status": "ready" if api_client else "unavailable"
+    }
 
 
 @app.get("/users/{user_id}")
-def get_user(user_id):
-    """Get user by ID."""
-    # In a real application, you would fetch from a database
+def get_user(user_id, database):
+    """
+    Get user by ID using the database connection.
+
+    The database parameter is injected from the startup handler.
+    This connection was created during cold start and is reused
+    across all requests in this Lambda container.
+    """
+    # In a real application, you would use the database connection:
+    # cursor = database.cursor()
+    # cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+    # user = cursor.fetchone()
     return {
         "id": user_id,
         "name": f"User {user_id}",
-        "email": f"user{user_id}@example.com"
+        "email": f"user{user_id}@example.com",
+        "db_connection": database.get("connection", "unknown")
     }
 
 

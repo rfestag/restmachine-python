@@ -19,6 +19,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Imported directly from main package: `from restmachine import ASGIAdapter, create_asgi_app`
   - Deploy with: `uvicorn app:asgi_app` or `hypercorn app:asgi_app`
   - Production-ready with Gunicorn workers: `gunicorn app:asgi_app -k uvicorn.workers.UvicornWorker`
+- **ASGI Lifespan Protocol Support**: Startup and shutdown event handlers
+  - `@app.on_startup` decorator for registering startup handlers
+  - `@app.on_shutdown` decorator for registering shutdown handlers
+  - Support for both sync and async handlers
+  - Multiple handlers can be registered and run in order
+  - Automatic integration with ASGI lifespan protocol
+  - Perfect for opening/closing database connections, loading models, etc.
+  - Startup failures properly reported to ASGI server
+  - Shutdown errors logged but don't prevent graceful shutdown
+  - **Startup handlers automatically registered as session-scoped dependencies**: Return values from startup handlers can be injected into route handlers and other dependencies
+  - **Shutdown handlers support dependency injection**: Shutdown handlers can inject session-scoped dependencies (like database connections from startup handlers) for proper cleanup
+  - Startup dependencies are cached across all requests (session scope) for optimal performance
+  - Startup handlers execute exactly once during ASGI lifespan startup, with return values immediately cached to prevent re-execution on first request
+  - Multiple startup handlers fully supported (e.g., database connection + API client initialization)
+- **AWS Lambda Startup Support**: Startup handlers now execute automatically during Lambda cold start
+  - `AwsApiGatewayAdapter` automatically calls `app.startup_sync()` during initialization
+  - Enables database connections, API clients, and other resources to be initialized once per container
+  - Return values cached as session-scoped dependencies and reused across warm invocations
+  - Added `startup_sync()` and `shutdown_sync()` methods for synchronous startup/shutdown execution
+- **AWS Lambda Shutdown Support**: Ready-to-use Lambda Extension for automatic shutdown handler execution
+  - `ShutdownExtension` class for creating Lambda Extensions
+  - CLI command: `python -m restmachine_aws create-extension` generates ready-to-deploy extension
+  - Extension automatically calls `app.shutdown_sync()` when Lambda container terminates
+  - Enables proper cleanup of database connections, API clients, and other resources
+  - Environment variable customization: `RESTMACHINE_HANDLER_MODULE`, `RESTMACHINE_APP_NAME`, `RESTMACHINE_LOG_LEVEL`
+  - Comprehensive tests and examples included
+  - Zero code changes required in handler - extension works automatically
 - **Multi-Value Headers**: Full HTTP spec compliance for headers that can appear multiple times
   - New `MultiValueHeaders` class replacing `CaseInsensitiveDict`
   - Support for multiple values per header name (Set-Cookie, Accept, Vary, etc.)
@@ -251,8 +278,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Dependencies
 - Jinja2 (>=3.0.0) - Required for template rendering
+- anyio (>=3.0.0) - Required for async/sync bridge in startup/shutdown handlers
 - Optional Pydantic dependency for validation features
-- Optional server dependencies (uvicorn, hypercorn)
 
 ### Supported Python Versions
 - Python 3.8+

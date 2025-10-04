@@ -28,6 +28,7 @@ classifiers = [
 
 dependencies = [
     "jinja2>=3.0.0",
+    "anyio>=3.0.0",  # Required for async/sync bridge in startup_sync/shutdown_sync
 ]
 
 [project.optional-dependencies]

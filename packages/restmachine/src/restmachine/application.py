@@ -157,6 +157,9 @@ class RestApplication:
         self._error_handlers: List[ErrorHandler] = []
         self._request_id_provider: Optional[Callable] = None
         self._trace_id_provider: Optional[Callable] = None
+        self._startup_handlers: List[Callable] = []
+        self._shutdown_handlers: List[Callable] = []
+        self._startup_executed = False  # Guard to prevent double execution
 
         # Create default root router - all routes go through this
         self._root_router = Router(app=self)
@@ -580,11 +583,17 @@ class RestApplication:
         return self._root_router.patch(path)
 
     def _resolve_dependency(
-        self, param_name: str, param_type: Optional[Type], request: Request, route: Optional[RouteHandler] = None
+        self, param_name: str, param_type: Optional[Type], request: Optional[Request], route: Optional[RouteHandler] = None
     ) -> Any:
         """Resolve a dependency by name and type.
 
         Raises ValueError if the dependency cannot be found, which indicates a programming error.
+
+        Args:
+            param_name: Name of the parameter to resolve
+            param_type: Type annotation of the parameter (if available)
+            request: Request object (can be None for shutdown handlers)
+            route: Route handler (can be None for shutdown handlers)
         """
         # Store route in cache so built-in dependencies can access it
         if route is not None:
@@ -600,11 +609,13 @@ class RestApplication:
 
         # Handle Request type annotation or "request" parameter name
         if param_type == Request or param_name == "request":
+            if request is None:
+                raise ValueError("Cannot inject 'request' in shutdown handlers - no request context available")
             self._dependency_cache.set("request", request, dep_scope)
             return request
 
         # Check if the parameter name is in path_params
-        if request.path_params and param_name in request.path_params:
+        if request is not None and request.path_params and param_name in request.path_params:
             path_value = request.path_params[param_name]
             self._dependency_cache.set(param_name, path_value, dep_scope)
             return path_value
@@ -615,8 +626,8 @@ class RestApplication:
             self._dependency_cache.set(param_name, resolved_value, dep_scope)
             return resolved_value
 
-        # Check if this is an accepts parser dependency
-        if self._accepts_dependency_exists(param_name, request, route):
+        # Check if this is an accepts parser dependency (only if we have a request)
+        if request is not None and self._accepts_dependency_exists(param_name, request, route):
             accepts_value = self._resolve_accepts_dependency(param_name, request, route)
             self._dependency_cache.set(param_name, accepts_value, dep_scope)
             return accepts_value
@@ -653,7 +664,7 @@ class RestApplication:
         """Check if a registered dependency exists."""
         return param_name in self._dependencies
 
-    def _resolve_registered_dependency(self, param_name: str, request: Request, route: Optional[RouteHandler]) -> Any:
+    def _resolve_registered_dependency(self, param_name: str, request: Optional[Request], route: Optional[RouteHandler]) -> Any:
         """Resolve a registered dependency (built-in or custom).
 
         Returns the resolved value, which may be None for some dependencies like 'exception'.
@@ -722,7 +733,7 @@ class RestApplication:
                 original_exception=e
             )
 
-    def _call_with_injection(self, func: Callable, request: Request, route: Optional[RouteHandler] = None) -> Any:
+    def _call_with_injection(self, func: Callable, request: Optional[Request], route: Optional[RouteHandler] = None) -> Any:
         """Call a function with dependency injection."""
         # Use cached signature if this is the route handler
         if route and func == route.handler:
@@ -848,6 +859,146 @@ class RestApplication:
         Uses the root router's trie-based lookup for efficient checking.
         """
         return self._root_router.has_path(path)
+
+    def on_startup(self, func: Optional[Callable] = None):
+        """Register a startup handler to run when the application starts.
+
+        Can be used as a decorator:
+            @app.on_startup
+            async def database():
+                print("Opening database connection...")
+                return create_db_connection()
+
+            @app.get("/users")
+            def get_users(database):  # database from startup is injected here
+                return database.query("SELECT * FROM users")
+
+        Or called directly:
+            app.on_startup(my_startup_function)
+
+        Startup handlers are automatically registered as session-scoped dependencies,
+        so their return values can be injected into route handlers and other dependencies.
+        Handlers can be sync or async functions.
+        """
+        def decorator(f: Callable) -> Callable:
+            self._startup_handlers.append(f)
+            # Also register as a session-scoped dependency so return value can be injected
+            self._dependencies[f.__name__] = Dependency(f, scope="session")
+            return f
+
+        if func is None:
+            return decorator
+        else:
+            return decorator(func)
+
+    def on_shutdown(self, func: Optional[Callable] = None):
+        """Register a shutdown handler to run when the application stops.
+
+        Can be used as a decorator:
+            @app.on_shutdown
+            async def shutdown():
+                print("Application shutting down...")
+                # Close connections, cleanup resources, etc.
+
+        Or called directly:
+            app.on_shutdown(my_shutdown_function)
+
+        Handlers can be sync or async functions.
+        """
+        def decorator(f: Callable) -> Callable:
+            self._shutdown_handlers.append(f)
+            return f
+
+        if func is None:
+            return decorator
+        else:
+            return decorator(func)
+
+    async def startup(self):
+        """Run all registered startup handlers.
+
+        This is called automatically by the ASGI adapter when the
+        application starts. Handlers are run in registration order.
+
+        The return values from startup handlers are cached in the session
+        scope, making them available as dependencies throughout the application
+        lifetime without being re-executed.
+
+        Raises any exceptions from startup handlers.
+        """
+        # Guard against double execution
+        if self._startup_executed:
+            return
+        self._startup_executed = True
+
+        for handler in self._startup_handlers:
+            # Execute the handler and get its return value
+            if inspect.iscoroutinefunction(handler):
+                result = await handler()
+            else:
+                result = handler()
+
+            # Cache the result in session scope so it can be injected as a dependency
+            # without re-executing the handler on the first request
+            self._dependency_cache.set(handler.__name__, result, "session")
+
+    async def shutdown(self):
+        """Run all registered shutdown handlers.
+
+        This is called automatically by the ASGI adapter when the
+        application stops. Handlers are run in registration order.
+
+        Shutdown handlers support dependency injection, allowing them to
+        inject session-scoped dependencies (like database connections from
+        startup handlers) for proper cleanup.
+
+        Logs exceptions from shutdown handlers but does not raise them.
+        """
+        for handler in self._shutdown_handlers:
+            try:
+                # Resolve dependencies for the shutdown handler
+                sig = inspect.signature(handler)
+                kwargs = {}
+
+                for param_name, param in sig.parameters.items():
+                    param_type = (
+                        param.annotation
+                        if param.annotation != inspect.Parameter.empty
+                        else None
+                    )
+                    # Pass None for request since shutdown handlers don't have request context
+                    resolved_value = self._resolve_dependency(param_name, param_type, None, None)
+                    kwargs[param_name] = resolved_value
+
+                # Call the handler with resolved dependencies
+                if inspect.iscoroutinefunction(handler):
+                    await handler(**kwargs)
+                else:
+                    handler(**kwargs)
+            except Exception as e:
+                logger.error(f"Error in shutdown handler: {e}", exc_info=True)
+
+    def startup_sync(self):
+        """Synchronous wrapper for startup().
+
+        This is called automatically by the AWS Lambda adapter during cold start
+        to execute startup handlers in a synchronous context (module-level initialization).
+
+        Uses anyio.run() to execute the async startup() method synchronously.
+        """
+        import anyio
+        anyio.run(self.startup)
+
+    def shutdown_sync(self):
+        """Synchronous wrapper for shutdown().
+
+        This can be called by AWS Lambda Extensions or other synchronous shutdown hooks
+        to execute shutdown handlers in a synchronous context.
+
+        Uses anyio.run() to execute the async shutdown() method synchronously.
+        """
+        import anyio
+        anyio.run(self.shutdown)
 
     def execute(self, request: Request) -> Response:
         """Execute a request through the state machine."""

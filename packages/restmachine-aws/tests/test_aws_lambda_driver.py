@@ -354,3 +354,81 @@ class TestAwsIntegrationScenarios(MultiDriverTestBase):
         # Try to delete non-existent user
         delete_response = api_client.delete_resource("/users/999")
         api_client.expect_not_found(delete_response)
+
+
+class TestAwsStartupHandlers(MultiDriverTestBase):
+    """Test that startup handlers execute during AWS Lambda cold start."""
+
+    def create_app(self) -> RestApplication:
+        """Create app with startup handlers for AWS Lambda testing."""
+        app = RestApplication()
+
+        # Track startup handler executions
+        self.database_calls = {"count": 0}
+        self.api_client_calls = {"count": 0}
+
+        @app.on_startup
+        def database():
+            """Simulates opening a database connection during cold start."""
+            self.database_calls["count"] += 1
+            return {"connection": f"db_connection_{self.database_calls['count']}"}
+
+        @app.on_startup
+        def api_client():
+            """Simulates creating an API client during cold start."""
+            self.api_client_calls["count"] += 1
+            return {"client": f"api_client_{self.api_client_calls['count']}"}
+
+        @app.get("/status")
+        def status(database, api_client):
+            """Endpoint that uses startup dependencies."""
+            return {
+                "database": database,
+                "api_client": api_client,
+                "database_call_count": self.database_calls["count"],
+                "api_client_call_count": self.api_client_calls["count"]
+            }
+
+        return app
+
+    def test_startup_handlers_execute_on_adapter_init(self, api):
+        """Startup handlers should execute when AWS adapter is initialized (cold start)."""
+        api_client, driver_name = api
+
+        # Make first request - startup should have already executed during adapter init
+        response = api_client.get_resource("/status")
+        data = api_client.expect_successful_retrieval(response)
+
+        # Verify startup handlers were called exactly once
+        assert data["database_call_count"] == 1
+        assert data["api_client_call_count"] == 1
+
+        # Verify the cached values from startup are injected
+        assert data["database"]["connection"] == "db_connection_1"
+        assert data["api_client"]["client"] == "api_client_1"
+
+    def test_startup_handlers_not_called_again_on_requests(self, api):
+        """Startup handlers should not be called again on subsequent requests (warm starts)."""
+        api_client, driver_name = api
+
+        # Make multiple requests
+        response1 = api_client.get_resource("/status")
+        response2 = api_client.get_resource("/status")
+        response3 = api_client.get_resource("/status")
+
+        data1 = api_client.expect_successful_retrieval(response1)
+        data2 = api_client.expect_successful_retrieval(response2)
+        data3 = api_client.expect_successful_retrieval(response3)
+
+        # All requests should show handlers were called exactly once
+        assert data1["database_call_count"] == 1
+        assert data1["api_client_call_count"] == 1
+        assert data2["database_call_count"] == 1
+        assert data2["api_client_call_count"] == 1
+        assert data3["database_call_count"] == 1
+        assert data3["api_client_call_count"] == 1
+
+        # All should return the same cached values
+        assert data1["database"]["connection"] == "db_connection_1"
+        assert data2["database"]["connection"] == "db_connection_1"
+        assert data3["database"]["connection"] == "db_connection_1"

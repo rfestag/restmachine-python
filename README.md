@@ -183,6 +183,66 @@ def home():
 asgi_app = create_asgi_app(app)
 ```
 
+#### Startup and Shutdown Events
+
+RestMachine supports ASGI lifespan events for running code on application startup and shutdown:
+
+```python
+from restmachine import RestApplication, ASGIAdapter
+
+app = RestApplication()
+
+# Startup handler - runs when the application starts
+@app.on_startup
+async def startup():
+    print("Opening database connection...")
+    # Initialize database connections, load ML models, etc.
+
+# Shutdown handler - runs when the application stops
+@app.on_shutdown
+async def shutdown():
+    print("Closing database connection...")
+    # Close connections, cleanup resources, etc.
+
+@app.get("/")
+def home():
+    return {"message": "Hello World!"}
+
+asgi_app = ASGIAdapter(app)
+```
+
+**Dependency Injection**: Startup handlers are automatically registered as session-scoped dependencies. Their return values can be injected into route handlers and shutdown handlers:
+
+```python
+@app.on_startup
+def database():
+    # This runs once on startup
+    print("Opening database connection...")
+    return create_db_connection()
+
+@app.get("/users")
+def get_users(database):  # database from startup is injected here
+    return database.query("SELECT * FROM users")
+
+@app.on_shutdown
+def close_database(database):  # database from startup is injected for cleanup
+    print("Closing database connection...")
+    database.close()
+```
+
+Both sync and async handlers are supported:
+```python
+@app.on_startup
+def sync_startup():
+    print("This is a synchronous startup handler")
+
+@app.on_startup
+async def async_startup():
+    await initialize_async_resources()
+```
+
+Multiple handlers can be registered and will run in registration order. Startup dependencies are cached across all requests (session scope).
+
 ### AWS Lambda Deployment
 
 For serverless deployment on AWS Lambda:
@@ -197,16 +257,40 @@ from restmachine_aws import AwsApiGatewayAdapter
 
 app = RestApplication()
 
-@app.get("/hello")
-def hello():
-    return {"message": "Hello from Lambda!"}
+# Startup handlers execute during Lambda cold start
+@app.on_startup
+def database():
+    # Opens connection once per container
+    return create_db_connection()
 
-# Create Lambda handler
+@app.get("/users")
+def get_users(database):  # Injected from startup
+    return database.query_users()
+
+# Startup handlers execute automatically when adapter is created
 adapter = AwsApiGatewayAdapter(app)
 
 def lambda_handler(event, context):
     return adapter.handle_event(event, context)
 ```
+
+**Startup Handlers**: Automatically execute during Lambda cold start (when `AwsApiGatewayAdapter` is initialized). Return values are cached and injected as session-scoped dependencies across all requests in the same container.
+
+**Shutdown Handlers**: Executed via Lambda Extension. Shutdown handlers support dependency injection, allowing them to inject startup dependencies for cleanup:
+
+```bash
+python -m restmachine_aws create-extension
+```
+
+This creates `extensions/restmachine-shutdown` which automatically calls shutdown handlers when the Lambda container terminates. Deploy it with your function:
+
+```python
+@app.on_shutdown
+def close_database(database):  # Injects database from startup handler
+    database.close()  # Cleanup on container termination
+```
+
+The extension works automatically - no code changes needed!
 
 ## License
 
