@@ -12,6 +12,13 @@ This project includes comprehensive security scanning tools to help identify vul
 - **Config**: `pyproject.toml` under `[tool.bandit]`
 - **Reports**: Console output + `bandit-report.sarif` (SARIF format for GitHub Security tab)
 
+#### CodeQL - Advanced Security Analysis
+- **Purpose**: Deep semantic code analysis for security vulnerabilities and code quality
+- **Run**: Automatic via GitHub Actions (`.github/workflows/codeql.yml`)
+- **Query Suite**: `security-and-quality` (comprehensive analysis)
+- **Reports**: GitHub Security tab (SARIF format)
+- **Triggers**: Push to main/develop, PRs, weekly schedule (Monday 10am UTC)
+
 #### Semgrep - Advanced SAST (Optional)
 - **Purpose**: Advanced pattern-based security scanning
 - **Run**: `tox -e semgrep`
@@ -24,6 +31,13 @@ This project includes comprehensive security scanning tools to help identify vul
 - **Run**: `tox -e pip-audit`
 - **Reports**: Console output + `pip-audit-report.md` (Markdown format)
 - **Database**: Uses PyPI vulnerability database
+
+#### Dependabot - Automated Dependency Updates
+- **Purpose**: Automatically detects and creates PRs for dependency updates
+- **Config**: `.github/dependabot.yml`
+- **Schedule**: Weekly (Monday 9am UTC)
+- **Coverage**: Python dependencies and GitHub Actions
+- **Features**: Groups minor/patch updates, auto-labels PRs
 
 ### 3. Secret Detection
 
@@ -43,10 +57,12 @@ tox -e security
 ### Run Individual Scans
 ```bash
 # SAST scanning
-tox -e bandit
+tox -e bandit           # Local static analysis
+# CodeQL runs via GitHub Actions automatically
 
 # Dependency vulnerabilities
-tox -e pip-audit
+tox -e pip-audit        # Manual dependency scan
+# Dependabot runs automatically weekly
 
 # Secret detection
 tox -e secrets
@@ -83,7 +99,10 @@ This project includes automated security scanning as part of the CI workflow. Th
 - Uploads Bandit results to GitHub Security tab (SARIF format)
 - Uploads pip-audit markdown reports as artifacts
 
-**View security findings**: Navigate to the **Security** tab → **Code scanning** in GitHub to see Bandit findings.
+**View security findings**: Navigate to the **Security** tab in GitHub:
+- **Code scanning** → View Bandit and CodeQL findings
+- **Dependabot alerts** → View dependency vulnerabilities
+- **Code scanning alerts** → Filtered views by severity/tool
 
 The security scans run in parallel with unit tests, linting, and type checking as part of the CI pipeline.
 

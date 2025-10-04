@@ -41,6 +41,40 @@ This project uses a hybrid workflow approach that separates concerns by trigger 
 
 **Dependencies:** Publish requires build to complete
 
+### `codeql.yml` - Advanced Security Analysis
+**Triggers:**
+- Push to `main` and `develop` branches
+- Pull requests to `main`
+- Weekly schedule (Monday 10am UTC)
+
+**Jobs:**
+- `analyze` - CodeQL security analysis
+  - Scans for security vulnerabilities
+  - Detects code quality issues
+  - Uses `security-and-quality` query suite
+  - Uploads results to GitHub Security tab
+
+**Language:** Python
+
+## Automated Dependency Management
+
+### Dependabot Configuration (`.github/dependabot.yml`)
+
+Dependabot automatically creates pull requests for dependency updates:
+
+**Python Dependencies:**
+- Checks weekly (Monday 9am UTC)
+- Groups minor/patch updates together
+- Separate groups for development vs production dependencies
+- Max 10 open PRs
+
+**GitHub Actions Dependencies:**
+- Checks weekly (Monday 9am UTC)
+- Keeps workflow actions up to date
+- Max 5 open PRs
+
+All Dependabot PRs are automatically labeled and assigned for review.
+
 ## Workflow Design
 
 ### Why This Structure?
@@ -73,8 +107,11 @@ This project uses a hybrid workflow approach that separates concerns by trigger 
 ## Security Findings
 
 View security scan results:
-- **GitHub Security Tab** → **Code scanning** → **bandit** category
+- **GitHub Security Tab** → **Code scanning**
+  - **bandit** - SAST security issues
+  - **CodeQL** - Advanced security and quality analysis
 - **CI Artifacts** → `security-reports` or `pip-audit-report`
+- **Dependabot** → **Pull requests** tab (dependency vulnerabilities)
 
 ## Running Workflows Locally
 
@@ -108,4 +145,13 @@ ci.yml:
 publish.yml (on tags):
   ├── build
   └── publish (depends on build)
+
+codeql.yml (parallel to CI):
+  └── analyze ──→ SARIF upload to Security tab
+
+Automated:
+  ├── dependabot ──→ Creates PRs for dependency updates
+  └── scheduled scans (weekly)
+      ├── ci.yml security job (Monday 9am UTC)
+      └── codeql.yml (Monday 10am UTC)
 ```
