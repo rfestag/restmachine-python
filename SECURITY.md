@@ -76,7 +76,7 @@ tox -e semgrep
 
 ### GitHub Actions
 
-This project includes automated security scanning as part of the main test workflow. The security job:
+This project includes automated security scanning as part of the CI workflow. The security job:
 - Runs on every push to `main` and `develop` branches
 - Runs on all pull requests to `main`
 - Runs weekly on Monday at 9am UTC (scheduled scan)
