@@ -1,152 +1,582 @@
 """
-Webmachine-inspired state machine for HTTP request processing.
+Webmachine-style state machine using methods instead of objects.
+
+Following webmachine-ruby's pattern: each state is a method that returns
+either the next method to call or a Response object.
 """
 
 import inspect
 import json
 import logging
-from datetime import datetime
+from dataclasses import dataclass, field
 from http import HTTPStatus
-from typing import Any, Callable, Dict, List, Optional, Union, cast, get_origin, get_args
+from typing import Union, Callable, Optional, cast, Any, Dict, List, get_origin, get_args, TYPE_CHECKING
+from datetime import datetime
 
-from .content_renderers import ContentRenderer
-from .dependencies import DependencyWrapper
-from .error_models import ErrorResponse
-from .exceptions import PYDANTIC_AVAILABLE, ValidationError, AcceptsParsingError
-from .models import HTTPMethod, Request, Response, etags_match
+from restmachine.models import Request, Response, HTTPMethod, etags_match, MultiValueHeaders
+from restmachine.dependencies import DependencyWrapper
+from restmachine.error_models import ErrorResponse
+from restmachine.exceptions import PYDANTIC_AVAILABLE, ValidationError, AcceptsParsingError
 
-# Set up logger for this module
+if TYPE_CHECKING:
+    from restmachine.application import RestApplication, RouteHandler
+    from restmachine.content_renderers import ContentRenderer
+
 logger = logging.getLogger(__name__)
 
 
-class StateMachineResult:
-    """Result from a state machine decision point."""
+@dataclass
+class StateContext:
+    """Shared context for state machine execution.
 
-    def __init__(self, continue_processing: bool, response: Optional[Response] = None):
-        self.continue_processing = continue_processing
-        self.response = response
+    This contains all the information needed by state methods to make decisions
+    and perform their operations.
+    """
+    app: 'RestApplication'
+    request: 'Request'
+    route_handler: Optional['RouteHandler'] = None
+    chosen_renderer: Optional['ContentRenderer'] = None
+    handler_dependencies: List[str] = field(default_factory=list)
+    dependency_callbacks: Dict[str, 'DependencyWrapper'] = field(default_factory=dict)
+    handler_result: Any = None
 
 
 class RequestStateMachine:
-    """Webmachine-like state machine for processing HTTP requests."""
-    request: Request
-    chosen_renderer: ContentRenderer
+    """Webmachine-style state machine using methods for states.
+
+    Each state is a method that returns either:
+    - Another method (next state)
+    - A Response object (terminal state)
+
+    This eliminates all state object creation overhead.
+    """
 
     def __init__(self, app):
         self.app = app
-        self.route_handler = None
-        self.handler_dependencies: List[str] = []
-        self.dependency_callbacks: Dict[str, DependencyWrapper] = {}
-        self.handler_result: Any = None
+        # ctx is initialized in process_request before any state methods are called
+        self.ctx: StateContext  # type: ignore[misc]
+
+    def process_request(self, request: Request) -> Response:
+        """Process a request through the state machine."""
+        # Initialize context
+        self.ctx = StateContext(app=self.app, request=request)
+        self.app._dependency_cache.clear()
+
+        logger.debug(f"State machine v2: {request.method.value} {request.path}")
+
+        # Start with first state method
+        current: Union[Callable, Response] = self.state_route_exists
+
+        state_count = 0
+        max_states = 50
+
+        # Execute state methods until we get a Response
+        while not isinstance(current, Response):
+            state_count += 1
+
+            if state_count > max_states:
+                logger.error(f"State machine exceeded max states ({max_states})")
+                return self._create_error_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    "Internal error: state machine loop detected"
+                )
+
+            state_name = current.__name__
+            logger.debug(f"  [{state_count}] → {state_name}")
+
+            try:
+                current = current()
+            except Exception as e:
+                logger.error(f"Error in state {state_name}: {e}", exc_info=True)
+                self.app._dependency_cache.set("exception", e)
+                return self._create_error_response(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    f"Internal error in {state_name}: {str(e)}"
+                )
+
+        logger.debug(f"  ✓ Complete in {state_count} states: {current.status_code}")
+        return current
+
+    # ========================================================================
+    # STATE METHODS (following webmachine pattern)
+    # ========================================================================
+
+    def state_route_exists(self) -> Union[Callable, Response]:
+        """B13: Check if route exists."""
+        route_match = self.app._find_route(self.ctx.request.method, self.ctx.request.path)
+
+        if route_match is None:
+            if self.app._path_has_routes(self.ctx.request.path):
+                return self._create_error_response(
+                    HTTPStatus.METHOD_NOT_ALLOWED, "Method Not Allowed"
+                )
+
+            callback = self.app._default_callbacks.get("route_not_found")
+            if callback:
+                try:
+                    response = self.app._call_with_injection(callback, self.ctx.request, None)
+                    if isinstance(response, Response):
+                        return response
+                except Exception as e:
+                    logger.error(f"Error in route_not_found callback: {e}")
+
+            return self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found")
+
+        # Populate context
+        self.ctx.route_handler, path_params = route_match
+        self.ctx.request.path_params = path_params
+        self.ctx.handler_dependencies = list(self.ctx.route_handler.param_info.keys())
+
+        # Copy pre-resolved state callbacks
+        for state_name, callback in self.ctx.route_handler.state_callbacks.items():
+            wrapper = DependencyWrapper(callback, state_name, callback.__name__)
+            self.ctx.dependency_callbacks[state_name] = wrapper
+
+        return self.state_service_available
+
+    def state_service_available(self) -> Union[Callable, Response]:
+        """B12: Check if service is available."""
+        callback = self._get_callback("service_available")
+        if callback:
+            try:
+                available = self.app._call_with_injection(
+                    callback, self.ctx.request, self.ctx.route_handler
+                )
+                if not available:
+                    return self._create_error_response(
+                        HTTPStatus.SERVICE_UNAVAILABLE, "Service Unavailable"
+                    )
+            except Exception as e:
+                self.app._dependency_cache.set("exception", e)
+                return self._create_error_response(
+                    HTTPStatus.SERVICE_UNAVAILABLE, f"Service check failed: {str(e)}"
+                )
+
+        return self.state_known_method
+
+    def state_known_method(self) -> Union[Callable, Response]:
+        """B11: Check if HTTP method is known."""
+        callback = self._get_callback("known_method")
+        if callback:
+            try:
+                known = self.app._call_with_injection(
+                    callback, self.ctx.request, self.ctx.route_handler
+                )
+                if not known:
+                    return self._create_error_response(HTTPStatus.NOT_IMPLEMENTED, "Not Implemented")
+            except Exception as e:
+                self.app._dependency_cache.set("exception", e)
+                return self._create_error_response(
+                    HTTPStatus.NOT_IMPLEMENTED, f"Method check failed: {str(e)}"
+                )
+        else:
+            known_methods = {
+                HTTPMethod.GET, HTTPMethod.POST, HTTPMethod.PUT,
+                HTTPMethod.DELETE, HTTPMethod.PATCH
+            }
+            if self.ctx.request.method not in known_methods:
+                return self._create_error_response(HTTPStatus.NOT_IMPLEMENTED, "Not Implemented")
+
+        return self.state_uri_too_long
+
+    def state_uri_too_long(self) -> Union[Callable, Response]:
+        """B10: Check if URI is too long."""
+        callback = self._get_callback("uri_too_long")
+        if callback:
+            try:
+                too_long = self.app._call_with_injection(
+                    callback, self.ctx.request, self.ctx.route_handler
+                )
+                if too_long:
+                    return self._create_error_response(HTTPStatus.REQUEST_URI_TOO_LONG, "URI Too Long")
+            except Exception as e:
+                self.app._dependency_cache.set("exception", e)
+                return self._create_error_response(
+                    HTTPStatus.REQUEST_URI_TOO_LONG, f"URI check failed: {str(e)}"
+                )
+
+        return self.state_method_allowed
+
+    def state_method_allowed(self) -> Union[Callable, Response]:
+        """B9: Check if method is allowed."""
+        callback = self._get_callback("method_allowed")
+        if callback:
+            try:
+                allowed = self.app._call_with_injection(
+                    callback, self.ctx.request, self.ctx.route_handler
+                )
+                if not allowed:
+                    return self._create_error_response(HTTPStatus.METHOD_NOT_ALLOWED, "Method Not Allowed")
+            except Exception as e:
+                self.app._dependency_cache.set("exception", e)
+                return self._create_error_response(
+                    HTTPStatus.METHOD_NOT_ALLOWED, f"Method check failed: {str(e)}"
+                )
+
+        return self.state_malformed_request
+
+    def state_malformed_request(self) -> Union[Callable, Response]:
+        """B8: Check if request is malformed."""
+        callback = self._get_callback("malformed_request")
+        if callback:
+            try:
+                malformed = self.app._call_with_injection(
+                    callback, self.ctx.request, self.ctx.route_handler
+                )
+                if malformed:
+                    return self._create_error_response(HTTPStatus.BAD_REQUEST, "Bad Request")
+            except Exception as e:
+                self.app._dependency_cache.set("exception", e)
+                return self._create_error_response(
+                    HTTPStatus.BAD_REQUEST, f"Request validation failed: {str(e)}"
+                )
+
+        return self.state_authorized
+
+    def state_authorized(self) -> Union[Callable, Response]:
+        """B7: Check if request is authorized."""
+        callback = self._get_callback("authorized")
+        if callback:
+            try:
+                authorized = self.app._call_with_injection(
+                    callback, self.ctx.request, self.ctx.route_handler
+                )
+                if not authorized:
+                    return self._create_error_response(HTTPStatus.UNAUTHORIZED, "Unauthorized")
+            except Exception as e:
+                self.app._dependency_cache.set("exception", e)
+                return self._create_error_response(
+                    HTTPStatus.UNAUTHORIZED, f"Authorization check failed: {str(e)}"
+                )
+
+        return self.state_forbidden
+
+    def state_forbidden(self) -> Union[Callable, Response]:
+        """B6: Check if access is forbidden."""
+        callback = self._get_callback("forbidden")
+        if callback:
+            try:
+                if "forbidden" in self.ctx.dependency_callbacks:
+                    wrapper = self.ctx.dependency_callbacks["forbidden"]
+                    try:
+                        resolved_value = self.app._call_with_injection(
+                            wrapper.func, self.ctx.request, self.ctx.route_handler
+                        )
+                        if resolved_value is None:
+                            return self._create_error_response(HTTPStatus.FORBIDDEN, "Forbidden")
+                    except Exception as e:
+                        self.app._dependency_cache.set("exception", e)
+                        return self._create_error_response(HTTPStatus.FORBIDDEN, "Forbidden")
+                else:
+                    forbidden = self.app._call_with_injection(
+                        callback, self.ctx.request, self.ctx.route_handler
+                    )
+                    if forbidden:
+                        return self._create_error_response(HTTPStatus.FORBIDDEN, "Forbidden")
+            except Exception as e:
+                self.app._dependency_cache.set("exception", e)
+                return self._create_error_response(
+                    HTTPStatus.FORBIDDEN, f"Forbidden check failed: {str(e)}"
+                )
+
+        return self.state_content_headers_valid
+
+    def state_content_headers_valid(self) -> Union[Callable, Response]:
+        """B5: Check if content headers are valid."""
+        callback = self._get_callback("valid_content_headers")
+        if callback:
+            try:
+                valid = self.app._call_with_injection(
+                    callback, self.ctx.request, self.ctx.route_handler
+                )
+                if not valid:
+                    return self._create_error_response(HTTPStatus.BAD_REQUEST, "Invalid Content Headers")
+            except Exception as e:
+                self.app._dependency_cache.set("exception", e)
+                return self._create_error_response(
+                    HTTPStatus.BAD_REQUEST, f"Content header validation failed: {str(e)}"
+                )
+
+        return self.state_resource_exists
+
+    def state_resource_exists(self) -> Union[Callable, Response]:
+        """G7: Check if resource exists."""
+        callback = self._get_callback("resource_exists")
+
+        if callback:
+            try:
+                if "resource_exists" in self.ctx.dependency_callbacks:
+                    wrapper = self.ctx.dependency_callbacks["resource_exists"]
+                    resolved_value = self.app._call_with_injection(
+                        wrapper.func, self.ctx.request, self.ctx.route_handler
+                    )
+                    if resolved_value is None:
+                        if self.ctx.request.method == HTTPMethod.POST:
+                            return self.state_content_types_provided
+                        return self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found")
+
+                    self.app._dependency_cache.set(wrapper.original_name, resolved_value)
+                else:
+                    exists = self.app._call_with_injection(
+                        callback, self.ctx.request, self.ctx.route_handler
+                    )
+                    if not exists:
+                        if self.ctx.request.method == HTTPMethod.POST:
+                            return self.state_content_types_provided
+                        return self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found")
+
+            except Exception as e:
+                logger.error(f"Error in resource_exists check: {e}")
+                if self.ctx.request.method == HTTPMethod.POST:
+                    return self.state_content_types_provided
+                self.app._dependency_cache.set("exception", e)
+                return self._create_error_response(
+                    HTTPStatus.NOT_FOUND, f"Resource check failed: {str(e)}"
+                )
+
+        # Check if we need conditional processing
+        if not self._needs_conditional_processing():
+            logger.debug("Skipping conditional states (not needed)")
+            return self.state_content_types_provided
+
+        return self.state_if_match
+
+    def state_if_match(self) -> Union[Callable, Response]:
+        """G3: Process If-Match header."""
+        if_match_etags = self.ctx.request.get_if_match()
+        if not if_match_etags:
+            return self.state_if_unmodified_since
+
+        current_etag = self._get_resource_etag()
+        if not current_etag:
+            return self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed")
+
+        if "*" in if_match_etags:
+            return self.state_if_unmodified_since
+
+        for requested_etag in if_match_etags:
+            if etags_match(current_etag, requested_etag, strong_comparison=True):
+                return self.state_if_unmodified_since
+
+        return self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed")
+
+    def state_if_unmodified_since(self) -> Union[Callable, Response]:
+        """G4: Process If-Unmodified-Since header."""
+        if_unmodified_since = self.ctx.request.get_if_unmodified_since()
+        if not if_unmodified_since:
+            return self.state_if_none_match
+
+        last_modified = self._get_resource_last_modified()
+        if not last_modified:
+            return self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed")
+
+        if last_modified > if_unmodified_since:
+            return self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed")
+
+        return self.state_if_none_match
+
+    def state_if_none_match(self) -> Union[Callable, Response]:
+        """G5: Process If-None-Match header."""
+        if_none_match_etags = self.ctx.request.get_if_none_match()
+        if not if_none_match_etags:
+            return self.state_if_modified_since
+
+        current_etag = self._get_resource_etag()
+
+        if "*" in if_none_match_etags:
+            if self.ctx.request.method in [HTTPMethod.GET]:
+                return Response(HTTPStatus.NOT_MODIFIED, headers={"ETag": current_etag} if current_etag else {})
+            else:
+                return self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed")
+
+        if not current_etag:
+            return self.state_if_modified_since
+
+        for requested_etag in if_none_match_etags:
+            if etags_match(current_etag, requested_etag, strong_comparison=False):
+                if self.ctx.request.method in [HTTPMethod.GET]:
+                    return Response(HTTPStatus.NOT_MODIFIED, headers={"ETag": current_etag})
+                else:
+                    return self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed")
+
+        return self.state_if_modified_since
+
+    def state_if_modified_since(self) -> Union[Callable, Response]:
+        """G6: Process If-Modified-Since header."""
+        if self.ctx.request.method != HTTPMethod.GET:
+            return self.state_content_types_provided
+
+        if_modified_since = self.ctx.request.get_if_modified_since()
+        if not if_modified_since:
+            return self.state_content_types_provided
+
+        last_modified = self._get_resource_last_modified()
+        if not last_modified:
+            return self.state_content_types_provided
+
+        if last_modified <= if_modified_since:
+            return Response(HTTPStatus.NOT_MODIFIED)
+
+        return self.state_content_types_provided
+
+    def state_content_types_provided(self) -> Union[Callable, Response]:
+        """C3: Check if acceptable content types are provided."""
+        available_types = list(self.app._content_renderers.keys())
+
+        if self.ctx.route_handler and self.ctx.route_handler.content_renderers:
+            available_types.extend(self.ctx.route_handler.content_renderers.keys())
+        available_types = list(set(available_types))
+
+        if not available_types:
+            logger.error(f"No content renderers available for {self.ctx.request.method.value} {self.ctx.request.path}")
+            return Response(
+                HTTPStatus.INTERNAL_SERVER_ERROR,
+                '{"error": "No content renderers available"}',
+                content_type="application/json"
+            )
+
+        return self.state_content_types_accepted
+
+    def state_content_types_accepted(self) -> Union[Callable, Response]:
+        """C4: Check if we can provide an acceptable content type."""
+        accept_header = self.ctx.request.get_accept_header()
+
+        # Try route-specific renderers first
+        if self.ctx.route_handler and self.ctx.route_handler.content_renderers:
+            for content_type, wrapper in self.ctx.route_handler.content_renderers.items():
+                if content_type in self.app._content_renderers:
+                    renderer = self.app._content_renderers[content_type]
+                    if renderer.can_render(accept_header):
+                        self.ctx.chosen_renderer = renderer
+                        return self.state_execute_and_render
+
+        # Fall back to global renderers
+        for renderer in self.app._content_renderers.values():
+            if renderer.can_render(accept_header):
+                self.ctx.chosen_renderer = renderer
+                return self.state_execute_and_render
+
+        # No acceptable content type found
+        available_types = list(self.app._content_renderers.keys())
+        if self.ctx.route_handler and self.ctx.route_handler.content_renderers:
+            available_types.extend(self.ctx.route_handler.content_renderers.keys())
+        available_types = list(set(available_types))
+
+        return Response(
+            HTTPStatus.NOT_ACCEPTABLE,
+            f"Not Acceptable. Available types: {', '.join(available_types)}",
+            headers={"Content-Type": "text/plain"},
+            request=self.ctx.request,
+            available_content_types=available_types,
+        )
+
+    def state_execute_and_render(self) -> Response:
+        """Execute handler and render response (terminal state)."""
+        if not self.ctx.route_handler:
+            raise RuntimeError("route_handler must be set before executing handler")
+
+        try:
+            # Process headers dependencies first
+            processed_headers = self._process_headers_dependencies()
+
+            # Execute the main handler
+            result = self.app._call_with_injection(
+                self.ctx.route_handler.handler,
+                self.ctx.request,
+                self.ctx.route_handler
+            )
+
+            # Handle None result -> NO_CONTENT
+            if result is None:
+                return Response(HTTPStatus.NO_CONTENT, pre_calculated_headers=processed_headers)
+
+            # Add resource metadata headers (ETag, Last-Modified)
+            self._add_resource_metadata_to_headers(processed_headers)
+
+            # Validate and process return type if Pydantic is used
+            validated_result = self._validate_pydantic_return_type(result)
+
+            # Handle validated None result
+            if validated_result is None:
+                return Response(HTTPStatus.NO_CONTENT, pre_calculated_headers=processed_headers)
+
+            # Render the result
+            return self._render_result(validated_result, processed_headers)
+
+        except ValidationError as e:
+            self.app._dependency_cache.set("exception", e)
+            return self._handle_validation_error(e, processed_headers if 'processed_headers' in locals() else None)
+        except AcceptsParsingError as e:
+            self.app._dependency_cache.set("exception", e)
+            return self._handle_accepts_parsing_error(e, processed_headers if 'processed_headers' in locals() else None)
+        except ValueError as e:
+            self.app._dependency_cache.set("exception", e)
+            return self._handle_value_error(e, processed_headers if 'processed_headers' in locals() else None)
+        except Exception as e:
+            self.app._dependency_cache.set("exception", e)
+            return self._handle_general_error(e, processed_headers if 'processed_headers' in locals() else None)
+
+    # ========================================================================
+    # HELPER METHODS
+    # ========================================================================
+
+    def _get_callback(self, state_name: str):
+        """Get callback for a state."""
+        if state_name in self.ctx.dependency_callbacks:
+            return self.ctx.dependency_callbacks[state_name].func
+        return self.app._default_callbacks.get(state_name)
+
+    def _needs_conditional_processing(self) -> bool:
+        """Check if conditional request processing is needed."""
+        has_route_support = False
+        if self.ctx.route_handler:
+            conditional_states = {'generate_etag', 'last_modified'}
+            has_route_support = bool(conditional_states & set(self.ctx.route_handler.state_callbacks.keys()))
+
+        has_conditional_headers = (
+            self.ctx.request.headers.get('If-Match') or
+            self.ctx.request.headers.get('If-None-Match') or
+            self.ctx.request.headers.get('If-Modified-Since') or
+            self.ctx.request.headers.get('If-Unmodified-Since')
+        )
+
+        return has_route_support or bool(has_conditional_headers)
+
+    def _get_resource_etag(self) -> Optional[str]:
+        """Get the current ETag for the resource."""
+        callback = self._get_callback("generate_etag")
+        if callback:
+            try:
+                etag = self.app._call_with_injection(callback, self.ctx.request, self.ctx.route_handler)
+                if etag:
+                    return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
+            except Exception as e:
+                logger.warning(f"ETag generation callback failed: {e}")
+        return None
+
+    def _get_resource_last_modified(self) -> Optional[datetime]:
+        """Get the current Last-Modified timestamp for the resource."""
+        callback = self._get_callback("last_modified")
+        if callback:
+            try:
+                result = self.app._call_with_injection(callback, self.ctx.request, self.ctx.route_handler)
+                return cast(Optional[datetime], result)
+            except Exception as e:
+                logger.warning(f"Last-Modified callback failed: {e}")
+        return None
 
     def _create_error_response(self, status_code: int, message: str, details=None, **kwargs) -> Response:
-        """Create an error response respecting content negotiation.
+        """Create an error response respecting content negotiation."""
+        # Try custom error handlers first
+        custom_response = self._try_custom_error_handler(status_code, message, details, **kwargs)
+        if custom_response:
+            return custom_response
 
-        Args:
-            status_code: HTTP status code
-            message: Error message
-            details: Optional validation error details (follows Pydantic error schema)
-            **kwargs: Additional Response parameters (headers, etc.)
+        # Get request/trace IDs for error response
+        request_id, trace_id = self._get_error_context_ids()
 
-        Returns:
-            Response object formatted according to Accept header
-        """
-        # Check Accept header to determine response format
-        accept_header = self.request.get_accept_header() if hasattr(self, 'request') else ""
-
-        # Check if there are custom error handlers registered
-        if self.app._error_handlers:
-            # Find handlers that match this status code
-            matching_handlers = [
-                h for h in self.app._error_handlers
-                if h.handles_status(status_code)
-            ]
-
-            if matching_handlers:
-                # Try to find content-type-specific handler first
-                content_specific = None
-                default_handler = None
-
-                for handler in matching_handlers:
-                    if handler.content_type:
-                        # This is a content-type-specific handler
-                        if handler.matches_accept(accept_header):
-                            content_specific = handler
-                            break
-                    else:
-                        # This is a default handler (no content type specified)
-                        default_handler = handler
-
-                # Use content-specific handler if found, otherwise use default
-                chosen_handler = content_specific or default_handler
-
-                if chosen_handler:
-                    try:
-                        # Call the error handler with dependency injection
-                        result = self.app._call_with_injection(
-                            chosen_handler.handler, self.request, self.route_handler
-                        )
-
-                        # Convert result to Response if not already
-                        if isinstance(result, Response):
-                            return result
-                        elif isinstance(result, dict):
-                            # Return as JSON
-                            return Response(
-                                status_code,
-                                json.dumps(result),
-                                content_type=chosen_handler.content_type or "application/json",
-                                **kwargs
-                            )
-                        elif isinstance(result, str):
-                            # Return as text
-                            return Response(
-                                status_code,
-                                result,
-                                content_type=chosen_handler.content_type or "text/plain",
-                                **kwargs
-                            )
-                        else:
-                            # Try to serialize as JSON
-                            return Response(
-                                status_code,
-                                json.dumps(result),
-                                content_type=chosen_handler.content_type or "application/json",
-                                **kwargs
-                            )
-                    except Exception as e:
-                        # If custom handler fails, log and fall back to default
-                        logger.error(f"Error in custom error handler: {e}")
-                        # Fall through to default behavior
-
-        # Default error response behavior (no custom handler or handler failed)
-        # Get request_id and trace_id using dependency resolution
-        request_id = None
-        trace_id = None
-        try:
-            request_id = self.app._resolve_dependency("request_id", None, self.request, self.route_handler)
-            trace_id = self.app._resolve_dependency("trace_id", None, self.request, self.route_handler)
-        except Exception as e:
-            # If dependency resolution fails, continue without IDs
-            logger.warning(f"Failed to resolve request_id/trace_id for error response: {e}")
-
-        # Determine if client wants JSON
-        prefers_json = False
-        if accept_header:
-            # Simple check: if application/json is explicitly requested or */* is used
-            if "application/json" in accept_header or "*/*" in accept_header:
-                prefers_json = True
-            elif "text/plain" in accept_header:
-                prefers_json = False
-            else:
-                # Default to JSON for common browsers/APIs
-                prefers_json = True
-        else:
-            # No Accept header - default to JSON for RESTful APIs
-            prefers_json = True
-
-        if prefers_json:
-            # Return JSON error response using ErrorResponse model
+        # Determine response format from Accept header
+        if self._prefers_json_error_response():
             error_response = ErrorResponse(
                 error=message,
                 details=details,
@@ -160,7 +590,6 @@ class RequestStateMachine:
                 **kwargs
             )
         else:
-            # Return plain text error response
             return Response(
                 status_code,
                 message,
@@ -168,918 +597,360 @@ class RequestStateMachine:
                 **kwargs
             )
 
-    def process_request(self, request: Request) -> Response:
-        """Process a request through the state machine."""
-        self.request = request
-        self.app._dependency_cache.clear()
-
-        logger.debug(f"Starting state machine processing for {request.method.value} {request.path}")
-
-        def log_state_transition(state_name: str, result: StateMachineResult):
-            """Helper to log state transitions with debug info."""
-            status = "CONTINUE" if result.continue_processing else "STOP"
-            response_code = result.response.status_code if result.response else "None"
-            logger.debug(f"State {state_name}: {status} (response: {response_code})")
-
-        # This should never actually be returned, but we include it here
-        # in case a bug is intorduced where we choose not to continue processing,
-        # but also fail to provide a response
-        default_response = Response(
-            HTTPStatus.INTERNAL_SERVER_ERROR,
-            json.dumps({"error": "Unexpected error occured."}),
-            content_type="application/json",
-        )
-        try:
-            # State machine flow - all wrapped in try-catch for ValidationError
-            result = self.state_route_exists()
-            log_state_transition("route_exists", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_service_available()
-            log_state_transition("service_available", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_known_method()
-            log_state_transition("known_method", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_uri_too_long()
-            log_state_transition("uri_too_long", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_method_allowed()
-            log_state_transition("method_allowed", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_malformed_request()
-            log_state_transition("malformed_request", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_authorized()
-            log_state_transition("authorized", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_forbidden()
-            log_state_transition("forbidden", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_content_headers_valid()
-            log_state_transition("content_headers_valid", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_resource_exists()
-            log_state_transition("resource_exists", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            # Conditional request processing states
-            result = self.state_if_match()
-            log_state_transition("if_match", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_if_unmodified_since()
-            log_state_transition("if_unmodified_since", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_if_none_match()
-            log_state_transition("if_none_match", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_if_modified_since()
-            log_state_transition("if_modified_since", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            # Content negotiation states
-            result = self.state_content_types_provided()
-            log_state_transition("content_types_provided", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            result = self.state_content_types_accepted()
-            log_state_transition("content_types_accepted", result)
-            if not result.continue_processing:
-                return result.response or default_response
-
-            logger.debug("All state checks passed, executing handler and rendering response")
-            return self.state_execute_and_render()
-
-        except ValidationError as e:
-            logger.warning(f"Validation error in request processing: {e}")
-            # Get request_id and trace_id
-            request_id = None
-            trace_id = None
-            try:
-                request_id = self.app._resolve_dependency("request_id", None, self.request, self.route_handler)
-                trace_id = self.app._resolve_dependency("trace_id", None, self.request, self.route_handler)
-            except Exception as dep_error:
-                logger.warning(f"Failed to resolve request_id/trace_id for validation error: {dep_error}")
-
-            error_response = ErrorResponse.from_validation_error(
-                e,
-                message="Validation failed",
-                request_id=request_id,
-                trace_id=trace_id
-            )
-            return Response(
-                HTTPStatus.UNPROCESSABLE_ENTITY,
-                error_response.model_dump_json(),
-                content_type="application/json",
-            )
-
-    def state_route_exists(self) -> StateMachineResult:
-        """B13: Check if route exists."""
-        route_match = self.app._find_route(self.request.method, self.request.path)
-        if route_match is None:
-            # Check if ANY route exists for this path (regardless of method)
-            if self.app._path_has_routes(self.request.path):
-                # Route exists but method not allowed -> HTTPStatus.METHOD_NOT_ALLOWED
-                return StateMachineResult(False, self._create_error_response(HTTPStatus.METHOD_NOT_ALLOWED, "Method Not Allowed"))
-
-            # No route exists at all for this path -> HTTPStatus.NOT_FOUND
-            callback = self._get_callback("route_not_found")
-            if callback:
-                try:
-                    response = self.app._call_with_injection(callback, self.request, self.route_handler)
-                    if isinstance(response, Response):
-                        return StateMachineResult(False, response)
-                    return StateMachineResult(
-                        False, self._create_error_response(HTTPStatus.NOT_FOUND, str(response) if response else "Not Found")
-                    )
-                except Exception as e:
-                    logger.error(f"Error in route_not_found callback for {self.request.method.value} {self.request.path}: {e}")
-                    self.app._dependency_cache.set("exception", e)
-                    return StateMachineResult(
-                        False,
-                        self._create_error_response(HTTPStatus.INTERNAL_SERVER_ERROR, f"Error in route_not_found callback: {str(e)}"),
-                    )
-            return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found"))
-
-        self.route_handler, path_params = route_match
-        self.request.path_params = path_params
-
-        # Handler dependencies are already cached in route.param_info
-        self.handler_dependencies = list(self.route_handler.param_info.keys())
-
-        # State machine callbacks are pre-resolved in route.state_callbacks
-        # Copy them to dependency_callbacks for backward compatibility
-        for state_name, callback in self.route_handler.state_callbacks.items():
-            # Create a temporary DependencyWrapper for compatibility
-            wrapper = DependencyWrapper(callback, state_name, callback.__name__)
-            self.dependency_callbacks[state_name] = wrapper
-
-        return StateMachineResult(True)
-
-    def state_service_available(self) -> StateMachineResult:
-        """B12: Check if service is available."""
-        callback = self._get_callback("service_available")
-        if callback:
-            try:
-                available = self.app._call_with_injection(callback, self.request, self.route_handler)
-                if not available:
-                    return StateMachineResult(
-                        False, self._create_error_response(HTTPStatus.SERVICE_UNAVAILABLE, "Service Unavailable")
-                    )
-            except Exception as e:
-                self.app._dependency_cache.set("exception", e)
-                return StateMachineResult(
-                    False, self._create_error_response(HTTPStatus.SERVICE_UNAVAILABLE, f"Service check failed: {str(e)}")
-                )
-        return StateMachineResult(True)
-
-    def state_known_method(self) -> StateMachineResult:
-        """B11: Check if HTTP method is known."""
-        callback = self._get_callback("known_method")
-        if callback:
-            try:
-                known = self.app._call_with_injection(callback, self.request, self.route_handler)
-                if not known:
-                    return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_IMPLEMENTED, "Not Implemented"))
-            except Exception as e:
-                self.app._dependency_cache.set("exception", e)
-                return StateMachineResult(
-                    False, self._create_error_response(HTTPStatus.NOT_IMPLEMENTED, f"Method check failed: {str(e)}")
-                )
-        else:
-            # Default: check if method is in our known methods
-            known_methods = {
-                HTTPMethod.GET,
-                HTTPMethod.POST,
-                HTTPMethod.PUT,
-                HTTPMethod.DELETE,
-                HTTPMethod.PATCH,
-            }
-            if self.request.method not in known_methods:
-                return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_IMPLEMENTED, "Not Implemented"))
-        return StateMachineResult(True)
-
-    def state_uri_too_long(self) -> StateMachineResult:
-        """B10: Check if URI is too long."""
-        callback = self._get_callback("uri_too_long")
-        if callback:
-            try:
-                too_long = self.app._call_with_injection(callback, self.request, self.route_handler)
-                if too_long:
-                    return StateMachineResult(False, self._create_error_response(HTTPStatus.REQUEST_URI_TOO_LONG, "URI Too Long"))
-            except Exception as e:
-                self.app._dependency_cache.set("exception", e)
-                return StateMachineResult(
-                    False, self._create_error_response(HTTPStatus.REQUEST_URI_TOO_LONG, f"URI length check failed: {str(e)}")
-                )
-        else:
-            # Default: check if URI is longer than 2048 characters
-            if len(self.request.path) > 2048:
-                return StateMachineResult(False, self._create_error_response(HTTPStatus.REQUEST_URI_TOO_LONG, "URI Too Long"))
-        return StateMachineResult(True)
-
-    def state_method_allowed(self) -> StateMachineResult:
-        """B9: Check if method is allowed for this resource."""
-        callback = self._get_callback("method_allowed")
-        if callback:
-            try:
-                allowed = self.app._call_with_injection(callback, self.request, self.route_handler)
-                if not allowed:
-                    return StateMachineResult(
-                        False, self._create_error_response(HTTPStatus.METHOD_NOT_ALLOWED, "Method Not Allowed")
-                    )
-            except Exception as e:
-                self.app._dependency_cache.set("exception", e)
-                return StateMachineResult(
-                    False, self._create_error_response(HTTPStatus.METHOD_NOT_ALLOWED, f"Method check failed: {str(e)}")
-                )
-        return StateMachineResult(True)
-
-    def state_malformed_request(self) -> StateMachineResult:
-        """B8: Check if request is malformed."""
-        callback = self._get_callback("malformed_request")
-        if callback:
-            try:
-                malformed = self.app._call_with_injection(callback, self.request, self.route_handler)
-                if malformed:
-                    return StateMachineResult(False, self._create_error_response(HTTPStatus.BAD_REQUEST, "Bad Request"))
-            except Exception as e:
-                self.app._dependency_cache.set("exception", e)
-                return StateMachineResult(
-                    False, self._create_error_response(HTTPStatus.BAD_REQUEST, f"Request validation failed: {str(e)}")
-                )
-        return StateMachineResult(True)
-
-    def state_authorized(self) -> StateMachineResult:
-        """B7: Check if request is authorized."""
-        callback = self._get_callback("authorized")
-        if callback:
-            try:
-                authorized = self.app._call_with_injection(callback, self.request, self.route_handler)
-                if not authorized:
-                    logger.error(f"Authorization failed for {self.request.method.value} {self.request.path}")
-                    return StateMachineResult(False, self._create_error_response(HTTPStatus.UNAUTHORIZED, "Unauthorized"))
-            except Exception as e:
-                logger.error(f"Authorization check exception for {self.request.method.value} {self.request.path}: {e}")
-                self.app._dependency_cache.set("exception", e)
-                return StateMachineResult(
-                    False, self._create_error_response(HTTPStatus.UNAUTHORIZED, f"Authorization check failed: {str(e)}")
-                )
-        return StateMachineResult(True)
-
-    def state_forbidden(self) -> StateMachineResult:
-        """B6: Check if request is forbidden."""
-        callback = self._get_callback("forbidden")
-        if callback:
-            try:
-                # For wrapped dependencies, we need to resolve the dependency
-                # and check if it indicates forbidden access
-                if "forbidden" in self.dependency_callbacks:
-                    wrapper = self.dependency_callbacks["forbidden"]
-                    try:
-                        resolved_value = self.app._call_with_injection(
-                            wrapper.func, self.request, self.route_handler
-                        )
-                        if resolved_value is None:
-                            logger.error(f"Access forbidden for {self.request.method.value} {self.request.path}")
-                            return StateMachineResult(False, self._create_error_response(HTTPStatus.FORBIDDEN, "Forbidden"))
-                    except Exception as e:
-                        logger.error(f"Forbidden check exception for {self.request.method.value} {self.request.path}: {e}")
-                        self.app._dependency_cache.set("exception", e)
-                        return StateMachineResult(False, self._create_error_response(HTTPStatus.FORBIDDEN, "Forbidden"))
-                else:
-                    # Use the regular callback
-                    forbidden = self.app._call_with_injection(callback, self.request, self.route_handler)
-                    if forbidden:
-                        logger.error(f"Access forbidden for {self.request.method.value} {self.request.path}")
-                        return StateMachineResult(False, self._create_error_response(HTTPStatus.FORBIDDEN, "Forbidden"))
-            except Exception as e:
-                logger.error(f"Permission check exception for {self.request.method.value} {self.request.path}: {e}")
-                self.app._dependency_cache.set("exception", e)
-                return StateMachineResult(
-                    False, self._create_error_response(HTTPStatus.FORBIDDEN, f"Permission check failed: {str(e)}")
-                )
-        return StateMachineResult(True)
-
-    def state_content_headers_valid(self) -> StateMachineResult:
-        """B5: Check if content headers are valid."""
-        callback = self._get_callback("content_headers_valid")
-        if callback:
-            try:
-                valid = self.app._call_with_injection(callback, self.request, self.route_handler)
-                if not valid:
-                    return StateMachineResult(
-                        False, self._create_error_response(HTTPStatus.BAD_REQUEST, "Bad Request - Invalid Headers")
-                    )
-            except Exception as e:
-                self.app._dependency_cache.set("exception", e)
-                return StateMachineResult(
-                    False, self._create_error_response(HTTPStatus.BAD_REQUEST, f"Header validation failed: {str(e)}")
-                )
-        return StateMachineResult(True)
-
-    def state_resource_exists(self) -> StateMachineResult:
-        """G7: Check if resource exists."""
-        callback = self._get_callback("resource_exists")
-        if callback:
-            try:
-                # For wrapped dependencies, we need to resolve the dependency
-                # and check if it returns None (indicating resource doesn't exist)
-                if "resource_exists" in self.dependency_callbacks:
-                    wrapper = self.dependency_callbacks["resource_exists"]
-                    try:
-                        resolved_value = self.app._call_with_injection(
-                            wrapper.func, self.request, self.route_handler
-                        )
-                        if resolved_value is None:
-                            # Resource doesn't exist - check if we can create it from request (for POST)
-                            if self.request.method == HTTPMethod.POST:
-                                return self._try_resource_from_request()
-                            return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found"))
-                        # Cache the resolved value for later use in the handler
-                        self.app._dependency_cache.set(
-                            wrapper.original_name, resolved_value
-                        )
-                    except Exception:
-                        # Resource doesn't exist - check if we can create it from request (for POST)
-                        if self.request.method == HTTPMethod.POST:
-                            return self._try_resource_from_request()
-                        return StateMachineResult(
-                            False, self._create_error_response(HTTPStatus.NOT_FOUND, "Resource Not Found")
-                        )
-                else:
-                    # Use the regular callback
-                    exists = self.app._call_with_injection(callback, self.request, self.route_handler)
-                    if not exists:
-                        # Resource doesn't exist - check if we can create it from request (for POST)
-                        if self.request.method == HTTPMethod.POST:
-                            return self._try_resource_from_request()
-                        return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found"))
-            except Exception as e:
-                # Resource doesn't exist - check if we can create it from request (for POST)
-                if self.request.method == HTTPMethod.POST:
-                    return self._try_resource_from_request()
-                self.app._dependency_cache.set("exception", e)
-                return StateMachineResult(
-                    False, self._create_error_response(HTTPStatus.NOT_FOUND, f"Resource check failed: {str(e)}")
-                )
-        return StateMachineResult(True)
-
-    def _try_resource_from_request(self) -> StateMachineResult:
-        """Try to create resource from request for POST operations."""
-        # Check if there's a resource_from_request callback
-        if "resource_from_request" in self.dependency_callbacks:
-            wrapper = self.dependency_callbacks["resource_from_request"]
-            try:
-                # Call the resource_from_request function to create the resource
-                resolved_value = self.app._call_with_injection(
-                    wrapper.func, self.request, self.route_handler
-                )
-                if resolved_value is not None:
-                    # Cache the created resource value for later use in the handler
-                    # Use the same name as the resource_exists dependency
-                    if "resource_exists" in self.dependency_callbacks:
-                        resource_exists_wrapper = self.dependency_callbacks["resource_exists"]
-                        self.app._dependency_cache.set(
-                            resource_exists_wrapper.original_name, resolved_value
-                        )
-                    # Continue processing (resource now "exists" from the request)
-                    return StateMachineResult(True)
-                else:
-                    # resource_from_request returned None, can't create resource
-                    return StateMachineResult(False, self._create_error_response(HTTPStatus.BAD_REQUEST, "Bad Request"))
-            except Exception as e:
-                self.app._dependency_cache.set("exception", e)
-                return StateMachineResult(
-                    False, self._create_error_response(HTTPStatus.BAD_REQUEST, f"Resource creation failed: {str(e)}")
-                )
-
-        # No resource_from_request callback available
-        return StateMachineResult(False, self._create_error_response(HTTPStatus.NOT_FOUND, "Not Found"))
-
-    def state_if_match(self) -> StateMachineResult:
-        """Check If-Match precondition (RFC 7232)."""
-        if_match_etags = self.request.get_if_match()
-        if not if_match_etags:
-            return StateMachineResult(True)
-
-        # Get current resource ETag
-        current_etag = self._get_resource_etag()
-        if not current_etag:
-            # If resource doesn't have an ETag, If-Match fails
-            return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
-
-        # Special case: If-Match: *
-        if "*" in if_match_etags:
-            # Resource exists (we checked earlier), so * matches
-            return StateMachineResult(True)
-
-        # Check if current ETag matches any of the requested ETags
-        for requested_etag in if_match_etags:
-            if etags_match(current_etag, requested_etag, strong_comparison=True):
-                return StateMachineResult(True)
-
-        # No ETag matches
-        return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
-
-    def state_if_unmodified_since(self) -> StateMachineResult:
-        """Check If-Unmodified-Since precondition (RFC 7232)."""
-        if_unmodified_since = self.request.get_if_unmodified_since()
-        if not if_unmodified_since:
-            return StateMachineResult(True)
-
-        # Get current resource last modified time
-        last_modified = self._get_resource_last_modified()
-        if not last_modified:
-            # If resource doesn't have a Last-Modified date, precondition fails
-            return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
-
-        # Check if resource was modified after the If-Unmodified-Since date
-        if last_modified > if_unmodified_since:
-            return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
-
-        return StateMachineResult(True)
-
-    def state_if_none_match(self) -> StateMachineResult:
-        """Check If-None-Match precondition (RFC 7232)."""
-        if_none_match_etags = self.request.get_if_none_match()
-        if not if_none_match_etags:
-            return StateMachineResult(True)
-
-        # Get current resource ETag
-        current_etag = self._get_resource_etag()
-
-        # Special case: If-None-Match: *
-        if "*" in if_none_match_etags:
-            # Resource exists, so * matches - return HTTPStatus.NOT_MODIFIED for GET/HEAD, HTTPStatus.PRECONDITION_FAILED for others
-            if self.request.method in [HTTPMethod.GET]:
-                return StateMachineResult(False, Response(HTTPStatus.NOT_MODIFIED, headers={"ETag": current_etag} if current_etag else {}))
-            else:
-                return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
-
-        # If resource doesn't have an ETag, If-None-Match succeeds
-        if not current_etag:
-            return StateMachineResult(True)
-
-        # Check if current ETag matches any of the requested ETags (weak comparison for If-None-Match)
-        for requested_etag in if_none_match_etags:
-            if etags_match(current_etag, requested_etag, strong_comparison=False):
-                # ETag matches - return HTTPStatus.NOT_MODIFIED for GET/HEAD, HTTPStatus.PRECONDITION_FAILED for others
-                if self.request.method in [HTTPMethod.GET]:
-                    return StateMachineResult(False, Response(HTTPStatus.NOT_MODIFIED, headers={"ETag": current_etag}))
-                else:
-                    return StateMachineResult(False, self._create_error_response(HTTPStatus.PRECONDITION_FAILED, "Precondition Failed"))
-
-        # No ETag matches, continue processing
-        return StateMachineResult(True)
-
-    def state_if_modified_since(self) -> StateMachineResult:
-        """Check If-Modified-Since precondition (RFC 7232)."""
-        # If-Modified-Since is only evaluated for GET requests
-        if self.request.method != HTTPMethod.GET:
-            return StateMachineResult(True)
-
-        if_modified_since = self.request.get_if_modified_since()
-        if not if_modified_since:
-            return StateMachineResult(True)
-
-        # Get current resource last modified time
-        last_modified = self._get_resource_last_modified()
-        if not last_modified:
-            # If resource doesn't have a Last-Modified date, assume it's been modified
-            return StateMachineResult(True)
-
-        # Check if resource was modified after the If-Modified-Since date
-        if last_modified <= if_modified_since:
-            # Resource hasn't been modified, return HTTPStatus.NOT_MODIFIED
-            headers = {}
-            if last_modified:
-                headers["Last-Modified"] = last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
-            current_etag = self._get_resource_etag()
-            if current_etag:
-                headers["ETag"] = current_etag
-            return StateMachineResult(False, Response(HTTPStatus.NOT_MODIFIED, headers=headers))
-
-        return StateMachineResult(True)
-
-    def _get_resource_etag(self) -> Optional[str]:
-        """Get the current ETag for the resource.
-
-        This checks for ETag callbacks or dependencies that provide the resource ETag.
-        """
-        # Check for ETag callback
-        callback = self._get_callback("generate_etag")
-        if callback:
-            try:
-                etag = self.app._call_with_injection(callback, self.request, self.route_handler)
-                if etag:
-                    return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
-            except Exception as e:
-                # ETag generation failed, continue gracefully without ETag
-                logger.warning(f"ETag generation callback failed: {e}")
-                pass
-
-        # Check for ETag dependency
-        if "generate_etag" in self.dependency_callbacks:
-            wrapper = self.dependency_callbacks["generate_etag"]
-            try:
-                etag = self.app._call_with_injection(wrapper.func, self.request, self.route_handler)
-                if etag:
-                    return f'"{etag}"' if not etag.startswith('"') and not etag.startswith('W/') else etag
-            except Exception as e:
-                # ETag dependency injection failed, continue gracefully without ETag
-                logger.warning(f"ETag dependency injection failed: {e}")
-                pass
-
-        return None
-
-    def _get_resource_last_modified(self) -> Optional['datetime']:
-        """Get the current Last-Modified date for the resource.
-
-        This checks for Last-Modified callbacks or dependencies.
-        """
-
-        # Check for Last-Modified callback
-        callback = self._get_callback("last_modified")
-        if callback:
-            try:
-                last_modified = self.app._call_with_injection(callback, self.request, self.route_handler)
-                if isinstance(last_modified, datetime):
-                    return last_modified
-                elif isinstance(last_modified, str):
-                    # Try to parse as HTTP date
-                    try:
-                        return datetime.strptime(last_modified, "%a, %d %b %Y %H:%M:%S %Z")
-                    except ValueError:
-                        pass
-            except Exception as e:
-                # Last-Modified callback failed, continue gracefully without Last-Modified
-                logger.warning(f"Last-Modified generation callback failed: {e}")
-                pass
-
-        # Check for Last-Modified dependency
-        if "last_modified" in self.dependency_callbacks:
-            wrapper = self.dependency_callbacks["last_modified"]
-            try:
-                last_modified = self.app._call_with_injection(wrapper.func, self.request, self.route_handler)
-                if isinstance(last_modified, datetime):
-                    return last_modified
-                elif isinstance(last_modified, str):
-                    # Try to parse as HTTP date
-                    try:
-                        return datetime.strptime(last_modified, "%a, %d %b %Y %H:%M:%S %Z")
-                    except ValueError:
-                        pass
-            except Exception as e:
-                # Last-Modified dependency injection failed, continue gracefully without Last-Modified
-                logger.warning(f"Last-Modified dependency injection failed: {e}")
-                pass
-
-        return None
-
-    def get_available_content_types(self) -> List[str]:
-        """Get list of all available content types for this route."""
-        available_types = list(self.app._content_renderers.keys())
-
-        # Add route-specific content types
-        if self.route_handler and self.route_handler.content_renderers:
-            available_types.extend(self.route_handler.content_renderers.keys())
-
-        return list(set(available_types))  # Remove duplicates
-
-    def state_content_types_provided(self) -> StateMachineResult:
-        """C3: Determine what content types we can provide."""
-        available_types = self.get_available_content_types()
-
-        if not available_types:
-            logger.error(f"No content renderers available for {self.request.method.value} {self.request.path}")
-            return StateMachineResult(
-                False, self._create_error_response(HTTPStatus.INTERNAL_SERVER_ERROR, "No content renderers available")
-            )
-
-        return StateMachineResult(True)
-
-    def state_content_types_accepted(self) -> StateMachineResult:
-        """C4: Check if we can provide an acceptable content type."""
-        accept_header = self.request.get_accept_header()
-
-        # First try route-specific renderers
-        if self.route_handler and self.route_handler.content_renderers:
-            for content_type, wrapper in self.route_handler.content_renderers.items():
-                if content_type in self.app._content_renderers:
-                    renderer = self.app._content_renderers[content_type]
-                    if renderer.can_render(accept_header):
-                        self.chosen_renderer = renderer
-                        return StateMachineResult(True)
-
-        # Fall back to global renderers
-        for renderer in self.app._content_renderers.values():
-            if renderer.can_render(accept_header):
-                self.chosen_renderer = renderer
-                return StateMachineResult(True)
-
-        # No acceptable content type found
-        available_types = self.get_available_content_types()
-
-        return StateMachineResult(
-            False,
-            Response(
-                HTTPStatus.NOT_ACCEPTABLE,
-                f"Not Acceptable. Available types: {', '.join(set(available_types))}",
-                headers={"Content-Type": "text/plain"},
-                request=self.request,
-                available_content_types=available_types,
-            ),
-        )
-
-    def _process_headers_dependencies(self) -> Dict[str, str]:
+    # ========================================================================
+    # HELPER METHODS FOR state_execute_and_render
+    # ========================================================================
+
+    def _process_headers_dependencies(self) -> MultiValueHeaders:
         """Process all headers dependencies and return final headers."""
-        # Get initial headers (includes Vary header)
         headers = self.app._dependency_cache.get("headers")
         if headers is None:
-            headers = self.app._get_initial_headers(self.request, self.route_handler)
+            headers = self.app._get_initial_headers(self.ctx.request, self.ctx.route_handler)
             self.app._dependency_cache.set("headers", headers)
 
-        # Collect all global headers dependencies
-        headers_deps = list(self.app._headers_dependencies.items())
-
         # Process each headers dependency in order
-        for dep_name, wrapper in headers_deps:
+        for dep_name, wrapper in self.app._headers_dependencies.items():
             try:
-                # Call the headers function with dependency injection
                 updated_headers = self.app._call_with_injection(
-                    wrapper.func, self.request, self.route_handler
+                    wrapper.func, self.ctx.request, self.ctx.route_handler
                 )
-                # If function returns headers, use them; otherwise assume headers modified in-place
                 if updated_headers and isinstance(updated_headers, dict):
                     headers.update(updated_headers)
-                # Update cache with current state
                 self.app._dependency_cache.set("headers", headers)
             except Exception as e:
-                # If headers dependency fails, continue with current headers
                 logger.warning(f"Headers dependency injection failed: {e}")
-                pass
 
-        return cast(Dict[str, str], headers)
+        return cast(MultiValueHeaders, headers)
 
-    def state_execute_and_render(self) -> Response:
-        """Execute the route handler and render the response."""
-        # route_handler is guaranteed to be set by state_route_exists before this is called
-        if self.route_handler is None:
-            raise RuntimeError("route_handler must be set before executing handler")
+    def _add_resource_metadata_to_headers(self, headers: MultiValueHeaders) -> None:
+        """Add ETag and Last-Modified headers if available."""
+        etag = self._get_resource_etag()
+        if etag:
+            headers["ETag"] = etag
 
-        processed_headers = None
+        last_modified = self._get_resource_last_modified()
+        if last_modified:
+            headers["Last-Modified"] = last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
+    def _validate_pydantic_return_type(self, result: Any) -> Any:
+        """Validate and convert Pydantic return types. Raises ValidationError on error."""
+        if not PYDANTIC_AVAILABLE or not self.ctx.route_handler:
+            return result
+
+        return_annotation = self.ctx.route_handler.handler_signature.return_annotation
+
+        # Handle None annotation
+        if return_annotation is None or return_annotation is type(None):
+            return None
+
+        # Skip validation for empty or Union types
+        if return_annotation == inspect.Signature.empty:
+            return result
+
+        if hasattr(return_annotation, "__origin__") and return_annotation.__origin__ is Union:
+            return result
+
         try:
-            # Process headers dependencies first to get final headers
-            processed_headers = self._process_headers_dependencies()
+            # Handle list[PydanticModel]
+            if self._is_pydantic_list_type(return_annotation):
+                return self._validate_pydantic_list(result, return_annotation)
 
-            # Execute the main handler to get the result
-            main_result = self.app._call_with_injection(
-                self.route_handler.handler, self.request, self.route_handler
+            # Handle PydanticModel
+            if hasattr(return_annotation, "model_validate"):
+                return self._validate_pydantic_model(result, return_annotation)
+
+        except ValidationError:
+            raise  # Re-raise to be caught by state_execute_and_render
+        except Exception as e:
+            logger.warning(f"Validation failed: {e}")
+
+        return result
+
+    def _is_pydantic_list_type(self, annotation: Any) -> bool:
+        """Check if annotation is list[PydanticModel]."""
+        if get_origin(annotation) is not list:
+            return False
+        args = get_args(annotation)
+        return bool(args and hasattr(args[0], "model_validate"))
+
+    def _validate_pydantic_list(self, result: Any, annotation: Any) -> Any:
+        """Validate and convert list of Pydantic models."""
+        if not isinstance(result, list):
+            return result
+
+        pydantic_type = get_args(annotation)[0]
+        validated_list = []
+
+        for item in result:
+            if hasattr(item, "model_dump"):
+                validated_list.append(item.model_dump())
+            elif isinstance(item, dict):
+                validated_item = pydantic_type.model_validate(item)
+                validated_list.append(validated_item.model_dump())
+            else:
+                validated_item = pydantic_type.model_validate(item)
+                validated_list.append(validated_item.model_dump())
+
+        return validated_list
+
+    def _validate_pydantic_model(self, result: Any, annotation: Any) -> Any:
+        """Validate and convert Pydantic model."""
+        if isinstance(result, dict):
+            validated = annotation.model_validate(result)
+            return validated.model_dump()
+        elif hasattr(result, "model_dump"):
+            return result.model_dump()
+        else:
+            validated = annotation.model_validate(result)
+            return validated.model_dump()
+
+    def _render_result(self, result: Any, headers: MultiValueHeaders) -> Response:
+        """Render the result using appropriate renderer."""
+        # Check for route-specific renderer
+        if self._has_route_specific_renderer():
+            return self._render_with_route_specific_renderer(result, headers)
+
+        # Handle Response objects
+        if isinstance(result, Response):
+            return self._finalize_response_object(result, headers)
+
+        # Use global renderer
+        return self._render_with_global_renderer(result, headers)
+
+    def _has_route_specific_renderer(self) -> bool:
+        """Check if route has a specific renderer for chosen media type."""
+        if not self.ctx.route_handler or not self.ctx.route_handler.content_renderers:
+            return False
+        if not self.ctx.chosen_renderer:
+            return False
+        return self.ctx.chosen_renderer.media_type in self.ctx.route_handler.content_renderers
+
+    def _render_with_route_specific_renderer(self, result: Any, headers: MultiValueHeaders) -> Response:
+        """Render using route-specific content renderer."""
+        # These checks are guaranteed by _has_route_specific_renderer
+        if not self.ctx.route_handler or not self.ctx.chosen_renderer:
+            raise RuntimeError("route_handler and chosen_renderer must be set")
+
+        wrapper = self.ctx.route_handler.content_renderers[self.ctx.chosen_renderer.media_type]
+
+        # Cache handler result for renderer to access
+        handler_func_name = self.ctx.route_handler.handler.__name__
+        self.app._dependency_cache.set(handler_func_name, result)
+
+        # Call renderer with dependency injection
+        rendered_result = self.app._call_with_injection(
+            wrapper.func, self.ctx.request, self.ctx.route_handler
+        )
+
+        # Handle Response from renderer
+        if isinstance(rendered_result, Response):
+            if not rendered_result.content_type:
+                rendered_result.content_type = self.ctx.chosen_renderer.media_type
+                rendered_result.headers = rendered_result.headers or {}
+                rendered_result.headers["Content-Type"] = self.ctx.chosen_renderer.media_type
+            return rendered_result
+
+        # Renderer returned string/other
+        return Response(
+            HTTPStatus.OK,
+            str(rendered_result),
+            content_type=self.ctx.chosen_renderer.media_type,
+            pre_calculated_headers=headers,
+        )
+
+    def _render_with_global_renderer(self, result: Any, headers: MultiValueHeaders) -> Response:
+        """Render using global content renderer."""
+        if self.ctx.chosen_renderer:
+            rendered_body = self.ctx.chosen_renderer.render(result, self.ctx.request)
+            return Response(
+                HTTPStatus.OK,
+                rendered_body,
+                content_type=self.ctx.chosen_renderer.media_type,
+                pre_calculated_headers=headers,
+            )
+        else:
+            # Fallback to plain text
+            return Response(
+                HTTPStatus.OK,
+                str(result),
+                content_type="text/plain",
+                pre_calculated_headers=headers,
             )
 
-            # Check if handler returned None (regardless of annotation) -> return HTTPStatus.NO_CONTENT No Content
-            if main_result is None:
-                return Response(HTTPStatus.NO_CONTENT, pre_calculated_headers=processed_headers)
+    def _finalize_response_object(self, response: Response, headers: MultiValueHeaders) -> Response:
+        """Finalize a Response object with headers and content type."""
+        if not response.content_type and self.ctx.chosen_renderer:
+            response.content_type = self.ctx.chosen_renderer.media_type
+            response.headers = response.headers or {}
+            response.headers["Content-Type"] = self.ctx.chosen_renderer.media_type
 
-            # Add ETag and Last-Modified to processed headers if available (after handler execution)
-            current_etag = self._get_resource_etag()
-            if current_etag:
-                processed_headers["ETag"] = current_etag
+        # Add processed headers if not already set
+        if not response.pre_calculated_headers:
+            response.pre_calculated_headers = headers
+            response.__post_init__()
 
-            current_last_modified = self._get_resource_last_modified()
-            if current_last_modified:
-                processed_headers["Last-Modified"] = current_last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
+        return response
 
-            # Check return type annotation for response validation
-            # Use cached signature instead of recalculating
-            return_annotation = self.route_handler.handler_signature.return_annotation
+    # ========================================================================
+    # ERROR HANDLING HELPERS
+    # ========================================================================
 
-            # Handle different return type scenarios
-            if return_annotation is None or return_annotation is type(None):
-                # Explicitly annotated as None -> return HTTPStatus.NO_CONTENT No Content
-                return Response(HTTPStatus.NO_CONTENT, pre_calculated_headers=processed_headers)
-            elif return_annotation != inspect.Signature.empty and PYDANTIC_AVAILABLE:
-                # Has return type annotation -> validate response
-                try:
-                    if (
-                        hasattr(return_annotation, "__origin__")
-                        and return_annotation.__origin__ is Union
-                    ):
-                        # Handle Optional[SomeType] or Union types
-                        # For now, skip validation on Union types
-                        pass
-                    elif (
-                        get_origin(return_annotation) is list
-                        and get_args(return_annotation)
-                        and hasattr(get_args(return_annotation)[0], "model_validate")
-                    ):
-                        # Handle list[PydanticModel] types
-                        pydantic_type = get_args(return_annotation)[0]
-                        if isinstance(main_result, list):
-                            # Convert each item to a dict if it's a Pydantic model
-                            validated_list = []
-                            for item in main_result:
-                                if hasattr(item, "model_dump"):
-                                    validated_list.append(item.model_dump())
-                                elif isinstance(item, dict):
-                                    # Validate and convert
-                                    validated_item = pydantic_type.model_validate(item)
-                                    validated_list.append(validated_item.model_dump())
-                                else:
-                                    # Try to validate the raw item
-                                    validated_item = pydantic_type.model_validate(item)
-                                    validated_list.append(validated_item.model_dump())
-                            main_result = validated_list
-                    elif hasattr(return_annotation, "model_validate"):
-                        # It's a Pydantic model -> validate
-                        if isinstance(main_result, dict):
-                            validated_response = return_annotation.model_validate(
-                                main_result
-                            )
-                            main_result = validated_response.model_dump()
-                        elif hasattr(main_result, "model_dump"):
-                            # Already a Pydantic model -> convert to dict
-                            main_result = main_result.model_dump()
-                        else:
-                            # Try to validate the raw result
-                            validated_response = return_annotation.model_validate(
-                                main_result
-                            )
-                            main_result = validated_response.model_dump()
-                except ValidationError as e:
-                    return Response(
-                        HTTPStatus.UNPROCESSABLE_ENTITY,
-                        json.dumps(
-                            {
-                                "error": "Response validation failed",
-                                "details": e.errors(),
-                            }
-                        ),
-                        content_type="application/json",
-                        pre_calculated_headers=processed_headers,
-                    )
-                except Exception as e:
-                    # If validation fails for other reasons, log but don't crash
-                    logger.warning(f"Validation dependency execution failed: {e}")
-                    pass
+    def _handle_validation_error(self, e: ValidationError, headers: Optional[MultiValueHeaders]) -> Response:
+        """Handle ValidationError with proper response."""
+        fallback_headers = headers or MultiValueHeaders()
+        response = self._create_error_response(
+            HTTPStatus.UNPROCESSABLE_ENTITY,
+            "Validation failed",
+            details=e.errors(include_url=False)
+        )
+        if fallback_headers:
+            response.pre_calculated_headers = fallback_headers
+            response.__post_init__()
+        return response
 
-            # Check if we should use a route-specific renderer
-            if (
-                self.route_handler
-                and self.route_handler.content_renderers
-                and self.chosen_renderer.media_type
-                in self.route_handler.content_renderers
-            ):
-                # Use route-specific content renderer
-                wrapper = self.route_handler.content_renderers[
-                    self.chosen_renderer.media_type
-                ]
+    def _handle_accepts_parsing_error(self, e: AcceptsParsingError, headers: Optional[MultiValueHeaders]) -> Response:
+        """Handle AcceptsParsingError with proper response."""
+        fallback_headers = headers or MultiValueHeaders()
+        response = self._create_error_response(HTTPStatus.UNPROCESSABLE_ENTITY, "Parsing failed")
 
-                # Create a temporary dependency for the handler result
-                handler_func_name = self.route_handler.handler.__name__
-                self.app._dependency_cache.set(handler_func_name, main_result)
+        # Add error message if using default response
+        if response.body == json.dumps({"error": "Parsing failed"}):
+            response.body = json.dumps({"error": "Parsing failed", "message": e.message})
 
-                # Call the renderer with dependency injection (it will receive the handler result)
-                rendered_result = self.app._call_with_injection(
-                    wrapper.func, self.request, self.route_handler
-                )
+        if fallback_headers:
+            response.pre_calculated_headers = fallback_headers
+            response.__post_init__()
+        return response
 
-                # If the renderer returns a Response, use it directly
-                if isinstance(rendered_result, Response):
-                    if not rendered_result.content_type:
-                        rendered_result.content_type = self.chosen_renderer.media_type
-                        rendered_result.headers = rendered_result.headers or {}
-                        rendered_result.headers["Content-Type"] = (
-                            self.chosen_renderer.media_type
-                        )
-                    return rendered_result
+    def _handle_value_error(self, e: ValueError, headers: Optional[MultiValueHeaders]) -> Response:
+        """Handle ValueError with appropriate HTTP status."""
+        fallback_headers = headers or MultiValueHeaders()
+        error_message = str(e)
 
-                # Otherwise, treat the rendered result as the body
-                return Response(
-                    HTTPStatus.OK,
-                    str(rendered_result),
-                    content_type=self.chosen_renderer.media_type,
-                    pre_calculated_headers=processed_headers,
-                )
-            else:
-                # Use regular global renderer
-                result = main_result
+        if "Unsupported Media Type - 415" in error_message:
+            status_code = HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+            message = "Unsupported Media Type"
+        else:
+            status_code = HTTPStatus.BAD_REQUEST
+            message = f"Bad Request: {error_message}"
 
-            # If result is already a Response, update it with processed headers
-            if isinstance(result, Response):
-                if not result.content_type and self.chosen_renderer:
-                    result.content_type = self.chosen_renderer.media_type
-                    result.headers = result.headers or {}
-                    result.headers["Content-Type"] = self.chosen_renderer.media_type
+        response = self._create_error_response(status_code, message)
+        if fallback_headers:
+            response.pre_calculated_headers = fallback_headers
+            response.__post_init__()
+        return response
 
-                # Add processed headers if not already set
-                if not result.pre_calculated_headers:
-                    result.pre_calculated_headers = processed_headers
-                    # Re-run __post_init__ to apply processed headers
-                    result.__post_init__()
-                return result
+    def _handle_general_error(self, e: Exception, headers: Optional[MultiValueHeaders]) -> Response:
+        """Handle general exceptions."""
+        fallback_headers = headers or MultiValueHeaders()
+        response = self._create_error_response(
+            HTTPStatus.INTERNAL_SERVER_ERROR,
+            f"Internal Server Error: {str(e)}"
+        )
+        if fallback_headers:
+            response.pre_calculated_headers = fallback_headers
+            response.__post_init__()
+        return response
 
-            # Render the result using the chosen renderer
-            if self.chosen_renderer:
-                rendered_body = self.chosen_renderer.render(result, self.request)
-                return Response(
-                    HTTPStatus.OK,
-                    rendered_body,
-                    content_type=self.chosen_renderer.media_type,
-                    pre_calculated_headers=processed_headers,
-                )
-            else:
-                # Fallback to plain text
-                return Response(
-                    HTTPStatus.OK,
-                    str(result),
-                    content_type="text/plain",
-                    pre_calculated_headers=processed_headers,
-                )
-        except ValidationError as e:
-            # Set exception in cache for custom error handlers
-            self.app._dependency_cache.set("exception", e)
-            # Use processed headers if available, otherwise fallback to basic headers
-            fallback_headers = processed_headers or {}
-            # Create a custom response for validation errors with details
-            response = self._create_error_response(HTTPStatus.UNPROCESSABLE_ENTITY, "Validation failed", details=e.errors(include_url=False))
-            if fallback_headers:
-                response.pre_calculated_headers = fallback_headers
-                response.__post_init__()
-            return response
-        except AcceptsParsingError as e:
-            # Set exception in cache for custom error handlers
-            self.app._dependency_cache.set("exception", e)
-            # Handle accepts parsing errors with HTTPStatus.UNPROCESSABLE_ENTITY status
-            fallback_headers = processed_headers or {}
-            response = self._create_error_response(HTTPStatus.UNPROCESSABLE_ENTITY, "Parsing failed")
-            # If default response (not custom handler), add message
-            if response.body == json.dumps({"error": "Parsing failed"}):
-                response.body = json.dumps({"error": "Parsing failed", "message": e.message})
-            if fallback_headers:
-                response.pre_calculated_headers = fallback_headers
-                response.__post_init__()
-            return response
-        except ValueError as e:
-            # Set exception in cache for custom error handlers
-            self.app._dependency_cache.set("exception", e)
-            # Handle specific ValueError cases for better HTTP status codes
-            error_message = str(e)
-            fallback_headers = processed_headers or {}
+    # ========================================================================
+    # ERROR RESPONSE HELPERS
+    # ========================================================================
 
-            if "Unsupported Media Type - 415" in error_message:
-                response = self._create_error_response(HTTPStatus.UNSUPPORTED_MEDIA_TYPE, "Unsupported Media Type")
-            else:
-                # Other ValueError cases return Bad Request
-                response = self._create_error_response(HTTPStatus.BAD_REQUEST, f"Bad Request: {error_message}")
+    def _try_custom_error_handler(self, status_code: int, message: str, details: Any, **kwargs) -> Optional[Response]:
+        """Try to use a custom error handler. Returns None if not found or failed."""
+        if not self.app._error_handlers:
+            return None
 
-            if fallback_headers:
-                response.pre_calculated_headers = fallback_headers
-                response.__post_init__()
-            return response
+        # Find matching handlers
+        matching_handlers = [h for h in self.app._error_handlers if h.handles_status(status_code)]
+        if not matching_handlers:
+            return None
+
+        # Get Accept header for content negotiation
+        accept_header = self.ctx.request.get_accept_header() if hasattr(self.ctx, 'request') else ""
+
+        # Find content-specific or default handler
+        chosen_handler = None
+        for handler in matching_handlers:
+            if handler.content_type and handler.matches_accept(accept_header):
+                chosen_handler = handler
+                break
+
+        if not chosen_handler:
+            # Try default handler (no content type)
+            for handler in matching_handlers:
+                if not handler.content_type:
+                    chosen_handler = handler
+                    break
+
+        if not chosen_handler:
+            return None
+
+        # Execute custom handler
+        try:
+            result = self.app._call_with_injection(
+                chosen_handler.handler,
+                self.ctx.request,
+                self.ctx.route_handler
+            )
+            return self._convert_custom_handler_result(result, chosen_handler, status_code, **kwargs)
         except Exception as e:
-            # Set exception in cache for custom error handlers
-            self.app._dependency_cache.set("exception", e)
-            # Use processed headers if available, otherwise fallback to basic headers
-            fallback_headers = processed_headers or {}
-            response = self._create_error_response(HTTPStatus.INTERNAL_SERVER_ERROR, f"Internal Server Error: {str(e)}")
-            if fallback_headers:
-                response.pre_calculated_headers = fallback_headers
-                response.__post_init__()
-            return response
+            logger.error(f"Error in custom error handler: {e}")
+            return None
 
-    def _get_callback(self, state_name: str) -> Optional[Callable]:
-        """Get callback for a state, preferring dependency callbacks over defaults."""
-        # First check if we have a dependency callback for this state
-        if state_name in self.dependency_callbacks:
-            return self.dependency_callbacks[state_name].func
+    def _convert_custom_handler_result(self, result: Any, handler: Any, status_code: int, **kwargs) -> Optional[Response]:
+        """Convert custom error handler result to Response."""
+        if isinstance(result, Response):
+            return result
+        elif isinstance(result, dict):
+            return Response(
+                status_code,
+                json.dumps(result),
+                content_type=handler.content_type or "application/json",
+                **kwargs
+            )
+        elif isinstance(result, str):
+            return Response(
+                status_code,
+                result,
+                content_type=handler.content_type or "text/plain",
+                **kwargs
+            )
+        else:
+            return Response(
+                status_code,
+                json.dumps(result),
+                content_type=handler.content_type or "application/json",
+                **kwargs
+            )
 
-        # Fall back to default callbacks
-        return cast(Optional[Callable], self.app._default_callbacks.get(state_name))
+    def _get_error_context_ids(self) -> tuple[Optional[str], Optional[str]]:
+        """Get request_id and trace_id for error responses."""
+        request_id = None
+        trace_id = None
+
+        try:
+            request_id = self.app._resolve_dependency(
+                "request_id", None, self.ctx.request, self.ctx.route_handler
+            )
+            trace_id = self.app._resolve_dependency(
+                "trace_id", None, self.ctx.request, self.ctx.route_handler
+            )
+        except Exception as e:
+            logger.warning(f"Failed to resolve request_id/trace_id: {e}")
+
+        return request_id, trace_id
+
+    def _prefers_json_error_response(self) -> bool:
+        """Determine if client prefers JSON error response based on Accept header."""
+        accept_header = self.ctx.request.get_accept_header() if hasattr(self.ctx, 'request') else ""
+
+        if not accept_header:
+            return True  # Default to JSON for RESTful APIs
+
+        if "application/json" in accept_header or "*/*" in accept_header:
+            return True
+        elif "text/plain" in accept_header:
+            return False
+        else:
+            return True  # Default to JSON

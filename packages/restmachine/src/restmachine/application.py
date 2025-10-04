@@ -863,7 +863,8 @@ class RestApplication:
     def on_startup(self, func: Optional[Callable] = None):
         """Register a startup handler to run when the application starts.
 
-        Can be used as a decorator:
+        Can be used as a decorator::
+
             @app.on_startup
             async def database():
                 print("Opening database connection...")
@@ -873,7 +874,8 @@ class RestApplication:
             def get_users(database):  # database from startup is injected here
                 return database.query("SELECT * FROM users")
 
-        Or called directly:
+        Or called directly::
+
             app.on_startup(my_startup_function)
 
         Startup handlers are automatically registered as session-scoped dependencies,
@@ -894,13 +896,15 @@ class RestApplication:
     def on_shutdown(self, func: Optional[Callable] = None):
         """Register a shutdown handler to run when the application stops.
 
-        Can be used as a decorator:
+        Can be used as a decorator::
+
             @app.on_shutdown
             async def shutdown():
                 print("Application shutting down...")
                 # Close connections, cleanup resources, etc.
 
-        Or called directly:
+        Or called directly::
+
             app.on_shutdown(my_shutdown_function)
 
         Handlers can be sync or async functions.
@@ -1004,7 +1008,7 @@ class RestApplication:
         """Execute a request through the state machine."""
         try:
             # Create a new state machine for each request to avoid state pollution
-            from restmachine.state_machine_v2.machine_methods import RequestStateMachine
+            from restmachine.state_machine import RequestStateMachine
             state_machine = RequestStateMachine(self)
             return state_machine.process_request(request)
         except Exception as e:

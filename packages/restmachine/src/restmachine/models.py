@@ -20,14 +20,17 @@ class MultiValueHeaders:
 
     HTTP headers are case-insensitive per RFC 7230, and the same header can appear
     multiple times. This class handles both requirements:
+
     - Case-insensitive lookups
     - Multiple values per header name
 
     Common headers that can appear multiple times:
+
     - Set-Cookie, Accept, Accept-Language, Accept-Encoding
     - Vary, WWW-Authenticate, Warning, Via, Link
 
-    Example:
+    Example::
+
         headers = MultiValueHeaders()
         headers.add('Set-Cookie', 'session=abc')
         headers.add('Set-Cookie', 'user=123')
