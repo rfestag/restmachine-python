@@ -257,12 +257,26 @@ class ASGIAdapter:
                 # Fallback to latin-1 if UTF-8 fails
                 body_content = body.decode("latin-1")
 
+        # Extract TLS information (ASGI TLS extension)
+        # Check if connection is using TLS (https)
+        tls = scope.get("scheme", "http") == "https"
+
+        # Extract client certificate if available (mutual TLS)
+        client_cert = None
+        extensions = scope.get("extensions", {})
+        if "tls" in extensions:
+            tls_info = extensions["tls"]
+            # ASGI TLS extension format
+            client_cert = tls_info.get("client_cert")
+
         return Request(
             method=method,
             path=path,
             headers=headers,
             query_params=query_params,
-            body=body_content
+            body=body_content,
+            tls=tls,
+            client_cert=client_cert
         )
 
     async def _response_to_asgi(self, response: Response, send):

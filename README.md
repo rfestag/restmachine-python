@@ -17,6 +17,7 @@ A lightweight REST framework with pytest-like dependency injection, webmachine-s
 - **Content Negotiation**: Automatic content type negotiation with pluggable renderers
 - **Validation**: Optional Pydantic integration for request/response validation
 - **ASGI Support**: Built-in ASGI adapter for deployment with Uvicorn, Hypercorn, Daphne, etc.
+- **TLS/SSL Support**: ASGI TLS extension support with client certificate information for mTLS
 - **Multi-Value Headers**: Full HTTP spec compliance with support for duplicate header names
 - **Lightweight**: Zero required dependencies for basic functionality
 
@@ -242,6 +243,33 @@ async def async_startup():
 ```
 
 Multiple handlers can be registered and will run in registration order. Startup dependencies are cached across all requests (session scope).
+
+#### TLS/SSL and Client Certificates
+
+RestMachine supports the ASGI TLS extension, providing access to TLS connection information and client certificates for mutual TLS (mTLS):
+
+```python
+@app.get("/secure")
+def secure_endpoint(request):
+    # Check if connection uses TLS
+    if not request.tls:
+        return Response(403, "HTTPS required")
+
+    # Access client certificate for mTLS
+    if request.client_cert:
+        subject = request.client_cert.get("subject", [])
+        # Extract Common Name from subject
+        cn = next((value for field, value in subject if field == "CN"), None)
+        return {"message": f"Welcome, {cn}"}
+
+    return {"message": "TLS connection established"}
+```
+
+**ASGI Servers**: TLS info is automatically extracted from the ASGI scope:
+- `request.tls`: True for HTTPS, False for HTTP
+- `request.client_cert`: Client certificate dict (if mTLS is configured)
+
+**AWS Lambda**: API Gateway always uses HTTPS, and mTLS certificates are automatically extracted from the event.
 
 ### AWS Lambda Deployment
 

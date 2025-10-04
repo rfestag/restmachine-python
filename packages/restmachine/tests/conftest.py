@@ -9,6 +9,11 @@ import pytest
 from tests.framework.multi_driver_base import MultiDriverTestBase
 
 
+def pytest_configure(config):
+    """Configure pytest-anyio to use only asyncio backend (trio not installed)."""
+    config.option.anyio_backends = ["asyncio"]
+
+
 def pytest_generate_tests(metafunc):
     """
     Pytest hook to automatically parametrize the 'api' fixture for MultiDriverTestBase subclasses.
@@ -77,6 +82,19 @@ def pytest_collection_modifyitems(config, items):
         'TestNestedJsonPerformance',
         'TestVariousDataTypesPerformance',
     }
+
+    # Deselect trio tests (trio is not installed, only asyncio is supported)
+    deselected = []
+    remaining = []
+    for item in items:
+        if '[trio]' in item.nodeid:
+            deselected.append(item)
+        else:
+            remaining.append(item)
+
+    if deselected:
+        config.hook.pytest_deselected(items=deselected)
+        items[:] = remaining
 
     for item in items:
         # Add performance marker based on test class name OR file path

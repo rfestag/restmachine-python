@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Startup dependencies are cached across all requests (session scope) for optimal performance
   - Startup handlers execute exactly once during ASGI lifespan startup, with return values immediately cached to prevent re-execution on first request
   - Multiple startup handlers fully supported (e.g., database connection + API client initialization)
+- **ASGI TLS Extension Support**: Full support for TLS/SSL connection information
+  - `request.tls` boolean indicating whether connection uses TLS (HTTPS)
+  - `request.client_cert` dictionary containing client certificate information for mutual TLS (mTLS)
+  - ASGI adapter automatically extracts TLS info from `scope["scheme"]` and `scope["extensions"]["tls"]`
+  - AWS adapter always sets `tls=True` (API Gateway uses HTTPS) and extracts mTLS client certificates from `requestContext.identity.clientCert`
+  - Client certificate includes subject, issuer, serial number, and validity information
+  - Perfect for implementing certificate-based authentication and authorization
+  - Full ASGI 3.0 TLS extension compliance
 - **AWS Lambda Startup Support**: Startup handlers now execute automatically during Lambda cold start
   - `AwsApiGatewayAdapter` automatically calls `app.startup_sync()` during initialization
   - Enables database connections, API clients, and other resources to be initialized once per container

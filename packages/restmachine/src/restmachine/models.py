@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from http import HTTPStatus
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -278,7 +278,10 @@ class HTTPMethod(Enum):
 
 @dataclass
 class Request:
-    """Represents an HTTP request."""
+    """Represents an HTTP request.
+
+    Supports the ASGI TLS extension for TLS/SSL connection information.
+    """
 
     method: HTTPMethod
     path: str
@@ -286,6 +289,8 @@ class Request:
     body: Optional[str] = None
     query_params: Optional[Dict[str, str]] = None
     path_params: Optional[Dict[str, str]] = None
+    tls: bool = False  # ASGI TLS extension: whether connection uses TLS
+    client_cert: Optional[Dict[str, Any]] = None  # ASGI TLS extension: client certificate info
 
     def __post_init__(self):
         """Ensure headers is a MultiValueHeaders for case-insensitive header lookups."""

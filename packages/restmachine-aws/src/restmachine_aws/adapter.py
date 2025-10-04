@@ -109,13 +109,39 @@ class AwsApiGatewayAdapter(Adapter):
                 # If decoding fails, try latin-1 as fallback
                 body = base64.b64decode(body).decode("latin-1")
 
+        # Extract TLS information from requestContext
+        # API Gateway always uses HTTPS for Lambda proxy integrations
+        tls = True  # API Gateway Lambda proxy always uses TLS
+        client_cert = None
+
+        # Extract client certificate information if mutual TLS is enabled
+        request_context = event.get("requestContext", {})
+        if request_context:
+            identity = request_context.get("identity", {})
+            if identity:
+                # API Gateway provides client cert info in identity.clientCert
+                apigw_client_cert = identity.get("clientCert")
+                if apigw_client_cert:
+                    # Convert API Gateway format to ASGI TLS extension format
+                    client_cert = {
+                        "subject": self._parse_cert_subject(apigw_client_cert.get("subjectDN", "")),
+                        "issuer": self._parse_cert_subject(apigw_client_cert.get("issuerDN", "")),
+                        "serial_number": apigw_client_cert.get("serialNumber"),
+                        "validity": {
+                            "notBefore": apigw_client_cert.get("validity", {}).get("notBefore"),
+                            "notAfter": apigw_client_cert.get("validity", {}).get("notAfter")
+                        }
+                    }
+
         return Request(
             method=method,
             path=path,
             headers=headers,
             body=body,
             query_params=query_params,
-            path_params=path_params
+            path_params=path_params,
+            tls=tls,
+            client_cert=client_cert
         )
 
     def convert_from_response(self, response: Response, event: Dict[str, Any], context: Optional[Any] = None) -> Dict[str, Any]:
@@ -166,3 +192,30 @@ class AwsApiGatewayAdapter(Adapter):
             api_response["headers"]["Content-Type"] = "application/json"
 
         return api_response
+
+    def _parse_cert_subject(self, dn_string: str) -> list:
+        """
+        Parse a certificate Distinguished Name (DN) string into a list of tuples.
+
+        Converts API Gateway DN format (e.g., "CN=example.com,O=Example Inc,C=US")
+        into ASGI TLS extension format: [("CN", "example.com"), ("O", "Example Inc"), ("C", "US")]
+
+        Args:
+            dn_string: Distinguished Name string from API Gateway
+
+        Returns:
+            List of (field, value) tuples
+        """
+        if not dn_string:
+            return []
+
+        result = []
+        # Split by comma (simple parsing, doesn't handle escaped commas)
+        parts = dn_string.split(",")
+        for part in parts:
+            part = part.strip()
+            if "=" in part:
+                field, value = part.split("=", 1)
+                result.append((field.strip(), value.strip()))
+
+        return result
