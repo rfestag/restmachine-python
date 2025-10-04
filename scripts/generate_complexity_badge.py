@@ -67,7 +67,7 @@ def generate_badge(rating, score):
     )
 
     output_file = Path("complexity-badge.svg")
-    badge.write_badge(str(output_file))
+    badge.write_badge(str(output_file), overwrite=True)
     print(f"Badge generated: {output_file}")
     print(f"Rating: {rating} ({rating_info['label']}) - Score: {score:.2f}")
 

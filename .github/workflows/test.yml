@@ -30,23 +30,23 @@ jobs:
       run: tox
       
     - name: Generate coverage badge
-      if: matrix.python-version == '3.11' && github.ref == 'refs/heads/main'
+      if: matrix.python-version == '3.13' && github.ref == 'refs/heads/main'
       run: |
         pip install genbadge[coverage]
         genbadge coverage -i coverage.xml -o coverage-badge.svg
 
     - name: Generate complexity badge
-      if: matrix.python-version == '3.11' && github.ref == 'refs/heads/main'
+      if: matrix.python-version == '3.13' && github.ref == 'refs/heads/main'
       run: |
         pip install radon anybadge
         python scripts/generate_complexity_badge.py
 
     - name: Commit badges
-      if: matrix.python-version == '3.11' && github.ref == 'refs/heads/main'
+      if: matrix.python-version == '3.13' && github.ref == 'refs/heads/main'
       run: |
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
-        git add -f coverage-badge.svg complexity-badge.svg || true
+        git add coverage-badge.svg complexity-badge.svg || true
         git diff --staged --quiet || git commit -m "Update badges [skip ci]"
         git push || true
 

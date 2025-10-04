@@ -32,6 +32,17 @@ jobs:
     - name: Run security scans
       run: tox -e security
 
+    - name: Verify SARIF file exists
+      if: always()
+      run: |
+        if [ -f bandit-report.sarif ]; then
+          echo "✅ SARIF file generated successfully"
+          cat bandit-report.sarif | python3 -m json.tool > /dev/null && echo "✅ SARIF file is valid JSON"
+        else
+          echo "❌ SARIF file not found"
+          exit 1
+        fi
+
     - name: Upload Bandit SARIF results to GitHub Security tab
       uses: github/codeql-action/upload-sarif@v3
       if: always()
