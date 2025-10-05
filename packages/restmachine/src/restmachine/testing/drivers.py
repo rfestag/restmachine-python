@@ -5,11 +5,12 @@ This is the third layer in Dave Farley's 4-layer testing architecture.
 Drivers know how to translate DSL requests into actual system calls.
 """
 
+import io
 import json
 from abc import ABC, abstractmethod
 from typing import Dict, Any
 
-from restmachine import RestApplication, HTTPMethod, Request as RestMachineRequest
+from restmachine import RestApplication, HTTPMethod, Request as RestMachineRequest, BytesStreamBuffer
 from .dsl import HttpRequest, HttpResponse
 
 
@@ -49,21 +50,29 @@ class RestMachineDriver(DriverInterface):
         # Convert method string to HTTPMethod enum
         method = HTTPMethod(request.method.upper())
 
-        # Prepare body
-        body = None
+        # Prepare body as a stream
+        body_stream = None
         if request.body is not None:
+            # Convert body to bytes
             if isinstance(request.body, dict):
                 # Check content type to determine encoding
                 content_type = request.headers.get("Content-Type", "")
                 if "application/x-www-form-urlencoded" in content_type:
                     # URL-encode form data
                     from urllib.parse import urlencode
-                    body = urlencode(request.body)
+                    body_bytes = urlencode(request.body).encode('utf-8')
                 else:
                     # Default to JSON for dict bodies
-                    body = json.dumps(request.body)
+                    body_bytes = json.dumps(request.body).encode('utf-8')
+            elif isinstance(request.body, bytes):
+                body_bytes = request.body
             else:
-                body = str(request.body)
+                body_bytes = str(request.body).encode('utf-8')
+
+            # Create stream from bytes
+            body_stream = BytesStreamBuffer()
+            body_stream.write(body_bytes)
+            body_stream.close_writing()
 
         # Create RestMachine request
         return RestMachineRequest(
@@ -71,18 +80,29 @@ class RestMachineDriver(DriverInterface):
             path=request.path,
             headers=request.headers.copy(),
             query_params=request.query_params.copy() if request.query_params else None,
-            body=body
+            body=body_stream
         )
 
     def _convert_from_restmachine_response(self, response) -> HttpResponse:
         """Convert RestMachine Response to DSL HttpResponse."""
-        # Parse body if it's JSON
+        # Handle streaming and non-streaming bodies
         body = response.body
         content_type = response.content_type
 
+        # If body is a stream, read it all
+        if isinstance(body, io.IOBase):
+            body_bytes = body.read()
+            # Try to decode as UTF-8
+            try:
+                body = body_bytes.decode('utf-8')
+            except UnicodeDecodeError:
+                # Keep as bytes if not valid UTF-8
+                body = body_bytes
+
+        # Parse JSON bodies
         if body and content_type and 'application/json' in content_type:
             try:
-                body = json.loads(body) if isinstance(body, str) else body
+                body = json.loads(body) if isinstance(body, (str, bytes)) else body
             except (json.JSONDecodeError, TypeError):
                 # Keep as string if not valid JSON
                 pass

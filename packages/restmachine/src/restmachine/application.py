@@ -202,7 +202,7 @@ class RestApplication:
         """
         # Simple built-in dependencies
         self._dependencies["request"] = Dependency(lambda request: request, scope="request")
-        self._dependencies["body"] = Dependency(lambda request: request.body, scope="request")
+        self._dependencies["body"] = Dependency(self._get_body_as_string, scope="request")
         self._dependencies["query_params"] = Dependency(lambda request: request.query_params or {}, scope="request")
         self._dependencies["path_params"] = Dependency(lambda request: request.path_params or {}, scope="request")
         self._dependencies["request_headers"] = Dependency(lambda request: request.headers, scope="request")
@@ -219,6 +219,28 @@ class RestApplication:
         self._dependencies["form_body"] = Dependency(self._get_form_body, scope="request")
         self._dependencies["multipart_body"] = Dependency(self._get_multipart_body, scope="request")
         self._dependencies["text_body"] = Dependency(self._get_text_body, scope="request")
+
+    def _get_body_as_string(self, request: Request) -> Optional[str]:
+        """Built-in dependency provider for body as string.
+
+        Reads from the request body stream and decodes as UTF-8.
+        For backward compatibility with custom @app.accepts parsers.
+        """
+        if request.body is None:
+            return None
+
+        # If it's a stream, read and decode
+        if hasattr(request.body, 'read'):
+            raw_bytes = request.body.read()
+            # Reset stream position for potential re-reading
+            if hasattr(request.body, 'seek'):
+                request.body.seek(0)
+            return raw_bytes.decode('utf-8') if raw_bytes else None
+
+        # Legacy support for string/bytes (shouldn't happen with new code)
+        if isinstance(request.body, bytes):
+            return request.body.decode('utf-8')
+        return str(request.body) if request.body else None
 
     def _get_response_headers(self, request: Request) -> Dict[str, str]:
         """Built-in dependency provider for response_headers."""
@@ -814,22 +836,88 @@ class RestApplication:
         ])
         return supported_types
 
-    def _parse_with_builtin_parser(self, body: str, content_type: str) -> Any:
-        """Parse body using built-in parsers."""
+    def _parse_json_from_stream(self, body) -> Any:
+        """Parse JSON from a stream."""
+        import io
+        # Wrap bytes stream with TextIOWrapper for JSON parser
+        text_stream = io.TextIOWrapper(body, encoding='utf-8')
+        return json.load(text_stream)
+
+    def _parse_form_from_stream(self, body) -> dict:
+        """Parse form data from a stream."""
+        raw_bytes = body.read()
+        body_str = raw_bytes.decode('utf-8')
+        parsed = parse_qs(body_str, keep_blank_values=True)
+        return {key: values[0] if len(values) == 1 else values for key, values in parsed.items()}
+
+    def _parse_text_from_stream(self, body) -> str:
+        """Parse text from a stream."""
+        raw_bytes: bytes = body.read()
+        return raw_bytes.decode('utf-8')
+
+    def _parse_multipart_from_stream(self, body) -> dict:
+        """Parse multipart data from a stream."""
+        raw_bytes = body.read()
+        return {"_raw_body": raw_bytes, "_content_type": "multipart/form-data"}
+
+    def _parse_stream_body(self, body, content_type: str) -> Any:
+        """Parse body from a stream based on content type."""
+        if content_type == "application/json":
+            return self._parse_json_from_stream(body)
+        elif content_type == "application/x-www-form-urlencoded":
+            return self._parse_form_from_stream(body)
+        elif content_type == "multipart/form-data":
+            return self._parse_multipart_from_stream(body)
+        elif content_type == "text/plain":
+            return self._parse_text_from_stream(body)
+        else:
+            # Unknown content type - return raw bytes
+            return body.read()
+
+    def _parse_legacy_body(self, body, content_type: str) -> Any:
+        """Parse legacy string/bytes body (for backwards compatibility)."""
+        body_str = body.decode('utf-8') if isinstance(body, bytes) else body
+
+        if content_type == "application/json":
+            return json.loads(body_str)
+        elif content_type == "application/x-www-form-urlencoded":
+            parsed = parse_qs(body_str, keep_blank_values=True)
+            return {key: values[0] if len(values) == 1 else values for key, values in parsed.items()}
+        elif content_type == "multipart/form-data":
+            return {"_raw_body": body_str, "_content_type": "multipart/form-data"}
+        elif content_type == "text/plain":
+            return body_str
+        return body_str
+
+    def _parse_with_builtin_parser(self, body, content_type: str) -> Any:
+        """Parse body using built-in parsers.
+
+        Args:
+            body: BinaryIO stream or bytes-like object containing the request body
+            content_type: The expected content type
+
+        Returns:
+            Parsed body data
+        """
         try:
-            if content_type == "application/json":
-                return json.loads(body)
-            elif content_type == "application/x-www-form-urlencoded":
-                parsed = parse_qs(body, keep_blank_values=True)
-                return {key: values[0] if len(values) == 1 else values for key, values in parsed.items()}
-            elif content_type == "multipart/form-data":
-                return {"_raw_body": body, "_content_type": "multipart/form-data"}
-            elif content_type == "text/plain":
-                return body
-            return body
+            # Handle None/empty body
+            if body is None:
+                return None
+
+            # Parse stream or legacy body
+            if hasattr(body, 'read'):
+                return self._parse_stream_body(body, content_type)
+            else:
+                return self._parse_legacy_body(body, content_type)
+
         except json.JSONDecodeError as e:
             raise AcceptsParsingError(
                 f"Failed to parse {content_type} request body: Invalid JSON - {str(e)}",
+                original_exception=e
+            )
+        except UnicodeDecodeError as e:
+            raise AcceptsParsingError(
+                f"Failed to parse {content_type} request body: Invalid UTF-8 encoding - {str(e)}",
                 original_exception=e
             )
         except Exception as e:

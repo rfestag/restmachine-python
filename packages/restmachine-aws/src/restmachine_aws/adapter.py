@@ -1,9 +1,10 @@
 """AWS API Gateway adapter for RestMachine."""
 
+import io
 import json
 from typing import Any, Dict, Optional
 
-from restmachine import Adapter, Request, Response, HTTPMethod
+from restmachine import Adapter, Request, Response, HTTPMethod, BytesStreamBuffer
 from restmachine.models import MultiValueHeaders
 
 
@@ -264,7 +265,8 @@ class AwsApiGatewayAdapter(Adapter):
         """
         Convert Response object to AWS API Gateway response format.
 
-        Handles proper JSON serialization and header encoding.
+        Handles proper JSON serialization, header encoding, and streaming bodies.
+        For streaming bodies, reads the entire stream since Lambda requires complete responses.
 
         Args:
             response: Response from the app
@@ -277,6 +279,23 @@ class AwsApiGatewayAdapter(Adapter):
         # Convert body to string
         if response.body is None:
             body_str = ""
+        elif isinstance(response.body, io.IOBase):
+            # Streaming body - read the entire stream since Lambda requires complete response
+            body_bytes = response.body.read()
+            try:
+                body_str = body_bytes.decode('utf-8')
+            except (UnicodeDecodeError, AttributeError):
+                # If not valid UTF-8, return as base64
+                import base64
+                body_str = base64.b64encode(body_bytes).decode('ascii')
+                # Mark as base64 encoded (will be set below)
+        elif isinstance(response.body, bytes):
+            # Raw bytes - try to decode as UTF-8, otherwise base64
+            try:
+                body_str = response.body.decode('utf-8')
+            except UnicodeDecodeError:
+                import base64
+                body_str = base64.b64encode(response.body).decode('ascii')
         elif isinstance(response.body, (dict, list)):
             body_str = json.dumps(response.body)
         elif isinstance(response.body, (str, int, float, bool)):
@@ -294,18 +313,31 @@ class AwsApiGatewayAdapter(Adapter):
         else:
             headers_dict = {}
 
-        api_response = {
-            "statusCode": response.status_code,
-            "headers": headers_dict,
-            "body": body_str,
-            "isBase64Encoded": False
-        }
-
         # Ensure Content-Type is set for JSON responses
         if isinstance(response.body, (dict, list)) and "content-type" not in (
             {k.lower(): k for k in headers_dict.keys()}
         ):
-            api_response["headers"]["Content-Type"] = "application/json"
+            headers_dict["Content-Type"] = "application/json"
+
+        # Determine if we used base64 encoding
+        is_base64 = False
+        if isinstance(response.body, (io.IOBase, bytes)):
+            try:
+                # Try to see if we successfully decoded to UTF-8
+                if isinstance(response.body, bytes):
+                    response.body.decode('utf-8')
+                elif isinstance(response.body, io.IOBase):
+                    # We already read it above, check the body_str
+                    pass
+            except (UnicodeDecodeError, AttributeError):
+                is_base64 = True
+
+        api_response = {
+            "statusCode": response.status_code,
+            "headers": headers_dict,
+            "body": body_str,
+            "isBase64Encoded": is_base64
+        }
 
         return api_response
 
@@ -404,27 +436,37 @@ class AwsApiGatewayAdapter(Adapter):
             return {k: v for k, v in event["pathParameters"].items() if v is not None}
         return None
 
-    def _decode_body_from_event(self, event: Dict[str, Any]) -> Optional[str]:
+    def _decode_body_from_event(self, event: Dict[str, Any]) -> Optional[BytesStreamBuffer]:
         """
         Extract and decode body from AWS event.
 
-        Handles base64-encoded bodies automatically.
+        Handles base64-encoded bodies automatically and converts to a stream.
+        Lambda events arrive with complete bodies, so we create a stream from the full content.
 
         Args:
             event: AWS event dictionary
 
         Returns:
-            Decoded body string, or None if no body
+            BytesStreamBuffer containing the body, or None if no body
         """
         body = event.get("body")
-        if body and event.get("isBase64Encoded", False):
+        if not body:
+            return None
+
+        # Decode base64 if needed
+        if event.get("isBase64Encoded", False):
             import base64
-            try:
-                body = base64.b64decode(body).decode("utf-8")
-            except Exception:
-                # Fallback to latin-1 if utf-8 fails
-                body = base64.b64decode(body).decode("latin-1")
-        return body
+            body_bytes = base64.b64decode(body)
+        else:
+            # Convert string to bytes
+            body_bytes = body.encode("utf-8")
+
+        # Create stream from bytes
+        stream = BytesStreamBuffer()
+        stream.write(body_bytes)
+        stream.close_writing()
+
+        return stream
 
     def _extract_client_cert_from_apigw_context(
         self,

@@ -3,12 +3,13 @@ Core data models for the REST framework.
 """
 
 import hashlib
+import io
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from http import HTTPStatus
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -284,12 +285,16 @@ class Request:
     """Represents an HTTP request.
 
     Supports the ASGI TLS extension for TLS/SSL connection information.
+
+    The body is a file-like stream of bytes that can be read by content parsers.
+    This allows efficient handling of large request bodies without loading
+    everything into memory.
     """
 
     method: HTTPMethod
     path: str
     headers: Union[Dict[str, str], 'MultiValueHeaders']
-    body: Optional[str] = None
+    body: Optional[BinaryIO] = None
     query_params: Optional[Dict[str, str]] = None
     path_params: Optional[Dict[str, str]] = None
     tls: bool = False  # ASGI TLS extension: whether connection uses TLS
@@ -393,10 +398,18 @@ class Request:
 
 @dataclass
 class Response:
-    """Represents an HTTP response."""
+    """Represents an HTTP response.
+
+    The body can be:
+    - str: Will be encoded to UTF-8 bytes
+    - bytes: Used directly
+    - BinaryIO: File-like object that will be streamed (useful for large files, S3 objects, etc.)
+    - dict/list: Will be JSON-encoded
+    - None: Empty response body
+    """
 
     status_code: int
-    body: Optional[str] = None
+    body: Optional[Union[str, bytes, BinaryIO, dict, list]] = None
     headers: Optional[Union[Dict[str, str], 'MultiValueHeaders']] = None
     content_type: Optional[str] = None
     request: Optional['Request'] = None
@@ -419,16 +432,27 @@ class Response:
         if self.content_type:
             self.headers["Content-Type"] = self.content_type
 
-        # Automatically inject Content-Length header
-        if self.status_code != HTTPStatus.NO_CONTENT:  # Do not include Content-Length for No Content responses
-            if self.body is not None:
-                # Calculate byte length of body
-                body_bytes = self.body.encode('utf-8') if isinstance(self.body, str) else self.body
+        # Automatically inject Content-Length header (but not for streaming bodies or 204)
+        if self.status_code != HTTPStatus.NO_CONTENT:
+            if self.body is not None and not isinstance(self.body, io.IOBase):
+                # Calculate byte length of body (only for non-streaming bodies)
+                import json
+                if isinstance(self.body, str):
+                    body_bytes = self.body.encode('utf-8')
+                elif isinstance(self.body, (dict, list)):
+                    body_bytes = json.dumps(self.body).encode('utf-8')
+                elif isinstance(self.body, bytes):
+                    body_bytes = self.body
+                else:
+                    body_bytes = str(self.body).encode('utf-8')
+
                 content_length = len(body_bytes) if body_bytes else 0
-            else:
+                self.headers["Content-Length"] = str(content_length)
+            elif self.body is None:
                 # No body, set Content-Length to 0
-                content_length = 0
-            self.headers["Content-Length"] = str(content_length)
+                self.headers["Content-Length"] = "0"
+            # For streaming bodies (io.IOBase), don't set Content-Length
+            # The adapter will need to handle Transfer-Encoding: chunked
 
         # Automatically inject Vary header only if not already provided via pre_calculated_headers
         if not self.pre_calculated_headers or "Vary" not in self.pre_calculated_headers:
@@ -479,12 +503,40 @@ class Response:
 
         Args:
             weak: Whether to generate a weak ETag
+
+        Note:
+            For streaming bodies (BinaryIO), this will read the entire stream to calculate
+            the hash. The stream will be reset to the beginning after hashing.
         """
         if self.body is None:
             return
 
         # Generate SHA-256 hash of content for ETag
-        content_bytes = self.body.encode('utf-8') if isinstance(self.body, str) else self.body
+        import json
+        if isinstance(self.body, str):
+            content_bytes = self.body.encode('utf-8')
+        elif isinstance(self.body, bytes):
+            content_bytes = self.body
+        elif isinstance(self.body, (dict, list)):
+            content_bytes = json.dumps(self.body).encode('utf-8')
+        elif isinstance(self.body, io.IOBase):
+            # For streaming bodies, read all content for hash, then reset
+            hasher = hashlib.sha256()
+            original_pos = self.body.tell() if hasattr(self.body, 'tell') else 0
+            while True:
+                chunk = self.body.read(8192)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+            # Reset stream to original position
+            if hasattr(self.body, 'seek'):
+                self.body.seek(original_pos)
+            etag = hasher.hexdigest()
+            self.set_etag(etag, weak)
+            return
+        else:
+            content_bytes = str(self.body).encode('utf-8')
+
         etag = hashlib.sha256(content_bytes).hexdigest()
         self.set_etag(etag, weak)
 

@@ -10,12 +10,14 @@ Adapters convert between external platform formats and RestMachine's internal
 Request/Response models.
 """
 
+import io
 import json
 import urllib.parse
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any, BinaryIO, Dict, Optional, cast
 
 from .models import HTTPMethod, MultiValueHeaders, Request, Response
+from .streaming import BytesStreamBuffer
 
 if TYPE_CHECKING:
     from .application import RestApplication
@@ -84,11 +86,19 @@ class ASGIAdapter:
     model internally.
 
     The adapter handles:
+    - True streaming of request bodies (application receives data as it arrives)
     - Converting ASGI scope/receive/send to RestMachine Request
-    - Executing the synchronous RestMachine application
-    - Converting RestMachine Response to ASGI response format
+    - Executing the synchronous RestMachine application in a thread pool
+    - Converting RestMachine Response to ASGI response format (streaming if needed)
     - Proper header normalization and encoding
     - Content-Type and Content-Length handling
+
+    Streaming behavior:
+    - Request bodies: The adapter receives the first chunk, passes the stream to the
+      application immediately, and continues receiving chunks in the background. The
+      application can start processing before all data has arrived.
+    - Response bodies: File-like objects are streamed in 8KB chunks with proper
+      ASGI more_body signaling.
 
     Example:
         ```python
@@ -146,12 +156,32 @@ class ASGIAdapter:
             })
             return
 
-        # Convert ASGI scope and body to RestMachine Request
-        request = await self._asgi_to_request(scope, receive)
+        # Start the request and get the first body chunk
+        request, more_body = await self._start_request(scope, receive)
 
         # Execute the request through RestMachine
+        # If there's more body data to stream, run execute in thread pool
+        # and continue receiving body chunks in background
         try:
-            response = self.app.execute(request)
+            if more_body and request.body is not None:
+                # Start background task to continue receiving body chunks
+                import asyncio
+                receive_task = asyncio.create_task(
+                    self._continue_receiving_body(request.body, receive)
+                )
+
+                # Run synchronous execute in thread pool to avoid blocking
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(None, self.app.execute, request)
+
+                # Ensure body receiving is complete
+                await receive_task
+            else:
+                # No streaming needed, run execute in thread pool
+                import asyncio
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(None, self.app.execute, request)
+
         except Exception as e:
             # Handle unexpected errors gracefully
             response = Response(
@@ -207,18 +237,19 @@ class ASGIAdapter:
                 # Exit the lifespan loop after shutdown
                 return
 
-    async def _asgi_to_request(self, scope: Dict[str, Any], receive) -> Request:
+    async def _start_request(self, scope: Dict[str, Any], receive):
         """
-        Convert ASGI scope and receive callable to RestMachine Request.
+        Start a RestMachine Request by parsing headers and receiving the first body chunk.
 
-        Follows ASGI patterns for header and query parameter handling.
+        This method receives only the first chunk of body data and returns immediately,
+        allowing the application to start processing while more data is still being received.
 
         Args:
             scope: ASGI connection scope
             receive: ASGI receive callable
 
         Returns:
-            RestMachine Request object
+            Tuple of (Request object, bool indicating if more body data is coming)
         """
         # Extract HTTP method and path
         method = HTTPMethod(scope["method"])
@@ -239,23 +270,21 @@ class ASGIAdapter:
             value = header_value.decode("latin-1")
             headers.add(name, value)
 
-        # Read request body
-        body = b""
-        more_body = True
-        while more_body:
-            message = await receive()
-            body += message.get("body", b"")
-            more_body = message.get("more_body", False)
+        # Create a streaming body buffer and receive ONLY the first chunk
+        # This allows the application to start processing immediately
+        body_stream_temp = BytesStreamBuffer()
+        message = await receive()
+        chunk = message.get("body", b"")
+        if chunk:
+            body_stream_temp.write(chunk)
+        more_body = message.get("more_body", False)
 
-        # Convert body to string if present
-        # RestMachine's application layer will handle parsing based on Content-Type
-        body_content: Optional[str] = None
-        if body:
-            try:
-                body_content = body.decode("utf-8")
-            except UnicodeDecodeError:
-                # Fallback to latin-1 if UTF-8 fails
-                body_content = body.decode("latin-1")
+        # If no more body, close the stream now
+        if not more_body:
+            body_stream_temp.close_writing()
+
+        # If there's no content, set body to None instead of empty stream
+        body_stream: Optional[BytesStreamBuffer] = None if body_stream_temp.tell() == 0 else body_stream_temp
 
         # Extract TLS information (ASGI TLS extension)
         # Check if connection is using TLS (https)
@@ -269,40 +298,72 @@ class ASGIAdapter:
             # ASGI TLS extension format
             client_cert = tls_info.get("client_cert")
 
-        return Request(
+        request = Request(
             method=method,
             path=path,
             headers=headers,
             query_params=query_params,
-            body=body_content,
+            body=body_stream,
             tls=tls,
             client_cert=client_cert
         )
 
-    async def _response_to_asgi(self, response: Response, send):
-        """
-        Convert RestMachine Response to ASGI response format.
+        return request, more_body
 
-        Handles proper encoding, Content-Type, and Content-Length headers.
+    async def _continue_receiving_body(self, body_stream: BytesStreamBuffer, receive):
+        """
+        Continue receiving body chunks and writing to the stream.
+
+        This runs in the background while the application processes the request,
+        allowing true streaming of request bodies.
+
+        Args:
+            body_stream: The stream to write chunks to
+            receive: ASGI receive callable
+        """
+        while True:
+            message = await receive()
+            chunk = message.get("body", b"")
+            if chunk:
+                body_stream.write(chunk)
+            more_body = message.get("more_body", False)
+            if not more_body:
+                body_stream.close_writing()
+                break
+
+    def _convert_body_to_bytes(self, body: Any) -> bytes:
+        """
+        Convert response body to bytes for ASGI.
+
+        Args:
+            body: Response body (None, bytes, str, dict, list, etc.)
+
+        Returns:
+            Body as bytes
+        """
+        if body is None:
+            return b""
+        elif isinstance(body, bytes):
+            return body
+        elif isinstance(body, (dict, list)):
+            return json.dumps(body).encode("utf-8")
+        elif isinstance(body, (str, int, float, bool)):
+            return str(body).encode("utf-8")
+        else:
+            return str(body).encode("utf-8")
+
+    def _prepare_asgi_headers(self, response: Response, is_stream: bool, body_bytes: Optional[bytes] = None):
+        """
+        Prepare headers for ASGI response.
 
         Args:
             response: RestMachine Response object
-            send: ASGI send callable
-        """
-        # Convert body to bytes first to calculate Content-Length
-        if response.body is None:
-            body = b""
-        elif isinstance(response.body, bytes):
-            body = response.body
-        elif isinstance(response.body, (dict, list)):
-            body = json.dumps(response.body).encode("utf-8")
-        elif isinstance(response.body, (str, int, float, bool)):
-            body = str(response.body).encode("utf-8")
-        else:
-            body = str(response.body).encode("utf-8")
+            is_stream: Whether the body is a stream
+            body_bytes: Bytes body (for Content-Length calculation)
 
-        # Prepare headers - ASGI requires bytes
-        # Use items_all() to get all header values including duplicates
+        Returns:
+            Tuple of (headers list, content_type_set, content_length_set)
+        """
         headers = []
         content_type_set = False
         content_length_set = False
@@ -324,15 +385,58 @@ class ASGIAdapter:
         if not content_type_set and isinstance(response.body, (dict, list)):
             headers.append([b"content-type", b"application/json"])
 
-        # Always ensure Content-Length matches actual body length
-        if not content_length_set:
-            headers.append([b"content-length", str(len(body)).encode("latin-1")])
-        else:
-            # Update existing Content-Length to match actual body
-            headers = [
-                [name, str(len(body)).encode("latin-1") if name.lower() == b"content-length" else value]
-                for name, value in headers
-            ]
+        # Set Content-Length for non-streaming bodies
+        if not is_stream and not content_length_set and body_bytes is not None:
+            headers.append([b"content-length", str(len(body_bytes)).encode("latin-1")])
+
+        return headers
+
+    async def _send_streaming_body(self, body_stream: BinaryIO, send):
+        """
+        Send a streaming body to ASGI in chunks.
+
+        Args:
+            body_stream: File-like object to stream
+            send: ASGI send callable
+        """
+        chunk_size = 8192  # 8KB chunks
+        while True:
+            chunk = body_stream.read(chunk_size)
+            if not chunk:
+                break
+            await send({
+                "type": "http.response.body",
+                "body": chunk,
+                "more_body": True,
+            })
+        # Send final empty chunk to signal end
+        await send({
+            "type": "http.response.body",
+            "body": b"",
+            "more_body": False,
+        })
+
+    async def _response_to_asgi(self, response: Response, send):
+        """
+        Convert RestMachine Response to ASGI response format.
+
+        Handles proper encoding, Content-Type, and Content-Length headers.
+        Supports streaming response bodies for efficient handling of large files.
+
+        Args:
+            response: RestMachine Response object
+            send: ASGI send callable
+        """
+        # Check if body is a stream
+        is_stream = isinstance(response.body, io.IOBase)
+
+        # For non-streaming bodies, convert to bytes
+        body = None
+        if not is_stream:
+            body = self._convert_body_to_bytes(response.body)
+
+        # Prepare headers
+        headers = self._prepare_asgi_headers(response, is_stream, body)
 
         # Send response start
         await send({
@@ -342,10 +446,14 @@ class ASGIAdapter:
         })
 
         # Send response body
-        await send({
-            "type": "http.response.body",
-            "body": body,
-        })
+        if is_stream:
+            await self._send_streaming_body(cast(BinaryIO, response.body), send)
+        else:
+            # Send entire body at once for non-streaming responses
+            await send({
+                "type": "http.response.body",
+                "body": body,
+            })
 
 
 def create_asgi_app(app: "RestApplication") -> ASGIAdapter:
