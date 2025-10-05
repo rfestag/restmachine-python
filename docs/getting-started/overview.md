@@ -72,8 +72,8 @@ Routes are defined using decorators:
 
 ```python
 @app.get('/users/{user_id}')
-def get_user(request):
-    user_id = request.path_params['user_id']
+def get_user(path_params):
+    user_id = path_params['user_id']
     return {"id": user_id}
 ```
 

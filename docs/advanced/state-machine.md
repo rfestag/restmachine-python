@@ -16,181 +16,130 @@ The state machine processes every request through a series of decision points, e
 
 ## State Machine Flow
 
-The diagram below shows the complete request processing flow, organized in a grid layout inspired by the [webmachine](https://webmachine.github.io/) state machine.
-
-### Grid Layout
-
-States are organized into **columns** (letters) and **rows** (numbers):
-
-- **Column B** (rows 13-5): Service and route validation
-- **Column G** (rows 7-3): Resource existence and conditional request checks
-- **Column C** (rows 4-3): Content negotiation
-
-For example, **B13** means "Column B, row 13" - the first decision point checking if a route exists.
-
-This naming convention comes from webmachine and helps identify which phase of request processing each state belongs to.
+The diagram below shows the complete request processing flow.
 
 !!! tip "Viewing the Diagram"
-    - Click the **Expand Diagram** button below for fullscreen view with zoom/pan controls
-    - **Desktop controls**:
-        - **Scroll** with mouse wheel to zoom in/out
-        - **Drag** with mouse to pan around the diagram
-        - **Arrow keys** (↑ ↓ ← →) to pan up/down/left/right
-        - **+/-** buttons for precise zoom control
-        - **⊙** button to reset view to initial position
-        - **ESC** or **×** to close
-    - **Mobile/Touch controls**:
-        - **Drag** with one finger to pan
-        - **Pinch** with two fingers to zoom in/out
-        - **Tap** **×** button to close
+    - Click the **Expand Diagram** button below for fullscreen view with zoom controls
+    - In fullscreen: Use **+/-** buttons or **Ctrl/Cmd + scroll** to zoom
+    - Horizontal scroll to navigate the full flow
     - Copy the diagram code to [Mermaid Live Editor](https://mermaid.live/) for interactive editing
 
 <div class="mermaid-fullscreen-wrapper">
-    <button class="mermaid-fullscreen-btn">⛶ Expand Diagram</button>
+    <button class="mermaid-fullscreen-btn" onclick="toggleMermaidFullscreen(this)">⛶ Expand Diagram</button>
 </div>
 
 ```mermaid
 flowchart LR
     START([Request]) --> B13
 
-    %% Column B: Service & Route Validation (rows 13-5)
-    subgraph B[" Column B: Service & Route Validation "]
-        direction TB
-        B13{B13: Route<br/>Exists?}
-        B12{B12: Service<br/>Available?}
-        B11{B11: Known<br/>Method?}
-        B10{B10: URI<br/>Too Long?}
-        B9{B9: Method<br/>Allowed?}
-        B8{B8: Malformed<br/>Request?}
-        B7{B7: Authorized?}
-        B6{B6: Forbidden?}
-        B5{B5: Valid Content<br/>Headers?}
-    end
-
-    %% Column G: Resource & Conditional Checks (rows 7-3)
-    subgraph G[" Column G: Resource & Conditional Checks "]
-        direction TB
-        G7{G7: Resource<br/>Exists?}
-        G6{G6: If-Modified-<br/>Since?}
-        G5{G5: If-None-Match<br/>Header?}
-        G4{G4: If-Unmodified-<br/>Since?}
-        G3{G3: If-Match<br/>Header?}
-    end
-
-    %% Column C: Content Negotiation (rows 4-3)
-    subgraph C[" Column C: Content Negotiation "]
-        direction TB
-        C4{C4: Acceptable<br/>Content Type?}
-        C3{C3: Content Types<br/>Available?}
-    end
-
-    %% Error Response States
-    subgraph ERRORS[" Error Responses "]
-        direction TB
-        R404[404 Not Found]
-        R405[405 Method<br/>Not Allowed]
-        R400[400 Bad<br/>Request]
-        R401[401<br/>Unauthorized]
-        R403[403<br/>Forbidden]
-        R412[412 Precondition<br/>Failed]
-        R406[406 Not<br/>Acceptable]
-        R414[414 URI<br/>Too Long]
-        R501[501 Not<br/>Implemented]
-        R503[503 Service<br/>Unavailable]
-        R500[500 Internal<br/>Server Error]
-    end
-
-    %% Success Response States
-    subgraph SUCCESS_STATES[" Success Responses "]
-        direction TB
-        R304[304 Not<br/>Modified]
-        R204[204 No<br/>Content]
-        EXEC[Execute Handler<br/>& Render]
-        RETURN[Return Response]
-    end
-
-    %% Column B Flow (top to bottom)
+    %% Route and Service Checks
+    B13{B13: Route<br/>Exists?}
+    B13 -->|No| PATH_CHECK{Path has<br/>other routes?}
+    PATH_CHECK -->|Yes| R405[405 Method<br/>Not Allowed]
+    PATH_CHECK -->|No| R404[404 Not Found]
     B13 -->|Yes| B12
+
+    B12{B12: Service<br/>Available?}
+    B12 -->|No| R503[503 Service<br/>Unavailable]
     B12 -->|Yes| B11
+
+    B11{B11: Known<br/>Method?}
+    B11 -->|No| R501[501 Not<br/>Implemented]
     B11 -->|Yes| B10
+
+    B10{B10: URI<br/>Too Long?}
+    B10 -->|Yes| R414[414 URI<br/>Too Long]
     B10 -->|No| B9
+
+    B9{B9: Method<br/>Allowed?}
+    B9 -->|No| R405_2[405 Method<br/>Not Allowed]
     B9 -->|Yes| B8
+
+    %% Request Validation
+    B8{B8: Malformed<br/>Request?}
+    B8 -->|Yes| R400[400 Bad<br/>Request]
     B8 -->|No| B7
+
+    B7{B7: Authorized?}
+    B7 -->|No| R401[401<br/>Unauthorized]
     B7 -->|Yes| B6
+
+    B6{B6: Forbidden?}
+    B6 -->|Yes| R403[403<br/>Forbidden]
     B6 -->|No| B5
 
-    %% B Column to Errors
-    B13 -->|No| PATH_CHECK{Path has<br/>other routes?}
-    PATH_CHECK -->|Yes| R405
-    PATH_CHECK -->|No| R404
-    B12 -->|No| R503
-    B11 -->|No| R501
-    B10 -->|Yes| R414
-    B9 -->|No| R405
-    B8 -->|Yes| R400
-    B7 -->|No| R401
-    B6 -->|Yes| R403
-    B5 -->|No| R400
-
-    %% B Column to G Column
+    B5{B5: Valid Content<br/>Headers?}
+    B5 -->|No| R400_2[400 Bad<br/>Request]
     B5 -->|Yes| G7
 
-    %% Column G Flow
+    %% Resource Existence
+    G7{G7: Resource<br/>Exists?}
+    G7 -->|No & POST| C3
+    G7 -->|No & Other| R404_2[404 Not<br/>Found]
     G7 -->|Yes| COND_CHECK{Conditional<br/>Headers?}
+
+    COND_CHECK -->|No| C3
     COND_CHECK -->|Yes| G3
-    G3 -->|No or Match| G4
-    G4 -->|No or Not Modified| G5
+
+    %% Conditional Request Processing
+    G3{G3: If-Match<br/>Header?}
+    G3 -->|No| G4
+    G3 -->|* or Match| G4
+    G3 -->|No Match| R412[412 Precondition<br/>Failed]
+
+    G4{G4: If-Unmodified-<br/>Since?}
+    G4 -->|No| G5
+    G4 -->|Not Modified| G5
+    G4 -->|Modified| R412_2[412 Precondition<br/>Failed]
+
+    G5{G5: If-None-Match<br/>Header?}
+    G5 -->|No| G6
+    G5 -->|Match & GET| R304[304 Not<br/>Modified]
+    G5 -->|Match & Other| R412_3[412 Precondition<br/>Failed]
     G5 -->|No Match| G6
 
-    %% G Column to Errors
-    G7 -->|No & Other| R404
-    G3 -->|No Match| R412
-    G4 -->|Modified| R412
-    G5 -->|Match & GET| R304
-    G5 -->|Match & Other| R412
-    G6 -->|Not Modified| R304
+    G6{G6: If-Modified-<br/>Since?}
+    G6 -->|No or GET| C3
+    G6 -->|Not Modified| R304_2[304 Not<br/>Modified]
+    G6 -->|Modified| C3
 
-    %% G Column to C Column
-    G7 -->|No & POST| C3
-    COND_CHECK -->|No| C3
-    G6 -->|No or Modified| C3
-
-    %% Column C Flow
+    %% Content Negotiation
+    C3{C3: Content Types<br/>Available?}
+    C3 -->|No| R500[500 Internal<br/>Server Error]
     C3 -->|Yes| C4
 
-    %% C Column to Errors
-    C3 -->|No| R500
-    C4 -->|No| R406
+    C4{C4: Acceptable<br/>Content Type?}
+    C4 -->|No| R406[406 Not<br/>Acceptable]
+    C4 -->|Yes| EXEC[Execute Handler<br/>& Render]
 
-    %% C Column to Success
-    C4 -->|Yes| EXEC
-
-    %% Success Flow
-    EXEC --> RESPONSE_CHECK{Response<br/>Type?}
-    RESPONSE_CHECK -->|None| R204
-    RESPONSE_CHECK -->|Response Object| RETURN
-    RESPONSE_CHECK -->|Data| RENDER[Render with<br/>Content Type]
+    %% Terminal States
+    EXEC --> SUCCESS{Response<br/>Type?}
+    SUCCESS -->|None| R204[204 No<br/>Content]
+    SUCCESS -->|Response Object| RETURN[Return Response]
+    SUCCESS -->|Data| RENDER[Render with<br/>Content Type]
     RENDER --> RETURN
 
-    %% Style error responses (red)
+    %% Style terminal states
     style R404 fill:#f88,stroke:#333,stroke-width:2px
+    style R404_2 fill:#f88,stroke:#333,stroke-width:2px
     style R405 fill:#f88,stroke:#333,stroke-width:2px
+    style R405_2 fill:#f88,stroke:#333,stroke-width:2px
     style R400 fill:#f88,stroke:#333,stroke-width:2px
+    style R400_2 fill:#f88,stroke:#333,stroke-width:2px
     style R401 fill:#f88,stroke:#333,stroke-width:2px
     style R403 fill:#f88,stroke:#333,stroke-width:2px
     style R412 fill:#f88,stroke:#333,stroke-width:2px
+    style R412_2 fill:#f88,stroke:#333,stroke-width:2px
+    style R412_3 fill:#f88,stroke:#333,stroke-width:2px
     style R406 fill:#f88,stroke:#333,stroke-width:2px
     style R414 fill:#f88,stroke:#333,stroke-width:2px
     style R501 fill:#f88,stroke:#333,stroke-width:2px
     style R503 fill:#f88,stroke:#333,stroke-width:2px
     style R500 fill:#f88,stroke:#333,stroke-width:2px
-
-    %% Style success responses (green)
     style R304 fill:#8f8,stroke:#333,stroke-width:2px
+    style R304_2 fill:#8f8,stroke:#333,stroke-width:2px
     style R204 fill:#8f8,stroke:#333,stroke-width:2px
     style RETURN fill:#8f8,stroke:#333,stroke-width:2px
-
-    %% Style processing states (blue)
     style EXEC fill:#88f,stroke:#333,stroke-width:2px
     style RENDER fill:#88f,stroke:#333,stroke-width:2px
 ```

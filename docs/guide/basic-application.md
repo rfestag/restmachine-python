@@ -52,29 +52,28 @@ def list_users():
     return {"users": ["Alice", "Bob"]}
 
 @app.post('/users')
-def create_user(request):
-    # Access request body
-    import json
-    data = json.loads(request.body)
-    return {"created": data}, 201
+def create_user(json_body):
+    # Access parsed JSON body via dependency injection
+    return {"created": json_body}, 201
 
 @app.put('/users/{user_id}')
-def update_user(request):
-    user_id = request.path_params['user_id']
-    return {"updated": user_id}
+def update_user(path_params, json_body):
+    user_id = path_params['user_id']
+    return {"updated": user_id, "data": json_body}
 
 @app.patch('/users/{user_id}')
-def partial_update(request):
-    return {"patched": True}
+def partial_update(path_params, json_body):
+    return {"patched": path_params['user_id']}
 
 @app.delete('/users/{user_id}')
-def delete_user(request):
-    return {"deleted": True}, 204
+def delete_user(path_params):
+    # Returning None gives 204 No Content
+    return None
 
 @app.head('/users/{user_id}')
-def user_exists(request):
+def user_head(path_params):
     # HEAD requests don't return a body
-    return None, 200
+    return None
 
 @app.options('/users')
 def user_options():
@@ -83,18 +82,18 @@ def user_options():
 
 ### Path Parameters
 
-Capture dynamic path segments:
+Capture dynamic path segments using the `path_params` dependency:
 
 ```python
 @app.get('/users/{user_id}')
-def get_user(request):
-    user_id = request.path_params['user_id']
+def get_user(path_params):
+    user_id = path_params['user_id']
     return {"user_id": user_id}
 
 @app.get('/posts/{post_id}/comments/{comment_id}')
-def get_comment(request):
-    post_id = request.path_params['post_id']
-    comment_id = request.path_params['comment_id']
+def get_comment(path_params):
+    post_id = path_params['post_id']
+    comment_id = path_params['comment_id']
     return {
         "post_id": post_id,
         "comment_id": comment_id
@@ -103,14 +102,14 @@ def get_comment(request):
 
 ### Query Parameters
 
-Access query string parameters:
+Access query string parameters using the `query_params` dependency:
 
 ```python
 @app.get('/search')
-def search(request):
+def search(query_params):
     # URL: /search?q=python&limit=10
-    query = request.query_params.get('q', '')
-    limit = int(request.query_params.get('limit', '20'))
+    query = query_params.get('q', '')
+    limit = int(query_params.get('limit', '20'))
 
     return {
         "query": query,
@@ -157,19 +156,19 @@ def example_handler(request):
 
 ### Request Headers
 
-Headers are case-insensitive and support multiple values:
+Headers are case-insensitive and support multiple values. Use the `request_headers` dependency:
 
 ```python
 @app.get('/headers')
-def show_headers(request):
+def show_headers(request_headers):
     # Get single header
-    user_agent = request.headers.get('user-agent')
+    user_agent = request_headers.get('user-agent')
 
     # Get all headers
-    all_headers = dict(request.headers)
+    all_headers = dict(request_headers)
 
     # Check if header exists
-    has_auth = 'authorization' in request.headers
+    has_auth = 'authorization' in request_headers
 
     return {
         "user_agent": user_agent,
@@ -180,20 +179,23 @@ def show_headers(request):
 
 ### Request Body
 
-Handle different content types:
+For JSON requests, use the `json_body` dependency for automatic parsing:
 
 ```python
-import json
-
 @app.post('/data')
-def handle_data(request):
+def handle_json(json_body):
+    # json_body is automatically parsed from application/json requests
+    return {"received": json_body}
+```
+
+For other content types, use the `request` dependency:
+
+```python
+@app.post('/form')
+def handle_form(request):
     content_type = request.headers.get('content-type', '')
 
-    if 'application/json' in content_type:
-        data = json.loads(request.body)
-        return {"json": data}
-
-    elif 'application/x-www-form-urlencoded' in content_type:
+    if 'application/x-www-form-urlencoded' in content_type:
         from urllib.parse import parse_qs
         data = parse_qs(request.body.decode())
         return {"form": data}
@@ -260,7 +262,7 @@ Specify status codes in several ways:
 ```python
 # Tuple: (body, status_code)
 @app.post('/users')
-def create_user(request):
+def create_user(json_body):
     return {"user": "created"}, 201
 
 # Tuple: (body, status_code, headers)
@@ -331,19 +333,21 @@ def get_data():
 
 ### Built-in Error Responses
 
-RestMachine automatically generates appropriate error responses:
+Use decorators to automatically generate appropriate error responses:
 
 ```python
+# Use @app.resource_exists to return 404 when resource not found
+@app.resource_exists
+def user_exists(path_params):
+    user_id = path_params['user_id']
+    # Return None to trigger 404, or return the resource
+    users = {"1": {"id": "1", "name": "Alice"}}
+    return users.get(user_id)
+
 @app.get('/users/{user_id}')
-def get_user(request):
-    user_id = request.path_params['user_id']
-
-    # Simulate user not found
-    if user_id == "999":
-        from restmachine import Response
-        return Response(404, "User not found")
-
-    return {"user_id": user_id}
+def get_user(user_exists):
+    # user_exists is injected - if it was None, 404 already returned
+    return user_exists
 ```
 
 ### Custom Error Handlers
@@ -409,11 +413,11 @@ def show_config():
 
 ## Complete Example
 
-Here's a complete example combining all concepts:
+Here's a complete example using dependency injection and decorators:
 
 ```python
-from restmachine import RestApplication, Request, Response
-import json
+from restmachine import RestApplication, Request, HTTPMethod
+from pydantic import BaseModel, Field
 
 app = RestApplication()
 
@@ -423,11 +427,37 @@ users = {
     "2": {"id": "2", "name": "Bob", "email": "bob@example.com"}
 }
 
+# Validation models
+class CreateUserRequest(BaseModel):
+    name: str = Field(min_length=1)
+    email: str = Field(pattern=r'^[\w\.-]+@[\w\.-]+\.\w+$')
+
+class UpdateUserRequest(BaseModel):
+    name: str | None = None
+    email: str | None = None
+
+# Decorators for proper status codes
+@app.resource_exists
+def user_exists(path_params):
+    """Returns user or None (which triggers 404)."""
+    user_id = path_params.get('user_id')
+    return users.get(user_id)
+
+@app.validates
+def validate_create(json_body) -> CreateUserRequest:
+    """Validates create request, returns 422 on error."""
+    return CreateUserRequest.model_validate(json_body)
+
+@app.validates
+def validate_update(json_body) -> UpdateUserRequest:
+    """Validates update request, returns 422 on error."""
+    return UpdateUserRequest.model_validate(json_body)
+
 # List all users
 @app.get('/users')
-def list_users(request):
+def list_users(query_params):
     # Support filtering by name
-    name_filter = request.query_params.get('name')
+    name_filter = query_params.get('name')
 
     if name_filter:
         filtered = [u for u in users.values()
@@ -438,60 +468,40 @@ def list_users(request):
 
 # Get single user
 @app.get('/users/{user_id}')
-def get_user(request):
-    user_id = request.path_params['user_id']
-
-    user = users.get(user_id)
-    if not user:
-        return Response(404, json.dumps({"error": "User not found"}))
-
-    return user
+def get_user(user_exists):
+    # user_exists decorator handles 404 automatically
+    return user_exists
 
 # Create user
 @app.post('/users')
-def create_user(request):
-    data = json.loads(request.body)
-
-    # Validate required fields
-    if 'name' not in data or 'email' not in data:
-        return Response(400, json.dumps({
-            "error": "Missing required fields: name, email"
-        }))
-
-    # Generate ID
+def create_user(validate_create: CreateUserRequest):
+    # Validation decorator handles 422 automatically
     user_id = str(len(users) + 1)
     user = {
         "id": user_id,
-        "name": data['name'],
-        "email": data['email']
+        **validate_create.model_dump()
     }
     users[user_id] = user
-
     return user, 201
 
 # Update user
 @app.put('/users/{user_id}')
-def update_user(request):
-    user_id = request.path_params['user_id']
+def update_user(user_exists, validate_update: UpdateUserRequest):
+    # Both decorators handle 404 and 422 automatically
+    if validate_update.name:
+        user_exists['name'] = validate_update.name
+    if validate_update.email:
+        user_exists['email'] = validate_update.email
 
-    if user_id not in users:
-        return Response(404, json.dumps({"error": "User not found"}))
-
-    data = json.loads(request.body)
-    users[user_id].update(data)
-
-    return users[user_id]
+    return user_exists
 
 # Delete user
 @app.delete('/users/{user_id}')
-def delete_user(request):
-    user_id = request.path_params['user_id']
-
-    if user_id not in users:
-        return Response(404, json.dumps({"error": "User not found"}))
-
+def delete_user(user_exists, path_params):
+    # resource_exists decorator handles 404 automatically
+    user_id = path_params['user_id']
     del users[user_id]
-    return None, 204
+    return None  # Returns 204 No Content
 
 # Custom error handler
 @app.error_handler(404)
@@ -508,7 +518,7 @@ asgi_app = ASGIAdapter(app)
 
 if __name__ == '__main__':
     # Test locally
-    req = Request(method='GET', path='/users')
+    req = Request(method=HTTPMethod.GET, path='/users')
     resp = app.execute(req)
     print(resp.body)
 ```

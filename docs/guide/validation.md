@@ -35,9 +35,8 @@ class UserCreate(BaseModel):
     age: int
 
 @app.validates
-def validate_user(request: Request) -> UserCreate:
-    data = json.loads(request.body)
-    return UserCreate.model_validate(data)
+def validate_user(json_body) -> UserCreate:
+    return UserCreate.model_validate(json_body)
 
 @app.post('/users')
 def create_user(validate_user: UserCreate):
@@ -80,10 +79,8 @@ class UserCreate(BaseModel):
         return v
 
 @app.validates
-def validate_user(request: Request) -> UserCreate:
-    import json
-    data = json.loads(request.body)
-    return UserCreate.model_validate(data)
+def validate_user(json_body) -> UserCreate:
+    return UserCreate.model_validate(json_body)
 
 @app.post('/users')
 def create_user(validate_user: UserCreate):
@@ -121,10 +118,8 @@ class EventCreate(BaseModel):
         return self
 
 @app.validates
-def validate_event(request: Request) -> EventCreate:
-    import json
-    data = json.loads(request.body)
-    return EventCreate.model_validate(data)
+def validate_event(json_body) -> EventCreate:
+    return EventCreate.model_validate(json_body)
 
 @app.post('/events')
 def create_event(validate_event: EventCreate):
@@ -150,8 +145,8 @@ class ListParams(BaseModel):
     order: SortOrder = SortOrder.asc
 
 @app.validates
-def validate_list_params(request: Request) -> ListParams:
-    return ListParams.model_validate(request.query_params)
+def validate_list_params(query_params) -> ListParams:
+    return ListParams.model_validate(query_params)
 
 @app.get('/users')
 def list_users(validate_list_params: ListParams, database):
@@ -193,12 +188,11 @@ class UserId(BaseModel):
         return v
 
 @app.dependency()
-def user_id(request: Request) -> UUID:
-    raw_id = request.path_params.get('user_id')
+def user_id(path_params) -> UUID:
+    raw_id = path_params.get('user_id')
     try:
         return UUID(raw_id)
     except ValueError:
-        from restmachine import Response
         raise ValueError(f"Invalid user ID format: {raw_id}")
 
 @app.get('/users/{user_id}')
@@ -247,10 +241,8 @@ class ContactInfo(BaseModel):
         return validate_phone_number(v)
 
 @app.validates
-def validate_contact(request: Request) -> ContactInfo:
-    import json
-    data = json.loads(request.body)
-    return ContactInfo.model_validate(data)
+def validate_contact(json_body) -> ContactInfo:
+    return ContactInfo.model_validate(json_body)
 
 @app.post('/contacts')
 def create_contact(validate_contact: ContactInfo):
@@ -285,10 +277,8 @@ class PurchaseRequest(BaseModel):
         return v
 
 @app.dependency()
-def validate_purchase(request: Request, database) -> PurchaseRequest:
-    import json
-    data = json.loads(request.body)
-    purchase = PurchaseRequest.model_validate(data)
+def validate_purchase(json_body, database) -> PurchaseRequest:
+    purchase = PurchaseRequest.model_validate(json_body)
 
     # Check user exists and has sufficient credits
     user = next((u for u in database["users"] if u["id"] == purchase.user_id), None)
@@ -455,10 +445,8 @@ class UserProfile(BaseModel):
         return v
 
 @app.validates
-def validate_profile(request: Request) -> UserProfile:
-    import json
-    data = json.loads(request.body)
-    return UserProfile.model_validate(data)
+def validate_profile(json_body) -> UserProfile:
+    return UserProfile.model_validate(json_body)
 
 @app.post('/profiles')
 def create_profile(validate_profile: UserProfile):
@@ -502,25 +490,22 @@ class UserUpdate(BaseModel):
         return self
 
 @app.validates
-def validate_user_update(request: Request) -> UserUpdate:
-    import json
-    data = json.loads(request.body)
-    return UserUpdate.model_validate(data)
+def validate_user_update(json_body) -> UserUpdate:
+    return UserUpdate.model_validate(json_body)
+
+@app.resource_exists
+def user_to_update(path_params, database):
+    user_id = path_params.get('user_id')
+    return next((u for u in database["users"] if u["id"] == user_id), None)
 
 @app.patch('/users/{user_id}')
-def update_user(request: Request, validate_user_update: UserUpdate, database):
-    user_id = request.path_params['user_id']
-    user = next((u for u in database["users"] if u["id"] == user_id), None)
-
-    if not user:
-        from restmachine import Response
-        return Response(404, '{"error": "User not found"}')
-
+def update_user(user_to_update, validate_user_update: UserUpdate):
+    # resource_exists decorator handles 404 automatically
     # Update only provided fields
     update_data = validate_user_update.model_dump(exclude_unset=True)
-    user.update(update_data)
+    user_to_update.update(update_data)
 
-    return user
+    return user_to_update
 ```
 
 ## Content Type Validation
@@ -623,14 +608,12 @@ def database():
 
 # Validators
 @app.validates
-def validate_post(request: Request) -> PostCreate:
-    data = json.loads(request.body)
-    return PostCreate.model_validate(data)
+def validate_post(json_body) -> PostCreate:
+    return PostCreate.model_validate(json_body)
 
 @app.validates
-def validate_post_update(request: Request) -> PostUpdate:
-    data = json.loads(request.body)
-    return PostUpdate.model_validate(data)
+def validate_post_update(json_body) -> PostUpdate:
+    return PostUpdate.model_validate(json_body)
 
 # Dependencies
 @app.dependency()
@@ -651,29 +634,24 @@ def create_post(verify_author: PostCreate, database):
     database["posts"].append(post)
     return post, 201
 
+@app.resource_exists
+def post_by_id(path_params, database):
+    post_id = path_params.get('post_id')
+    return next((p for p in database["posts"] if p["id"] == post_id), None)
+
 @app.get('/posts/{post_id}')
-def get_post(request: Request, database):
-    post_id = request.path_params['post_id']
-    post = next((p for p in database["posts"] if p["id"] == post_id), None)
-
-    if not post:
-        return Response(404, json.dumps({"error": "Post not found"}))
-
-    return post
+def get_post(post_by_id):
+    # resource_exists decorator handles 404 automatically
+    return post_by_id
 
 @app.patch('/posts/{post_id}')
-def update_post(request: Request, validate_post_update: PostUpdate, database):
-    post_id = request.path_params['post_id']
-    post = next((p for p in database["posts"] if p["id"] == post_id), None)
-
-    if not post:
-        return Response(404, json.dumps({"error": "Post not found"}))
-
+def update_post(post_by_id, validate_post_update: PostUpdate):
+    # resource_exists decorator handles 404 automatically
     # Update only provided fields
     update_data = validate_post_update.model_dump(exclude_unset=True)
-    post.update(update_data)
+    post_by_id.update(update_data)
 
-    return post
+    return post_by_id
 
 # Error handler
 @app.error_handler(400)
@@ -698,16 +676,14 @@ Validate as early as possible in the request lifecycle:
 ```python
 # Good: Validate in dependency
 @app.validates
-def validate_user(request: Request) -> UserCreate:
-    import json
-    return UserCreate.model_validate(json.loads(request.body))
+def validate_user(json_body) -> UserCreate:
+    return UserCreate.model_validate(json_body)
 
 # Avoid: Validate in handler
 @app.post('/users')
-def create_user(request: Request):
-    import json
-    data = json.loads(request.body)  # Might fail
-    user = UserCreate.model_validate(data)  # Validation too late
+def create_user(json_body):
+    # Don't manually validate - use @app.validates instead
+    user = UserCreate.model_validate(json_body)  # Validation should be in decorator
     ...
 ```
 

@@ -22,13 +22,13 @@ def home():
     return {"message": "Welcome to RestMachine!"}
 
 @app.get('/hello/{name}')
-def hello(request: Request):
-    name = request.path_params['name']
+def hello(path_params):
+    name = path_params['name']
     return {"message": f"Hello, {name}!"}
 
 @app.post('/echo')
-def echo(request: Request):
-    return {"you_sent": request.body}
+def echo(json_body):
+    return {"you_sent": json_body}
 ```
 
 ### 3. Test Locally
@@ -148,8 +148,8 @@ def home():
     return {"message": "Welcome to RestMachine on Lambda!"}
 
 @app.get('/hello/{name}')
-def hello(request):
-    name = request.path_params['name']
+def hello(path_params):
+    name = path_params['name']
     return {"message": f"Hello, {name}!"}
 
 # Create AWS Lambda adapter

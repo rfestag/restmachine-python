@@ -78,17 +78,15 @@ def status(database):
     return database
 ```
 
-## Accessing the Request
+## Accessing Request Data
 
-Inject the `Request` object to access request data:
+Use specific dependencies instead of the generic `request` object:
 
 ```python
-from restmachine import Request
-
 @app.dependency()
-def current_user(request: Request):
+def current_user(request_headers):
     # Extract user from authentication header
-    auth_header = request.headers.get('authorization', '')
+    auth_header = request_headers.get('authorization', '')
 
     if auth_header.startswith('Bearer '):
         token = auth_header[7:]
@@ -108,17 +106,17 @@ def get_profile(current_user):
 
 ### Path and Query Parameters
 
-Access path and query parameters through the Request:
+Access path and query parameters using built-in dependencies:
 
 ```python
 @app.dependency()
-def user_id(request: Request):
-    return request.path_params.get('user_id')
+def user_id(path_params):
+    return path_params.get('user_id')
 
 @app.dependency()
-def pagination(request: Request):
-    page = int(request.query_params.get('page', '1'))
-    limit = int(request.query_params.get('limit', '20'))
+def pagination(query_params):
+    page = int(query_params.get('page', '1'))
+    limit = int(query_params.get('limit', '20'))
     offset = (page - 1) * limit
     return {"page": page, "limit": limit, "offset": offset}
 
@@ -133,13 +131,15 @@ def list_users(pagination, database):
         "total": len(users)
     }
 
+# Use @app.resource_exists for automatic 404 handling
+@app.resource_exists
+def user_exists(user_id, database):
+    return next((u for u in database["users"] if u["id"] == user_id), None)
+
 @app.get('/users/{user_id}')
-def get_user(user_id, database):
-    user = next((u for u in database["users"] if u["id"] == user_id), None)
-    if not user:
-        from restmachine import Response
-        return Response(404, '{"error": "User not found"}')
-    return user
+def get_user(user_exists):
+    # user_exists decorator handles 404 automatically
+    return user_exists
 ```
 
 ## Session-Scoped Dependencies
@@ -189,10 +189,8 @@ class UserCreate(BaseModel):
     age: int = Field(..., ge=0, le=150)
 
 @app.validates
-def validate_user(request: Request) -> UserCreate:
-    import json
-    data = json.loads(request.body)
-    return UserCreate.model_validate(data)
+def validate_user(json_body) -> UserCreate:
+    return UserCreate.model_validate(json_body)
 
 @app.dependency()
 def unique_email(validate_user: UserCreate, database):
@@ -223,9 +221,9 @@ Create dependencies that return different implementations:
 
 ```python
 @app.dependency()
-def storage(request: Request):
+def storage(request_headers):
     # Choose storage based on environment or request
-    env = request.headers.get('X-Environment', 'production')
+    env = request_headers.get('X-Environment', 'production')
 
     if env == 'test':
         return {"type": "memory", "data": {}}
@@ -243,8 +241,8 @@ Dependencies that may or may not be available:
 
 ```python
 @app.dependency()
-def optional_feature(request: Request):
-    feature_flag = request.headers.get('X-Enable-Feature')
+def optional_feature(request_headers):
+    feature_flag = request_headers.get('X-Enable-Feature')
     if feature_flag == 'true':
         return {"enabled": True, "config": {...}}
     return None
@@ -313,13 +311,15 @@ def user_repository(database):
 def list_users(user_repository: UserRepository):
     return {"users": user_repository.get_all()}
 
+@app.resource_exists
+def user_from_repo(path_params, user_repository: UserRepository):
+    user_id = path_params.get('user_id')
+    return user_repository.get_by_id(user_id)
+
 @app.get('/users/{user_id}')
-def get_user(user_id: str, user_repository: UserRepository):
-    user = user_repository.get_by_id(user_id)
-    if not user:
-        from restmachine import Response
-        return Response(404, '{"error": "User not found"}')
-    return user
+def get_user(user_from_repo):
+    # resource_exists decorator handles 404 automatically
+    return user_from_repo
 
 @app.post('/users')
 def create_user(validate_user: UserCreate, user_repository: UserRepository):
@@ -377,13 +377,15 @@ def register(validate_user: UserCreate, user_service: UserService):
     user = user_service.register_user(validate_user.model_dump())
     return user, 201
 
+@app.resource_exists
+def user_stats_data(path_params, user_service: UserService):
+    user_id = path_params.get('user_id')
+    return user_service.get_user_with_stats(user_id)
+
 @app.get('/users/{user_id}/stats')
-def user_stats(user_id: str, user_service: UserService):
-    user = user_service.get_user_with_stats(user_id)
-    if not user:
-        from restmachine import Response
-        return Response(404, '{"error": "User not found"}')
-    return user
+def user_stats(user_stats_data):
+    # resource_exists decorator handles 404 automatically
+    return user_stats_data
 ```
 
 ## Testing with Dependency Overrides
@@ -491,15 +493,15 @@ def user_repository(database):
     return UserRepository(database)
 
 @app.dependency()
-def pagination(request: Request):
-    page = int(request.query_params.get('page', '1'))
-    limit = int(request.query_params.get('limit', '20'))
+def pagination(query_params):
+    page = int(query_params.get('page', '1'))
+    limit = int(query_params.get('limit', '20'))
     offset = (page - 1) * limit
     return {"page": page, "limit": limit, "offset": offset}
 
 @app.dependency()
-def current_user(request: Request, user_repository: UserRepository):
-    auth_header = request.headers.get('authorization', '')
+def current_user(request_headers, user_repository: UserRepository):
+    auth_header = request_headers.get('authorization', '')
     if not auth_header.startswith('Bearer '):
         return None
 
@@ -509,9 +511,8 @@ def current_user(request: Request, user_repository: UserRepository):
 
 # Validation dependencies
 @app.validates
-def validate_user(request: Request) -> UserCreate:
-    data = json.loads(request.body)
-    return UserCreate.model_validate(data)
+def validate_user(json_body) -> UserCreate:
+    return UserCreate.model_validate(json_body)
 
 @app.dependency()
 def unique_email(validate_user: UserCreate, user_repository: UserRepository):
@@ -536,15 +537,15 @@ def list_users(pagination, user_repository: UserRepository):
         "pages": (total + pagination["limit"] - 1) // pagination["limit"]
     }
 
+@app.resource_exists
+def user_by_id(path_params, user_repository: UserRepository):
+    user_id = path_params.get('user_id')
+    return user_repository.get_by_id(user_id)
+
 @app.get('/users/{user_id}')
-def get_user(request: Request, user_repository: UserRepository):
-    user_id = request.path_params['user_id']
-    user = user_repository.get_by_id(user_id)
-
-    if not user:
-        return Response(404, json.dumps({"error": "User not found"}))
-
-    return user
+def get_user(user_by_id):
+    # resource_exists decorator handles 404 automatically
+    return user_by_id
 
 @app.post('/users')
 def create_user(unique_email: UserCreate, user_repository: UserRepository):
@@ -580,7 +581,7 @@ Use clear, descriptive names for dependencies:
 ```python
 # Good
 @app.dependency()
-def current_user(request: Request):
+def current_user(request_headers):
     ...
 
 @app.dependency()
@@ -613,12 +614,12 @@ def cache_client():
 
 # Request scope: Request-specific data
 @app.dependency()
-def current_user(request: Request):
-    return extract_user_from_token(request)
+def current_user(request_headers):
+    return extract_user_from_token(request_headers)
 
 @app.dependency()
-def request_id(request: Request):
-    return request.headers.get('X-Request-ID', generate_id())
+def request_id(request_headers):
+    return request_headers.get('X-Request-ID', generate_id())
 ```
 
 ### 3. Dependency Organization
@@ -628,7 +629,7 @@ Group related dependencies:
 ```python
 # auth.py
 @app.dependency()
-def current_user(request: Request):
+def current_user(request_headers):
     ...
 
 @app.dependency()
@@ -665,9 +666,9 @@ def database():
         raise
 
 @app.dependency()
-def current_user(request: Request):
+def current_user(request_headers):
     try:
-        return validate_token(request.headers.get('authorization'))
+        return validate_token(request_headers.get('authorization'))
     except InvalidTokenError:
         return None  # Return None instead of raising
 
@@ -691,8 +692,8 @@ def database() -> Dict[str, Any]:
     return {"users": [], "posts": []}
 
 @app.dependency()
-def current_user(request: Request) -> Optional[Dict[str, Any]]:
-    auth_header = request.headers.get('authorization')
+def current_user(request_headers) -> Optional[Dict[str, Any]]:
+    auth_header = request_headers.get('authorization')
     if not auth_header:
         return None
     return {"id": "123", "name": "User"}
