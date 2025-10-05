@@ -281,7 +281,7 @@ window.toggleMermaidFullscreen = function(button) {
 
                 const newDistance = getTouchDistance(e.touches[0], e.touches[1]);
                 if (lastTouchDistance) {
-                    const scaleDelta = (newDistance - lastTouchDistance) * 0.04; // Increased for faster zoom
+                    const scaleDelta = (newDistance - lastTouchDistance) * 0.08; // Doubled sensitivity
                     scale = Math.max(minScale, Math.min(maxScale, scale + scaleDelta));
                     updateTransform();
                 }
