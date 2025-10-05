@@ -80,6 +80,14 @@ window.toggleMermaidFullscreen = function(button) {
         resetBtn.innerHTML = '⊙';
         resetBtn.title = 'Reset Zoom';
 
+        // Prevent buttons from triggering pan events
+        [zoomInBtn, zoomOutBtn, resetBtn, closeBtn].forEach(btn => {
+            btn.addEventListener('touchstart', (e) => e.stopPropagation());
+            btn.addEventListener('touchmove', (e) => e.stopPropagation());
+            btn.addEventListener('touchend', (e) => e.stopPropagation());
+            btn.addEventListener('mousedown', (e) => e.stopPropagation());
+        });
+
         controls.appendChild(zoomInBtn);
         controls.appendChild(zoomOutBtn);
         controls.appendChild(resetBtn);
@@ -231,6 +239,7 @@ window.toggleMermaidFullscreen = function(button) {
         let lastTouchDistance = null;
         let touchStartPanX = 0;
         let touchStartPanY = 0;
+        let isPinching = false;
 
         function getTouchDistance(touch1, touch2) {
             const dx = touch1.clientX - touch2.clientX;
@@ -240,47 +249,59 @@ window.toggleMermaidFullscreen = function(button) {
 
         content.addEventListener('touchstart', (e) => {
             if (e.touches.length === 1) {
-                // Single finger - start panning
-                isPanning = true;
+                // Single finger - prepare for panning (but don't start yet)
+                isPanning = false;
+                isPinching = false;
                 startX = e.touches[0].clientX - panX;
                 startY = e.touches[0].clientY - panY;
                 touchStartPanX = panX;
                 touchStartPanY = panY;
             } else if (e.touches.length === 2) {
-                // Two fingers - start pinch zoom
+                // Two fingers - start pinch zoom immediately
+                e.preventDefault();
                 isPanning = false;
+                isPinching = true;
                 lastTouchDistance = getTouchDistance(e.touches[0], e.touches[1]);
             }
         });
 
         content.addEventListener('touchmove', (e) => {
-            e.preventDefault();
-
-            if (e.touches.length === 1 && isPanning) {
-                // Single finger - pan
+            if (e.touches.length === 1 && !isPinching) {
+                // Single finger - pan (only if not pinching)
+                e.preventDefault();
+                isPanning = true;
                 panX = e.touches[0].clientX - startX;
                 panY = e.touches[0].clientY - startY;
                 updateTransform();
-            } else if (e.touches.length === 2 && lastTouchDistance) {
+            } else if (e.touches.length === 2) {
                 // Two fingers - pinch zoom
+                e.preventDefault();
+                isPinching = true;
+                isPanning = false;
+
                 const newDistance = getTouchDistance(e.touches[0], e.touches[1]);
-                const scaleDelta = (newDistance - lastTouchDistance) * 0.01;
-                scale = Math.max(minScale, Math.min(maxScale, scale + scaleDelta));
+                if (lastTouchDistance) {
+                    const scaleDelta = (newDistance - lastTouchDistance) * 0.015;
+                    scale = Math.max(minScale, Math.min(maxScale, scale + scaleDelta));
+                    updateTransform();
+                }
                 lastTouchDistance = newDistance;
-                updateTransform();
             }
         });
 
         content.addEventListener('touchend', (e) => {
             if (e.touches.length === 0) {
+                // All fingers lifted
+                isPanning = false;
+                isPinching = false;
+                lastTouchDistance = null;
+            } else if (e.touches.length === 1 && isPinching) {
+                // One finger left after pinching - reset for panning
+                isPinching = false;
                 isPanning = false;
                 lastTouchDistance = null;
-            } else if (e.touches.length === 1) {
-                // One finger left, restart panning
-                isPanning = true;
                 startX = e.touches[0].clientX - panX;
                 startY = e.touches[0].clientY - panY;
-                lastTouchDistance = null;
             }
         });
     }
