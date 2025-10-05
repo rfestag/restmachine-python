@@ -1,16 +1,12 @@
 # RestMachine
 
-<div align="center">
-
-**A lightweight REST framework with pytest-style dependency injection and webmachine-inspired state machine**
+*A lightweight REST framework with pytest-style dependency injection and webmachine-inspired state machine*
 
 [![Build Status](https://github.com/rfestag/restmachine-python/workflows/CI/badge.svg)](https://github.com/rfestag/restmachine-python/actions)
 [![Coverage](https://raw.githubusercontent.com/rfestag/restmachine-python/main/coverage-badge.svg)](https://github.com/rfestag/restmachine-python/actions)
 [![Code Quality](https://raw.githubusercontent.com/rfestag/restmachine-python/main/complexity-badge.svg)](https://github.com/rfestag/restmachine-python/actions)
 [![Python Versions](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/rfestag/restmachine-python)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-
-</div>
 
 ## Overview
 
