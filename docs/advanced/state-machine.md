@@ -16,10 +16,20 @@ The state machine processes every request through a series of decision points, e
 
 ## State Machine Flow
 
-The diagram below shows the complete request processing flow:
+The diagram below shows the complete request processing flow.
+
+!!! tip "Viewing the Diagram"
+    - Click the **Expand Diagram** button below for fullscreen view with zoom controls
+    - In fullscreen: Use **+/-** buttons or **Ctrl/Cmd + scroll** to zoom
+    - Horizontal scroll to navigate the full flow
+    - Copy the diagram code to [Mermaid Live Editor](https://mermaid.live/) for interactive editing
+
+<div class="mermaid-fullscreen-wrapper">
+    <button class="mermaid-fullscreen-btn" onclick="toggleMermaidFullscreen(this)">⛶ Expand Diagram</button>
+</div>
 
 ```mermaid
-flowchart TD
+flowchart LR
     START([Request]) --> B13
 
     %% Route and Service Checks
