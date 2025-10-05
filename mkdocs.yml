@@ -1,0 +1,175 @@
+site_name: RestMachine Documentation
+site_description: A lightweight REST framework with dependency injection and webmachine-style state machine
+site_author: Ryan Festag
+site_url: https://rfestag.github.io/restmachine-python/
+
+repo_name: rfestag/restmachine-python
+repo_url: https://github.com/rfestag/restmachine-python
+edit_uri: edit/main/docs/
+
+copyright: Copyright &copy; 2025 Ryan Festag
+
+theme:
+  name: material
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.tracking
+    - search.highlight
+    - search.share
+    - search.suggest
+    - toc.follow
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+
+  icon:
+    repo: fontawesome/brands/github
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [packages/restmachine/src, packages/restmachine-aws/src]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_root_full_path: false
+            show_object_full_path: false
+            show_category_heading: true
+            show_if_no_docstring: false
+            show_signature: true
+            show_signature_annotations: true
+            separate_signature: true
+            line_length: 80
+            merge_init_into_class: true
+            docstring_section_style: table
+            members_order: source
+            show_submodules: false
+
+markdown_extensions:
+  # Python Markdown
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+
+  # Python Markdown Extensions
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/rfestag/restmachine-python
+  version:
+    provider: mike
+
+nav:
+  - Home: index.md
+
+  - Getting Started:
+    - Overview: getting-started/overview.md
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+
+  - User Guide:
+    - Basic Application: guide/basic-application.md
+    - ASGI Deployment:
+      - Uvicorn: guide/deployment/uvicorn.md
+      - Hypercorn: guide/deployment/hypercorn.md
+      - AWS Lambda: guide/deployment/aws-lambda.md
+    - Dependency Injection: guide/dependency-injection.md
+    - Request Validation: guide/validation.md
+    - Authentication & Authorization: guide/authentication.md
+    - Content Negotiation: guide/content-negotiation.md
+    - Conditional Requests (ETags): guide/etags.md
+    - Error Handling: guide/error-handling.md
+    - Testing Your Application: guide/testing.md
+
+  - Advanced Features:
+    - State Machine Callbacks: advanced/state-machine.md
+    - Startup & Shutdown Handlers: advanced/lifecycle.md
+    - Lambda Extensions: advanced/lambda-extensions.md
+    - TLS/mTLS Support: advanced/tls.md
+    - Template Rendering: advanced/templates.md
+    - Multi-Value Headers: advanced/headers.md
+    - Performance Optimization: advanced/performance.md
+
+  - API Reference:
+    - Core:
+      - Application: api/application.md
+      - Request & Response: api/models.md
+      - Router: api/router.md
+      - State Machine: api/state-machine.md
+    - ASGI Adapter: api/adapters.md
+    - AWS Integration:
+      - Lambda Adapter: api/aws/adapter.md
+      - Lambda Extension: api/aws/extension.md
+    - Dependencies: api/dependencies.md
+    - Content Renderers: api/content-renderers.md
+    - Error Models: api/error-models.md
+    - Testing: api/testing.md
+
+  - Development:
+    - Contributing: development/contributing.md
+    - Code Quality: development/code-quality.md
+    - Security: development/security.md
+    - Release Process: development/releases.md
+
+  - About:
+    - Changelog: about/changelog.md
+    - License: about/license.md
