@@ -19,13 +19,22 @@ The state machine processes every request through a series of decision points, e
 The diagram below shows the complete request processing flow.
 
 !!! tip "Viewing the Diagram"
-    - Click the **Expand Diagram** button below for fullscreen view with zoom controls
-    - In fullscreen: Use **+/-** buttons or **Ctrl/Cmd + scroll** to zoom
-    - Horizontal scroll to navigate the full flow
+    - Click the **Expand Diagram** button below for fullscreen view with zoom/pan controls
+    - **Desktop controls**:
+        - **Scroll** with mouse wheel to zoom in/out
+        - **Drag** with mouse to pan around the diagram
+        - **Arrow keys** (↑ ↓ ← →) to pan up/down/left/right
+        - **+/-** buttons for precise zoom control
+        - **⊙** button to reset view to initial position
+        - **ESC** or **×** to close
+    - **Mobile/Touch controls**:
+        - **Drag** with one finger to pan
+        - **Pinch** with two fingers to zoom in/out
+        - **Tap** **×** button to close
     - Copy the diagram code to [Mermaid Live Editor](https://mermaid.live/) for interactive editing
 
 <div class="mermaid-fullscreen-wrapper">
-    <button class="mermaid-fullscreen-btn" onclick="toggleMermaidFullscreen(this)">⛶ Expand Diagram</button>
+    <button class="mermaid-fullscreen-btn">⛶ Expand Diagram</button>
 </div>
 
 ```mermaid
