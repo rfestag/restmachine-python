@@ -71,6 +71,9 @@ instance/
 docs/_build/
 site/
 
+# Development notes and planning docs
+dev-notes/
+
 # PyBuilder
 target/
 
