@@ -240,19 +240,11 @@ window.toggleMermaidFullscreen = function(button) {
         let touchStartPanX = 0;
         let touchStartPanY = 0;
         let isPinching = false;
-        let lastPinchCenter = null;
 
         function getTouchDistance(touch1, touch2) {
             const dx = touch1.clientX - touch2.clientX;
             const dy = touch1.clientY - touch2.clientY;
             return Math.sqrt(dx * dx + dy * dy);
-        }
-
-        function getTouchCenter(touch1, touch2) {
-            return {
-                x: (touch1.clientX + touch2.clientX) / 2,
-                y: (touch1.clientY + touch2.clientY) / 2
-            };
         }
 
         content.addEventListener('touchstart', (e) => {
@@ -264,14 +256,12 @@ window.toggleMermaidFullscreen = function(button) {
                 startY = e.touches[0].clientY - panY;
                 touchStartPanX = panX;
                 touchStartPanY = panY;
-                lastPinchCenter = null;
             } else if (e.touches.length === 2) {
                 // Two fingers - start pinch zoom immediately
                 e.preventDefault();
                 isPanning = false;
                 isPinching = true;
                 lastTouchDistance = getTouchDistance(e.touches[0], e.touches[1]);
-                lastPinchCenter = getTouchCenter(e.touches[0], e.touches[1]);
             }
         });
 
@@ -284,31 +274,29 @@ window.toggleMermaidFullscreen = function(button) {
                 panY = e.touches[0].clientY - startY;
                 updateTransform();
             } else if (e.touches.length === 2) {
-                // Two fingers - pinch zoom centered on pinch point
+                // Two fingers - pinch zoom centered on screen center
                 e.preventDefault();
                 isPinching = true;
                 isPanning = false;
 
                 const newDistance = getTouchDistance(e.touches[0], e.touches[1]);
-                const newCenter = getTouchCenter(e.touches[0], e.touches[1]);
 
-                if (lastTouchDistance && lastPinchCenter) {
+                if (lastTouchDistance) {
                     const oldScale = scale;
                     const scaleDelta = (newDistance - lastTouchDistance) * 0.06; // Adjusted sensitivity
                     scale = Math.max(minScale, Math.min(maxScale, scale + scaleDelta));
 
-                    // Adjust pan to keep zoom centered on pinch point
+                    // Adjust pan to keep zoom centered on screen center
                     const scaleChange = scale / oldScale;
-                    const centerX = newCenter.x;
-                    const centerY = newCenter.y;
+                    const screenCenterX = window.innerWidth / 2;
+                    const screenCenterY = window.innerHeight / 2;
 
-                    panX = centerX - (centerX - panX) * scaleChange;
-                    panY = centerY - (centerY - panY) * scaleChange;
+                    panX = screenCenterX - (screenCenterX - panX) * scaleChange;
+                    panY = screenCenterY - (screenCenterY - panY) * scaleChange;
 
                     updateTransform();
                 }
                 lastTouchDistance = newDistance;
-                lastPinchCenter = newCenter;
             }
         });
 
