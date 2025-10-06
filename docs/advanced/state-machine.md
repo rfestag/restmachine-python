@@ -29,53 +29,54 @@ The diagram below shows the complete request processing flow.
 </div>
 
 ```mermaid
+%%{init: {'theme':'base', 'themeVariables': {'edgeLabelBackground':'transparent', 'primaryTextColor':'#ccc', 'lineColor':'#ccc'}}}%%
 flowchart LR
-    START([Request]) --> B13
+    START(( )) --> B13
 
     %% Route and Service Checks
     B13{B13: Route<br/>Exists?}
     B13 -->|No| PATH_CHECK{Path has<br/>other routes?}
-    PATH_CHECK -->|Yes| R405[405 Method<br/>Not Allowed]
-    PATH_CHECK -->|No| R404[404 Not Found]
+    PATH_CHECK -->|Yes| R405[[405 Method<br/>Not Allowed]]
+    PATH_CHECK -->|No| R404[[404 Not Found]]
     B13 -->|Yes| B12
 
     B12{B12: Service<br/>Available?}
-    B12 -->|No| R503[503 Service<br/>Unavailable]
+    B12 -->|No| R503[[503 Service<br/>Unavailable]]
     B12 -->|Yes| B11
 
     B11{B11: Known<br/>Method?}
-    B11 -->|No| R501[501 Not<br/>Implemented]
+    B11 -->|No| R501[[501 Not<br/>Implemented]]
     B11 -->|Yes| B10
 
     B10{B10: URI<br/>Too Long?}
-    B10 -->|Yes| R414[414 URI<br/>Too Long]
+    B10 -->|Yes| R414[[414 URI<br/>Too Long]]
     B10 -->|No| B9
 
     B9{B9: Method<br/>Allowed?}
-    B9 -->|No| R405_2[405 Method<br/>Not Allowed]
+    B9 -->|No| R405_2[[405 Method<br/>Not Allowed]]
     B9 -->|Yes| B8
 
     %% Request Validation
     B8{B8: Malformed<br/>Request?}
-    B8 -->|Yes| R400[400 Bad<br/>Request]
+    B8 -->|Yes| R400[[400 Bad<br/>Request]]
     B8 -->|No| B7
 
     B7{B7: Authorized?}
-    B7 -->|No| R401[401<br/>Unauthorized]
+    B7 -->|No| R401[[401<br/>Unauthorized]]
     B7 -->|Yes| B6
 
     B6{B6: Forbidden?}
-    B6 -->|Yes| R403[403<br/>Forbidden]
+    B6 -->|Yes| R403[[403<br/>Forbidden]]
     B6 -->|No| B5
 
     B5{B5: Valid Content<br/>Headers?}
-    B5 -->|No| R400_2[400 Bad<br/>Request]
+    B5 -->|No| R400_2[[400 Bad<br/>Request]]
     B5 -->|Yes| G7
 
     %% Resource Existence
     G7{G7: Resource<br/>Exists?}
     G7 -->|No & POST| C3
-    G7 -->|No & Other| R404_2[404 Not<br/>Found]
+    G7 -->|No & Other| R404_2[[404 Not<br/>Found]]
     G7 -->|Yes| COND_CHECK{Conditional<br/>Headers?}
 
     COND_CHECK -->|No| C3
@@ -85,63 +86,70 @@ flowchart LR
     G3{G3: If-Match<br/>Header?}
     G3 -->|No| G4
     G3 -->|* or Match| G4
-    G3 -->|No Match| R412[412 Precondition<br/>Failed]
+    G3 -->|No Match| R412[[412 Precondition<br/>Failed]]
 
     G4{G4: If-Unmodified-<br/>Since?}
     G4 -->|No| G5
     G4 -->|Not Modified| G5
-    G4 -->|Modified| R412_2[412 Precondition<br/>Failed]
+    G4 -->|Modified| R412_2[[412 Precondition<br/>Failed]]
 
     G5{G5: If-None-Match<br/>Header?}
     G5 -->|No| G6
-    G5 -->|Match & GET| R304[304 Not<br/>Modified]
-    G5 -->|Match & Other| R412_3[412 Precondition<br/>Failed]
+    G5 -->|Match & GET| R304[[304 Not<br/>Modified]]
+    G5 -->|Match & Other| R412_3[[412 Precondition<br/>Failed]]
     G5 -->|No Match| G6
 
     G6{G6: If-Modified-<br/>Since?}
     G6 -->|No or GET| C3
-    G6 -->|Not Modified| R304_2[304 Not<br/>Modified]
+    G6 -->|Not Modified| R304_2[[304 Not<br/>Modified]]
     G6 -->|Modified| C3
 
     %% Content Negotiation
     C3{C3: Content Types<br/>Available?}
-    C3 -->|No| R500[500 Internal<br/>Server Error]
+    C3 -->|No| R500[[500 Internal<br/>Server Error]]
     C3 -->|Yes| C4
 
     C4{C4: Acceptable<br/>Content Type?}
-    C4 -->|No| R406[406 Not<br/>Acceptable]
+    C4 -->|No| R406[[406 Not<br/>Acceptable]]
     C4 -->|Yes| EXEC[Execute Handler<br/>& Render]
 
     %% Terminal States
     EXEC --> SUCCESS{Response<br/>Type?}
-    SUCCESS -->|None| R204[204 No<br/>Content]
+    SUCCESS -->|None| R204[[204 No<br/>Content]]
     SUCCESS -->|Response Object| RETURN[Return Response]
     SUCCESS -->|Data| RENDER[Render with<br/>Content Type]
-    RENDER --> RETURN
+    RENDER --> R200[[200 OK]]
 
-    %% Style terminal states
-    style R404 fill:#f88,stroke:#333,stroke-width:2px
-    style R404_2 fill:#f88,stroke:#333,stroke-width:2px
-    style R405 fill:#f88,stroke:#333,stroke-width:2px
-    style R405_2 fill:#f88,stroke:#333,stroke-width:2px
-    style R400 fill:#f88,stroke:#333,stroke-width:2px
-    style R400_2 fill:#f88,stroke:#333,stroke-width:2px
-    style R401 fill:#f88,stroke:#333,stroke-width:2px
-    style R403 fill:#f88,stroke:#333,stroke-width:2px
-    style R412 fill:#f88,stroke:#333,stroke-width:2px
-    style R412_2 fill:#f88,stroke:#333,stroke-width:2px
-    style R412_3 fill:#f88,stroke:#333,stroke-width:2px
-    style R406 fill:#f88,stroke:#333,stroke-width:2px
-    style R414 fill:#f88,stroke:#333,stroke-width:2px
-    style R501 fill:#f88,stroke:#333,stroke-width:2px
-    style R503 fill:#f88,stroke:#333,stroke-width:2px
-    style R500 fill:#f88,stroke:#333,stroke-width:2px
-    style R304 fill:#8f8,stroke:#333,stroke-width:2px
-    style R304_2 fill:#8f8,stroke:#333,stroke-width:2px
-    style R204 fill:#8f8,stroke:#333,stroke-width:2px
-    style RETURN fill:#8f8,stroke:#333,stroke-width:2px
-    style EXEC fill:#88f,stroke:#333,stroke-width:2px
-    style RENDER fill:#88f,stroke:#333,stroke-width:2px
+    %% Link styles - Green for success/yes paths
+    linkStyle 0,4,6,8,10,12,14,16,18,20,23,25,26,27,29,30,32,35,36,38,40,42,43,45,46,47 stroke:#2d8659,stroke-width:2px
+
+    %% Link styles - Red for error/no paths
+    linkStyle 1,2,3,5,7,9,11,13,15,17,19,22,28,31,34,39,41 stroke:#d84848,stroke-width:2px
+
+    %% Link styles - Special success paths (304, 204)
+    linkStyle 33,37,44 stroke:#2d8659,stroke-width:2px
+
+    %% Class definitions
+    classDef decisionNode fill:#1a1a1a,stroke:#ccc,stroke-width:2px,color:#eee
+    classDef errorState fill:#d84848,stroke:#333,stroke-width:2px,color:#fff
+    classDef successState fill:#2d8659,stroke:#333,stroke-width:2px,color:#fff
+    classDef executionNode fill:#4a4a8f,stroke:#333,stroke-width:2px,color:#fff
+
+    %% Apply classes to decision nodes
+    class B13,B12,B11,B10,B9,B8,B7,B6,B5 decisionNode
+    class G7,G6,G5,G4,G3 decisionNode
+    class C3,C4 decisionNode
+    class PATH_CHECK,COND_CHECK,SUCCESS decisionNode
+
+    %% Apply classes to error states (4xx/5xx)
+    class R404,R404_2,R405,R405_2,R400,R400_2,R401,R403 errorState
+    class R412,R412_2,R412_3,R406,R414,R500,R501,R503 errorState
+
+    %% Apply classes to success states (2xx/3xx)
+    class R200,R204,R304,R304_2,RETURN successState
+
+    %% Apply classes to execution nodes
+    class EXEC,RENDER executionNode
 ```
 
 ## State Descriptions
