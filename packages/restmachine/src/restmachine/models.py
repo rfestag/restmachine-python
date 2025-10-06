@@ -441,12 +441,14 @@ class Response:
         if isinstance(self.body, Path):
             # Detect Content-Type from file extension if not already set
             if not self.content_type and "Content-Type" not in self.headers:
-                content_type, _ = mimetypes.guess_type(str(self.body))
-                if content_type:
-                    self.headers["Content-Type"] = content_type
+                detected_type, _ = mimetypes.guess_type(str(self.body))
+                if detected_type:
+                    self.headers["Content-Type"] = detected_type
+                    self.content_type = detected_type  # Also update the field
                 else:
                     # Default to application/octet-stream for unknown types
                     self.headers["Content-Type"] = "application/octet-stream"
+                    self.content_type = "application/octet-stream"
 
             # Set Content-Length from file size
             if self.body.exists() and self.body.is_file():

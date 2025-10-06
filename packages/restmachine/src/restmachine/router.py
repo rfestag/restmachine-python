@@ -14,19 +14,21 @@ class RouteNode:
     Each node represents a path segment and can have:
     - static_children: Dict mapping exact segment strings to child nodes
     - param_child: Single child node for path parameters (e.g., {id})
+    - wildcard_child: Single child node for wildcard parameters (e.g., *filepath)
     - handlers: Dict mapping HTTP methods to RouteHandlers at this path
     """
 
     def __init__(self):
         self.static_children: Dict[str, "RouteNode"] = {}
         self.param_child: Optional[Tuple[str, "RouteNode"]] = None  # (param_name, node)
+        self.wildcard_child: Optional[Tuple[str, "RouteNode"]] = None  # (param_name, node) for *param
         self.handlers: Dict[HTTPMethod, "RouteHandler"] = {}
 
     def add_route(self, segments: List[str], method: HTTPMethod, handler: "RouteHandler") -> None:
         """Add a route to the trie.
 
         Args:
-            segments: Path segments (e.g., ['api', 'users', '{id}'])
+            segments: Path segments (e.g., ['api', 'users', '{id}', '*filepath'])
             method: HTTP method
             handler: RouteHandler instance
         """
@@ -38,8 +40,22 @@ class RouteNode:
         segment = segments[0]
         remaining = segments[1:]
 
+        # Check if this is a wildcard parameter (matches all remaining segments)
+        # Support both * and ** syntax (** is preferred for "match all")
+        if segment == '**' or (segment.startswith('*') and not segment.startswith('{*')):
+            # For **, use default param name 'path'; for *name, extract the name
+            if segment == '**':
+                param_name = 'path'
+            else:
+                param_name = segment[1:]  # Extract parameter name (e.g., *filepath -> filepath)
+            if remaining:
+                raise ValueError(f"Wildcard parameter '{segment}' must be the last segment in the route")
+            if self.wildcard_child is None:
+                self.wildcard_child = (param_name, RouteNode())
+            _, child_node = self.wildcard_child
+            child_node.handlers[method] = handler
         # Check if this is a path parameter
-        if segment.startswith('{') and segment.endswith('}'):
+        elif segment.startswith('{') and segment.endswith('}'):
             param_name = segment[1:-1]  # Extract parameter name
             if self.param_child is None:
                 self.param_child = (param_name, RouteNode())
@@ -66,6 +82,12 @@ class RouteNode:
             handler = self.handlers.get(method)
             if handler:
                 return (handler, {})
+            # Check for wildcard that matches empty path
+            if self.wildcard_child:
+                param_name, child_node = self.wildcard_child
+                handler = child_node.handlers.get(method)
+                if handler:
+                    return (handler, {param_name: ""})
             return None
 
         segment = segments[0]
@@ -86,6 +108,15 @@ class RouteNode:
                 params[param_name] = segment
                 return (handler, params)
 
+        # Try wildcard match (least specific - matches all remaining segments)
+        if self.wildcard_child:
+            param_name, child_node = self.wildcard_child
+            handler = child_node.handlers.get(method)
+            if handler:
+                # Join all segments with / to get the full path
+                wildcard_value = "/".join(segments)
+                return (handler, {param_name: wildcard_value})
+
         return None
 
     def has_path(self, segments: List[str]) -> bool:
@@ -99,7 +130,13 @@ class RouteNode:
         """
         if not segments:
             # We've reached the end - check if any handlers exist
-            return bool(self.handlers)
+            if self.handlers:
+                return True
+            # Check for wildcard
+            if self.wildcard_child:
+                _, child_node = self.wildcard_child
+                return bool(child_node.handlers)
+            return False
 
         segment = segments[0]
         remaining = segments[1:]
@@ -114,6 +151,11 @@ class RouteNode:
             _, child_node = self.param_child
             if child_node.has_path(remaining):
                 return True
+
+        # Try wildcard match
+        if self.wildcard_child:
+            _, child_node = self.wildcard_child
+            return bool(child_node.handlers)
 
         return False
 

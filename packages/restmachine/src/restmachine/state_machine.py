@@ -475,6 +475,7 @@ class RequestStateMachine:
         if not self.ctx.route_handler:
             raise RuntimeError("route_handler must be set before executing handler")
 
+        processed_headers: Optional[MultiValueHeaders] = None
         try:
             # Process headers dependencies first
             processed_headers = self._process_headers_dependencies()
@@ -505,16 +506,16 @@ class RequestStateMachine:
 
         except ValidationError as e:
             self.app._dependency_cache.set("exception", e)
-            return self._handle_validation_error(e, processed_headers if 'processed_headers' in locals() else None)
+            return self._handle_validation_error(e, processed_headers)
         except AcceptsParsingError as e:
             self.app._dependency_cache.set("exception", e)
-            return self._handle_accepts_parsing_error(e, processed_headers if 'processed_headers' in locals() else None)
+            return self._handle_accepts_parsing_error(e, processed_headers)
         except ValueError as e:
             self.app._dependency_cache.set("exception", e)
-            return self._handle_value_error(e, processed_headers if 'processed_headers' in locals() else None)
+            return self._handle_value_error(e, processed_headers)
         except Exception as e:
             self.app._dependency_cache.set("exception", e)
-            return self._handle_general_error(e, processed_headers if 'processed_headers' in locals() else None)
+            return self._handle_general_error(e, processed_headers)
 
     # ========================================================================
     # HELPER METHODS
@@ -639,16 +640,9 @@ class RequestStateMachine:
 
         return_annotation = self.ctx.route_handler.handler_signature.return_annotation
 
-        # Handle None annotation
-        if return_annotation is None or return_annotation is type(None):
-            return None
-
-        # Skip validation for empty or Union types
-        if return_annotation == inspect.Signature.empty:
-            return result
-
-        if hasattr(return_annotation, "__origin__") and return_annotation.__origin__ is Union:
-            return result
+        # Skip validation for types that don't need it
+        if self._should_skip_pydantic_validation(return_annotation):
+            return None if return_annotation is type(None) else result
 
         try:
             # Handle list[PydanticModel]
@@ -665,6 +659,14 @@ class RequestStateMachine:
             logger.warning(f"Validation failed: {e}")
 
         return result
+
+    def _should_skip_pydantic_validation(self, annotation: Any) -> bool:
+        """Check if annotation should skip Pydantic validation."""
+        if annotation is None or annotation is type(None) or annotation == inspect.Signature.empty:
+            return True
+        if hasattr(annotation, "__origin__") and annotation.__origin__ is Union:
+            return True
+        return False
 
     def _is_pydantic_list_type(self, annotation: Any) -> bool:
         """Check if annotation is list[PydanticModel]."""
@@ -713,6 +715,12 @@ class RequestStateMachine:
         # Handle Response objects
         if isinstance(result, Response):
             return self._finalize_response_object(result, headers)
+
+        # Handle Path objects - wrap in Response to preserve Path type
+        from pathlib import Path
+        if isinstance(result, Path):
+            response = Response(HTTPStatus.OK, result)
+            return self._finalize_response_object(response, headers)
 
         # Use global renderer
         return self._render_with_global_renderer(result, headers)
@@ -782,19 +790,19 @@ class RequestStateMachine:
 
     def _finalize_response_object(self, response: Response, headers: MultiValueHeaders) -> Response:
         """Finalize a Response object with headers and content type."""
-        # Validate Path objects - if path doesn't exist or isn't a file, return 404
         from pathlib import Path
+
+        # Validate Path objects - if path doesn't exist or isn't a file, return 404
         if isinstance(response.body, Path):
-            path_obj = response.body
-            if not path_obj.exists() or not path_obj.is_file():
-                # Path doesn't exist or isn't a file - return 404
+            if not response.body.exists() or not response.body.is_file():
                 return Response(
                     HTTPStatus.NOT_FOUND,
                     json.dumps({"error": "Not Found", "detail": "File not found"}),
                     content_type="application/json"
                 )
-
-        if not response.content_type and self.ctx.chosen_renderer:
+            # For Path responses, Content-Type is set from file extension in Response.__post_init__
+        elif not response.content_type and self.ctx.chosen_renderer:
+            # Not a Path response - set content type from chosen renderer
             response.content_type = self.ctx.chosen_renderer.media_type
             response.headers = response.headers or {}
             response.headers["Content-Type"] = self.ctx.chosen_renderer.media_type
@@ -881,23 +889,9 @@ class RequestStateMachine:
         if not matching_handlers:
             return None
 
-        # Get Accept header for content negotiation
+        # Choose appropriate handler based on content negotiation
         accept_header = self.ctx.request.get_accept_header() if hasattr(self.ctx, 'request') else ""
-
-        # Find content-specific or default handler
-        chosen_handler = None
-        for handler in matching_handlers:
-            if handler.content_type and handler.matches_accept(accept_header):
-                chosen_handler = handler
-                break
-
-        if not chosen_handler:
-            # Try default handler (no content type)
-            for handler in matching_handlers:
-                if not handler.content_type:
-                    chosen_handler = handler
-                    break
-
+        chosen_handler = self._choose_error_handler(matching_handlers, accept_header)
         if not chosen_handler:
             return None
 
@@ -912,6 +906,20 @@ class RequestStateMachine:
         except Exception as e:
             logger.error(f"Error in custom error handler: {e}")
             return None
+
+    def _choose_error_handler(self, handlers: List[Any], accept_header: str) -> Optional[Any]:
+        """Choose the best error handler based on content negotiation."""
+        # Try content-specific handler first
+        for handler in handlers:
+            if handler.content_type and handler.matches_accept(accept_header):
+                return handler
+
+        # Fall back to default handler (no content type)
+        for handler in handlers:
+            if not handler.content_type:
+                return handler
+
+        return None
 
     def _convert_custom_handler_result(self, result: Any, handler: Any, status_code: int, **kwargs) -> Optional[Response]:
         """Convert custom error handler result to Response."""
