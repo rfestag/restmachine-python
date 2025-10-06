@@ -315,7 +315,7 @@ class TestTemplateRenderingIntegration:
         def get_user(user_id: str):
             return {"id": user_id, "name": "John Doe"}
 
-        @app.renders("text/html")
+        @app.provides("text/html")
         def user_html(get_user):
             user = get_user
             return render(
@@ -346,7 +346,7 @@ class TestTemplateRenderingIntegration:
         def greeting(name: str):
             return {"name": name}
 
-        @app.renders("text/html")
+        @app.provides("text/html")
         def greeting_html(greeting):
             data = greeting
             return render(
@@ -400,7 +400,7 @@ class TestTemplateRenderingIntegration:
                 {"name": "Bob", "id": "2"}
             ]
 
-        @app.renders("text/html")
+        @app.provides("text/html")
         def users_html(list_users):
             return render(
                 template="with_loop.html",

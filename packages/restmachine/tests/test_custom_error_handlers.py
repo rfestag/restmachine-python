@@ -71,17 +71,17 @@ class TestContentTypeErrorHandlers(MultiDriverTestBase):
         """Create app with content-type-specific error handlers."""
         app = RestApplication()
 
-        @app.error_renders("application/json")
+        @app.error_provides("application/json")
         @app.handles_error(404)
         def custom_404_json():
             return {"error": "Not found", "format": "json"}
 
-        @app.error_renders("text/html")
+        @app.error_provides("text/html")
         @app.handles_error(404)
         def custom_404_html():
             return "<h1>404 - Not Found</h1>"
 
-        @app.error_renders("text/plain")
+        @app.error_provides("text/plain")
         @app.handles_error(404)
         def custom_404_text():
             return "404 - Not Found (plain text)"
@@ -287,7 +287,7 @@ class TestMultipleHandlerPriority(MultiDriverTestBase):
             return {"error": "Not found (default)", "format": "default"}
 
         # Content-specific handler for HTML
-        @app.error_renders("text/html")
+        @app.error_provides("text/html")
         @app.handles_error(404)
         def html_404():
             return "<h1>Not Found (HTML)</h1>"

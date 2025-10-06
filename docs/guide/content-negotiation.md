@@ -60,7 +60,7 @@ Content-Type: application/json
 
 ## Multiple Response Formats
 
-Use the `@app.renders` decorator to support multiple content types:
+Use the `@app.provides` decorator to support multiple content types:
 
 ```python
 from restmachine import RestApplication
@@ -76,7 +76,7 @@ def get_user(user_id: int):
         "email": "alice@example.com"
     }
 
-@app.renders("text/html")
+@app.provides("text/html")
 def render_user_html(get_user):
     """Render user as HTML."""
     user = get_user
@@ -88,13 +88,13 @@ def render_user_html(get_user):
     </div>
     """
 
-@app.renders("text/plain")
+@app.provides("text/plain")
 def render_user_text(get_user):
     """Render user as plain text."""
     user = get_user
     return f"User {user['id']}: {user['name']} ({user['email']})"
 
-@app.renders("application/xml")
+@app.provides("application/xml")
 def render_user_xml(get_user):
     """Render user as XML."""
     user = get_user
@@ -122,7 +122,7 @@ Renderers receive the route handler's return value as a dependency. The paramete
 def get_data():  # Handler name is "get_data"
     return {"value": 42}
 
-@app.renders("text/html")
+@app.provides("text/html")
 def render_html(get_data):  # Parameter name matches handler
     data = get_data
     return f"<p>Value: {data['value']}</p>"
@@ -145,11 +145,11 @@ app = RestApplication()
 def get_resource():
     return {"message": "Hello"}
 
-@app.renders("text/html")
+@app.provides("text/html")
 def render_html(get_resource):
     return f"<h1>{get_resource['message']}</h1>"
 
-@app.renders("text/plain")
+@app.provides("text/plain")
 def render_text(get_resource):
     return get_resource['message']
 ```
@@ -218,7 +218,7 @@ app = RestApplication()
 def get_data():
     return {"value": 123}
 
-@app.renders("text/html")
+@app.provides("text/html")
 def render_html(get_data):
     return f"<p>{get_data['value']}</p>"
 ```
@@ -255,7 +255,7 @@ def get_user(user_id: int):
         "bio": "Software engineer"
     }
 
-@app.renders("text/html")
+@app.provides("text/html")
 def render_user_html(get_user):
     """Render user with a template."""
     return render(
@@ -341,7 +341,7 @@ def list_posts():
     """List all blog posts."""
     return list(posts.values())
 
-@app.renders("text/html")
+@app.provides("text/html")
 def render_posts_html(list_posts):
     """Render posts list as HTML."""
     posts_list = list_posts
@@ -367,7 +367,7 @@ def render_posts_html(list_posts):
         posts=posts_list
     )
 
-@app.renders("text/plain")
+@app.provides("text/plain")
 def render_posts_text(list_posts):
     """Render posts list as plain text."""
     posts_list = list_posts
@@ -379,7 +379,7 @@ def render_posts_text(list_posts):
         lines.append("-" * 50)
     return "\n".join(lines)
 
-@app.renders("application/xml")
+@app.provides("application/xml")
 def render_posts_xml(list_posts):
     """Render posts list as XML."""
     posts_list = list_posts
@@ -405,7 +405,7 @@ def get_post(post_id: int):
     """Get a single blog post."""
     return posts.get(post_id)
 
-@app.renders("text/html")
+@app.provides("text/html")
 def render_post_html(get_post):
     """Render single post as HTML."""
     post = get_post
@@ -522,13 +522,13 @@ Renderers should focus on formatting, not business logic:
 
 ```python
 # Good
-@app.renders("text/html")
+@app.provides("text/html")
 def render_html(get_user):
     user = get_user
     return f"<h1>{user['name']}</h1>"
 
 # Bad - doing business logic in renderer
-@app.renders("text/html")
+@app.provides("text/html")
 def render_html_bad(request):
     user = database.get_user(request.path_params['user_id'])
     user['processed'] = True  # Don't modify data in renderer
@@ -540,7 +540,7 @@ def render_html_bad(request):
 For anything beyond simple HTML, use templates:
 
 ```python
-@app.renders("text/html")
+@app.provides("text/html")
 def render_html(get_resource):
     return render(
         template="resource.html",
@@ -558,7 +558,7 @@ Always support JSON for API clients:
 def get_resource():
     return {"data": "value"}  # Automatically JSON
 
-@app.renders("text/html")  # Add HTML as an option
+@app.provides("text/html")  # Add HTML as an option
 def render_html(get_resource):
     return f"<p>{get_resource['data']}</p>"
 ```
@@ -575,7 +575,7 @@ def get_post(post_id: int):
         return None, 404
     return post
 
-@app.renders("text/html")
+@app.provides("text/html")
 def render_post_html(get_post):
     post = get_post
     if not post:

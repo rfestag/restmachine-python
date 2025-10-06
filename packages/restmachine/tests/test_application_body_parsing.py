@@ -103,7 +103,7 @@ class TestHandlerMatchingEdgeCases(MultiDriverTestBase):
 
         # Create a JSON-specific handler
         @app.get("/json-only")
-        @app.renders("application/json")
+        @app.provides("application/json")
         def json_handler():
             """JSON-specific handler."""
             return {"message": "json"}

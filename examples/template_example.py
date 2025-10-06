@@ -59,7 +59,7 @@ def get_user_profile(user_id: str):
     return user
 
 
-@app.renders("text/html")
+@app.provides("text/html")
 def user_profile_html(get_user_profile):
     """Render user profile using a Jinja2 template."""
     user = get_user_profile
@@ -89,7 +89,7 @@ def get_post(post_id: str):
     return {"post": post, "author": author}
 
 
-@app.renders("text/html")
+@app.provides("text/html")
 def post_html(get_post):
     """Render blog post using template."""
     data = get_post
@@ -113,7 +113,7 @@ def list_users():
     return {"users": users}
 
 
-@app.renders("text/html")
+@app.provides("text/html")
 def users_list_html(list_users):
     """Render users list using template."""
     data = list_users
@@ -137,7 +137,7 @@ def get_content(content_id: str):
     }
 
 
-@app.renders("text/html")
+@app.provides("text/html")
 def content_html(get_content):
     """Render content with unsafe HTML (autoescape disabled)."""
     data = get_content
@@ -167,7 +167,7 @@ def admin_dashboard():
     return stats
 
 
-@app.renders("text/html")
+@app.provides("text/html")
 def admin_dashboard_html(admin_dashboard):
     """Render admin dashboard."""
     stats = admin_dashboard

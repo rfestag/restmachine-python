@@ -2,6 +2,7 @@
 
 import io
 import json
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from restmachine import Adapter, Request, Response, HTTPMethod, BytesStreamBuffer
@@ -265,8 +266,8 @@ class AwsApiGatewayAdapter(Adapter):
         """
         Convert Response object to AWS API Gateway response format.
 
-        Handles proper JSON serialization, header encoding, and streaming bodies.
-        For streaming bodies, reads the entire stream since Lambda requires complete responses.
+        Handles proper JSON serialization, header encoding, streaming bodies, and file paths.
+        For streaming bodies and Path objects, reads the entire content since Lambda requires complete responses.
 
         Args:
             response: Response from the app
@@ -276,9 +277,27 @@ class AwsApiGatewayAdapter(Adapter):
         Returns:
             AWS API Gateway response dictionary
         """
-        # Convert body to string
+        # Convert body to string and track if we used base64 encoding
+        is_base64 = False
+
         if response.body is None:
             body_str = ""
+        elif isinstance(response.body, Path):
+            # Path object - read the file since Lambda requires complete response
+            path_obj = response.body
+            if path_obj.exists() and path_obj.is_file():
+                with path_obj.open('rb') as f:
+                    body_bytes = f.read()
+                try:
+                    body_str = body_bytes.decode('utf-8')
+                except UnicodeDecodeError:
+                    # If not valid UTF-8, return as base64
+                    import base64
+                    body_str = base64.b64encode(body_bytes).decode('ascii')
+                    is_base64 = True
+            else:
+                # File doesn't exist
+                body_str = ""
         elif isinstance(response.body, io.IOBase):
             # Streaming body - read the entire stream since Lambda requires complete response
             body_bytes = response.body.read()
@@ -288,7 +307,7 @@ class AwsApiGatewayAdapter(Adapter):
                 # If not valid UTF-8, return as base64
                 import base64
                 body_str = base64.b64encode(body_bytes).decode('ascii')
-                # Mark as base64 encoded (will be set below)
+                is_base64 = True
         elif isinstance(response.body, bytes):
             # Raw bytes - try to decode as UTF-8, otherwise base64
             try:
@@ -296,6 +315,7 @@ class AwsApiGatewayAdapter(Adapter):
             except UnicodeDecodeError:
                 import base64
                 body_str = base64.b64encode(response.body).decode('ascii')
+                is_base64 = True
         elif isinstance(response.body, (dict, list)):
             body_str = json.dumps(response.body)
         elif isinstance(response.body, (str, int, float, bool)):
@@ -319,19 +339,7 @@ class AwsApiGatewayAdapter(Adapter):
         ):
             headers_dict["Content-Type"] = "application/json"
 
-        # Determine if we used base64 encoding
-        is_base64 = False
-        if isinstance(response.body, (io.IOBase, bytes)):
-            try:
-                # Try to see if we successfully decoded to UTF-8
-                if isinstance(response.body, bytes):
-                    response.body.decode('utf-8')
-                elif isinstance(response.body, io.IOBase):
-                    # We already read it above, check the body_str
-                    pass
-            except (UnicodeDecodeError, AttributeError):
-                is_base64 = True
-
+        # Build and return the API Gateway response
         api_response = {
             "statusCode": response.status_code,
             "headers": headers_dict,

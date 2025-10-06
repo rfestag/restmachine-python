@@ -226,7 +226,7 @@ def get_post_detail(post_exists, user_service):
     }
 
 
-@app.renders("text/html")
+@app.provides("text/html")
 def post_html_renderer(get_post_detail):
     """Custom HTML renderer for post details."""
     data = get_post_detail

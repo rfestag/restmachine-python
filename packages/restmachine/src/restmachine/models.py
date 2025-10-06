@@ -5,10 +5,12 @@ Core data models for the REST framework.
 import hashlib
 import io
 import logging
+import mimetypes
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from http import HTTPStatus
+from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union
 
 # Set up logger for this module
@@ -404,12 +406,19 @@ class Response:
     - str: Will be encoded to UTF-8 bytes
     - bytes: Used directly
     - BinaryIO: File-like object that will be streamed (useful for large files, S3 objects, etc.)
+    - Path: Local filesystem path to a file (will be served efficiently)
     - dict/list: Will be JSON-encoded
     - None: Empty response body
+
+    For Path objects:
+    - ASGI servers will use the path send extension for efficient file serving
+    - Lambda will read the file and send as body
+    - Content-Type is automatically detected from file extension
+    - Content-Length is automatically set from file size
     """
 
     status_code: int
-    body: Optional[Union[str, bytes, BinaryIO, dict, list]] = None
+    body: Optional[Union[str, bytes, BinaryIO, Path, dict, list]] = None
     headers: Optional[Union[Dict[str, str], 'MultiValueHeaders']] = None
     content_type: Optional[str] = None
     request: Optional['Request'] = None
@@ -428,13 +437,29 @@ class Response:
         if self.pre_calculated_headers:
             self.headers.update(self.pre_calculated_headers)
 
+        # Handle Path objects - set Content-Type and Content-Length
+        if isinstance(self.body, Path):
+            # Detect Content-Type from file extension if not already set
+            if not self.content_type and "Content-Type" not in self.headers:
+                content_type, _ = mimetypes.guess_type(str(self.body))
+                if content_type:
+                    self.headers["Content-Type"] = content_type
+                else:
+                    # Default to application/octet-stream for unknown types
+                    self.headers["Content-Type"] = "application/octet-stream"
+
+            # Set Content-Length from file size
+            if self.body.exists() and self.body.is_file():
+                file_size = self.body.stat().st_size
+                self.headers["Content-Length"] = str(file_size)
+
         # Set content type
         if self.content_type:
             self.headers["Content-Type"] = self.content_type
 
-        # Automatically inject Content-Length header (but not for streaming bodies or 204)
+        # Automatically inject Content-Length header (but not for streaming bodies, Path, or 204)
         if self.status_code != HTTPStatus.NO_CONTENT:
-            if self.body is not None and not isinstance(self.body, io.IOBase):
+            if self.body is not None and not isinstance(self.body, (io.IOBase, Path)):
                 # Calculate byte length of body (only for non-streaming bodies)
                 import json
                 if isinstance(self.body, str):
@@ -451,8 +476,9 @@ class Response:
             elif self.body is None:
                 # No body, set Content-Length to 0
                 self.headers["Content-Length"] = "0"
-            # For streaming bodies (io.IOBase), don't set Content-Length
-            # The adapter will need to handle Transfer-Encoding: chunked
+            # For streaming bodies (io.IOBase) and Path objects, Content-Length is handled separately
+            # Path: Already set above from file size
+            # io.IOBase: Adapter will need to handle Transfer-Encoding: chunked
 
         # Automatically inject Vary header only if not already provided via pre_calculated_headers
         if not self.pre_calculated_headers or "Vary" not in self.pre_calculated_headers:

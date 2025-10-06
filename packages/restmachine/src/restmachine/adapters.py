@@ -14,6 +14,7 @@ import io
 import json
 import urllib.parse
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, BinaryIO, Dict, Optional, cast
 
 from .models import HTTPMethod, MultiValueHeaders, Request, Response
@@ -421,32 +422,65 @@ class ASGIAdapter:
         Convert RestMachine Response to ASGI response format.
 
         Handles proper encoding, Content-Type, and Content-Length headers.
-        Supports streaming response bodies for efficient handling of large files.
+        Supports streaming response bodies and efficient file serving via Path objects.
+
+        For Path objects, uses the ASGI http.response.pathsend extension for efficient
+        file serving when supported by the server.
 
         Args:
             response: RestMachine Response object
             send: ASGI send callable
         """
+        # Check if body is a Path (file to serve)
+        is_path = isinstance(response.body, Path)
+
         # Check if body is a stream
         is_stream = isinstance(response.body, io.IOBase)
 
-        # For non-streaming bodies, convert to bytes
+        # For non-streaming, non-Path bodies, convert to bytes
         body = None
-        if not is_stream:
+        if not is_stream and not is_path:
             body = self._convert_body_to_bytes(response.body)
 
         # Prepare headers
-        headers = self._prepare_asgi_headers(response, is_stream, body)
+        headers = self._prepare_asgi_headers(response, is_stream or is_path, body)
 
-        # Send response start
-        await send({
+        # Build response start message
+        response_start = {
             "type": "http.response.start",
             "status": response.status_code,
             "headers": headers,
-        })
+        }
+
+        # For Path objects, add the pathsend extension
+        if is_path:
+            path_obj = cast(Path, response.body)
+            response_start["extensions"] = {
+                "http.response.pathsend": {
+                    "path": str(path_obj.absolute())
+                }
+            }
+
+        # Send response start
+        await send(response_start)
 
         # Send response body
-        if is_stream:
+        if is_path:
+            # For Path, send empty body - the server will serve the file using the extension
+            # If the server doesn't support the extension, we fall back to reading the file
+            path_obj = cast(Path, response.body)
+            if path_obj.exists() and path_obj.is_file():
+                # Open and stream the file as fallback
+                # Most ASGI servers that support pathsend will ignore the body we send
+                with path_obj.open('rb') as f:
+                    await self._send_streaming_body(f, send)
+            else:
+                # File doesn't exist, send empty body
+                await send({
+                    "type": "http.response.body",
+                    "body": b"",
+                })
+        elif is_stream:
             await self._send_streaming_body(cast(BinaryIO, response.body), send)
         else:
             # Send entire body at once for non-streaming responses

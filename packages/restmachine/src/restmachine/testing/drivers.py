@@ -8,6 +8,7 @@ Drivers know how to translate DSL requests into actual system calls.
 import io
 import json
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Dict, Any
 
 from restmachine import RestApplication, HTTPMethod, Request as RestMachineRequest, BytesStreamBuffer
@@ -85,12 +86,26 @@ class RestMachineDriver(DriverInterface):
 
     def _convert_from_restmachine_response(self, response) -> HttpResponse:
         """Convert RestMachine Response to DSL HttpResponse."""
-        # Handle streaming and non-streaming bodies
+        # Handle streaming, Path, and non-streaming bodies
         body = response.body
         content_type = response.content_type
 
+        # If body is a Path, read the file
+        if isinstance(body, Path):
+            if body.exists() and body.is_file():
+                with body.open('rb') as f:
+                    body_bytes = f.read()
+                # Try to decode as UTF-8
+                try:
+                    body = body_bytes.decode('utf-8')
+                except UnicodeDecodeError:
+                    # Keep as bytes if not valid UTF-8
+                    body = body_bytes
+            else:
+                body = None
+
         # If body is a stream, read it all
-        if isinstance(body, io.IOBase):
+        elif isinstance(body, io.IOBase):
             body_bytes = body.read()
             # Try to decode as UTF-8
             try:

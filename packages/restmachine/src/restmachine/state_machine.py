@@ -742,19 +742,22 @@ class RequestStateMachine:
             wrapper.func, self.ctx.request, self.ctx.route_handler
         )
 
+        # Get full content type including charset if specified
+        full_content_type = wrapper.get_full_content_type()
+
         # Handle Response from renderer
         if isinstance(rendered_result, Response):
             if not rendered_result.content_type:
-                rendered_result.content_type = self.ctx.chosen_renderer.media_type
+                rendered_result.content_type = full_content_type
                 rendered_result.headers = rendered_result.headers or {}
-                rendered_result.headers["Content-Type"] = self.ctx.chosen_renderer.media_type
+                rendered_result.headers["Content-Type"] = full_content_type
             return rendered_result
 
         # Renderer returned string/other
         return Response(
             HTTPStatus.OK,
             str(rendered_result),
-            content_type=self.ctx.chosen_renderer.media_type,
+            content_type=full_content_type,
             pre_calculated_headers=headers,
         )
 
@@ -779,6 +782,18 @@ class RequestStateMachine:
 
     def _finalize_response_object(self, response: Response, headers: MultiValueHeaders) -> Response:
         """Finalize a Response object with headers and content type."""
+        # Validate Path objects - if path doesn't exist or isn't a file, return 404
+        from pathlib import Path
+        if isinstance(response.body, Path):
+            path_obj = response.body
+            if not path_obj.exists() or not path_obj.is_file():
+                # Path doesn't exist or isn't a file - return 404
+                return Response(
+                    HTTPStatus.NOT_FOUND,
+                    json.dumps({"error": "Not Found", "detail": "File not found"}),
+                    content_type="application/json"
+                )
+
         if not response.content_type and self.ctx.chosen_renderer:
             response.content_type = self.ctx.chosen_renderer.media_type
             response.headers = response.headers or {}
@@ -900,27 +915,30 @@ class RequestStateMachine:
 
     def _convert_custom_handler_result(self, result: Any, handler: Any, status_code: int, **kwargs) -> Optional[Response]:
         """Convert custom error handler result to Response."""
+        # Get full content type including charset if specified
+        full_content_type = handler.get_full_content_type()
+
         if isinstance(result, Response):
             return result
         elif isinstance(result, dict):
             return Response(
                 status_code,
                 json.dumps(result),
-                content_type=handler.content_type or "application/json",
+                content_type=full_content_type or "application/json",
                 **kwargs
             )
         elif isinstance(result, str):
             return Response(
                 status_code,
                 result,
-                content_type=handler.content_type or "text/plain",
+                content_type=full_content_type or "text/plain",
                 **kwargs
             )
         else:
             return Response(
                 status_code,
                 json.dumps(result),
-                content_type=handler.content_type or "application/json",
+                content_type=full_content_type or "application/json",
                 **kwargs
             )
 

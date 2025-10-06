@@ -2,7 +2,7 @@
 Dependency injection system for the REST framework.
 """
 
-from typing import Any, Callable, Dict, Literal
+from typing import Any, Callable, Dict, Literal, Optional
 
 DependencyScope = Literal["request", "session"]
 
@@ -121,11 +121,18 @@ class HeadersWrapper:
 class ContentNegotiationWrapper:
     """Wrapper for content-type specific renderers."""
 
-    def __init__(self, func: Callable, content_type: str, handler_dependency_name: str):
+    def __init__(self, func: Callable, content_type: str, handler_dependency_name: str, charset: Optional[str] = None):
         self.func = func
         self.content_type = content_type
+        self.charset = charset
         self.original_name = func.__name__
         self.handler_dependency_name = handler_dependency_name
+
+    def get_full_content_type(self) -> str:
+        """Get the full Content-Type header value including charset if specified."""
+        if self.charset:
+            return f"{self.content_type}; charset={self.charset}"
+        return self.content_type
 
 
 class AcceptsWrapper:

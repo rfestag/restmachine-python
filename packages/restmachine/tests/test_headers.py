@@ -101,7 +101,7 @@ class TestVaryHeaderHandling(MultiDriverTestBase):
         def get_content():
             return {"data": "content"}
 
-        @app.renders("text/html")
+        @app.provides("text/html")
         def render_html(get_content):
             return f"<h1>{get_content['data']}</h1>"
 

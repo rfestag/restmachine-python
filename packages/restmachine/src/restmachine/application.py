@@ -49,10 +49,11 @@ logger = logging.getLogger(__name__)
 class ErrorHandler:
     """Represents a custom error handler."""
 
-    def __init__(self, handler: Callable, status_codes: Tuple[int, ...], content_type: Optional[str] = None):
+    def __init__(self, handler: Callable, status_codes: Tuple[int, ...], content_type: Optional[str] = None, charset: Optional[str] = None):
         self.handler = handler
         self.status_codes = status_codes  # Empty tuple means default handler
         self.content_type = content_type  # None means default for that status code
+        self.charset = charset  # Optional charset for Content-Type header
 
     def handles_status(self, status_code: int) -> bool:
         """Check if this handler handles the given status code."""
@@ -68,6 +69,14 @@ class ErrorHandler:
             return False
         # Simple check for content type in Accept header
         return self.content_type in accept_header or "*/*" in accept_header
+
+    def get_full_content_type(self) -> Optional[str]:
+        """Get the full Content-Type header value including charset if specified."""
+        if not self.content_type:
+            return None
+        if self.charset:
+            return f"{self.content_type}; charset={self.charset}"
+        return self.content_type
 
 
 class RouteHandler:
@@ -220,14 +229,93 @@ class RestApplication:
         self._dependencies["multipart_body"] = Dependency(self._get_multipart_body, scope="request")
         self._dependencies["text_body"] = Dependency(self._get_text_body, scope="request")
 
+    @staticmethod
+    def _extract_charset_from_content_type(content_type: Optional[str]) -> Optional[str]:
+        """Extract the charset parameter from a Content-Type header.
+
+        Args:
+            content_type: Content-Type header value (e.g., "application/json; charset=utf-8")
+
+        Returns:
+            The charset parameter value, or None if not specified
+
+        Examples:
+            >>> _extract_charset_from_content_type("application/json; charset=utf-8")
+            "utf-8"
+            >>> _extract_charset_from_content_type("text/html; charset=iso-8859-1")
+            "iso-8859-1"
+            >>> _extract_charset_from_content_type("application/json")
+            None
+        """
+        if not content_type:
+            return None
+
+        # Split on semicolon to get parameters
+        parts = content_type.split(';')
+        for part in parts[1:]:  # Skip the media type itself
+            part = part.strip()
+            if part.lower().startswith('charset='):
+                charset = part.split('=', 1)[1].strip()
+                # Remove quotes if present
+                if charset.startswith('"') and charset.endswith('"'):
+                    charset = charset[1:-1]
+                if charset.startswith("'") and charset.endswith("'"):
+                    charset = charset[1:-1]
+                return charset
+        return None
+
+    @staticmethod
+    def _decode_bytes_with_fallback(data: bytes, content_type: Optional[str] = None) -> str:
+        """Decode bytes using charset from Content-Type, with UTF-8 and Latin1 fallback.
+
+        Args:
+            data: Bytes to decode
+            content_type: Optional Content-Type header value with charset parameter
+
+        Returns:
+            Decoded string
+
+        Raises:
+            UnicodeDecodeError: If all decoding attempts fail
+
+        The decoding strategy is:
+        1. If charset specified in Content-Type, try that first
+        2. Fall back to UTF-8
+        3. Fall back to Latin1 (ISO-8859-1) which never fails for valid bytes
+        """
+        if not data:
+            return ""
+
+        # Try charset from Content-Type first
+        charset = RestApplication._extract_charset_from_content_type(content_type)
+        if charset:
+            try:
+                return data.decode(charset)
+            except (UnicodeDecodeError, LookupError):
+                # Charset specified but failed - continue to fallbacks
+                pass
+
+        # Try UTF-8
+        try:
+            return data.decode('utf-8')
+        except UnicodeDecodeError:
+            pass
+
+        # Fall back to Latin1 (ISO-8859-1) - this should always succeed
+        # since Latin1 maps all byte values to Unicode code points
+        return data.decode('latin1')
+
     def _get_body_as_string(self, request: Request) -> Optional[str]:
         """Built-in dependency provider for body as string.
 
-        Reads from the request body stream and decodes as UTF-8.
+        Reads from the request body stream and decodes using charset from Content-Type header.
+        Falls back to UTF-8, then Latin1 if charset not specified.
         For backward compatibility with custom @app.accepts parsers.
         """
         if request.body is None:
             return None
+
+        content_type = request.get_content_type()
 
         # If it's a stream, read and decode
         if hasattr(request.body, 'read'):
@@ -235,11 +323,11 @@ class RestApplication:
             # Reset stream position for potential re-reading
             if hasattr(request.body, 'seek'):
                 request.body.seek(0)
-            return raw_bytes.decode('utf-8') if raw_bytes else None
+            return self._decode_bytes_with_fallback(raw_bytes, content_type) if raw_bytes else None
 
         # Legacy support for string/bytes (shouldn't happen with new code)
         if isinstance(request.body, bytes):
-            return request.body.decode('utf-8')
+            return self._decode_bytes_with_fallback(request.body, content_type)
         return str(request.body) if request.body else None
 
     def _get_response_headers(self, request: Request) -> Dict[str, str]:
@@ -378,15 +466,18 @@ class RestApplication:
         return func
 
     # Content negotiation decorators
-    def renders(self, content_type: str, scope: DependencyScope = "request"):
+    def provides(self, content_type: str, scope: DependencyScope = "request", charset: Optional[str] = None):
         """Decorator to register a content-type specific renderer for an endpoint.
+
+        Provides better API symmetry with accepts() for content negotiation.
 
         NOTE: This still requires the decorator to be placed after the route decorator
         to attach the renderer to the correct route.
 
         Args:
-            content_type: The content type this renderer produces
+            content_type: The content type this renderer provides
             scope: Dependency scope - "request" (default) or "session"
+            charset: Optional charset to include in Content-Type header (e.g., "utf-8")
         """
 
         def decorator(func: Callable):
@@ -394,7 +485,7 @@ class RestApplication:
             if self._root_router._routes:
                 route = self._root_router._routes[-1]
                 handler_name = route.handler.__name__
-                wrapper = ContentNegotiationWrapper(func, content_type, handler_name)
+                wrapper = ContentNegotiationWrapper(func, content_type, handler_name, charset=charset)
                 route.add_content_renderer(content_type, wrapper)
 
             # Also register this as a dependency so it can be injected
@@ -513,7 +604,7 @@ class RestApplication:
             return func
         return decorator
 
-    def error_renders(self, content_type: str):
+    def error_provides(self, content_type: str, charset: Optional[str] = None):
         """Decorator to specify content type for an error handler.
 
         Must be used with handles_error decorator. This creates a content-type-specific
@@ -522,16 +613,17 @@ class RestApplication:
         IMPORTANT: This decorator must be placed ABOVE @handles_error (applied first).
 
         Args:
-            content_type: The content type this error handler produces
+            content_type: The content type this error handler provides
+            charset: Optional charset to include in Content-Type header (e.g., "utf-8")
 
         Example::
 
-            @app.error_renders("text/html")
+            @app.error_provides("text/html", charset="utf-8")
             @app.handles_error(404)
             def custom_404_html(request):
                 return "<h1>404 - Not Found</h1>"
 
-            @app.error_renders("application/json")
+            @app.error_provides("application/json")
             @app.handles_error(404)
             def custom_404_json(request):
                 return {"error": "Not found"}
@@ -544,7 +636,7 @@ class RestApplication:
                 handler = self._error_handlers[-1]
                 if handler.handler == func:
                     # Create a new handler with the same status codes but specific content type
-                    new_handler = ErrorHandler(func, handler.status_codes, content_type)
+                    new_handler = ErrorHandler(func, handler.status_codes, content_type, charset=charset)
                     # Replace the last handler
                     self._error_handlers[-1] = new_handler
             return func
@@ -836,24 +928,38 @@ class RestApplication:
         ])
         return supported_types
 
-    def _parse_json_from_stream(self, body) -> Any:
+    def _parse_json_from_stream(self, body, content_type: str) -> Any:
         """Parse JSON from a stream."""
         import io
-        # Wrap bytes stream with TextIOWrapper for JSON parser
-        text_stream = io.TextIOWrapper(body, encoding='utf-8')
-        return json.load(text_stream)
+        # Extract charset from Content-Type, default to UTF-8, fallback to Latin1
+        charset = self._extract_charset_from_content_type(content_type) or 'utf-8'
+        try:
+            # Wrap bytes stream with TextIOWrapper for JSON parser
+            text_stream = io.TextIOWrapper(body, encoding=charset)
+            return json.load(text_stream)
+        except (UnicodeDecodeError, LookupError):
+            # If charset fails, try UTF-8
+            body.seek(0)  # Reset stream
+            try:
+                text_stream = io.TextIOWrapper(body, encoding='utf-8')
+                return json.load(text_stream)
+            except UnicodeDecodeError:
+                # Fall back to Latin1
+                body.seek(0)
+                text_stream = io.TextIOWrapper(body, encoding='latin1')
+                return json.load(text_stream)
 
-    def _parse_form_from_stream(self, body) -> dict:
+    def _parse_form_from_stream(self, body, content_type: str) -> dict:
         """Parse form data from a stream."""
         raw_bytes = body.read()
-        body_str = raw_bytes.decode('utf-8')
+        body_str = self._decode_bytes_with_fallback(raw_bytes, content_type)
         parsed = parse_qs(body_str, keep_blank_values=True)
         return {key: values[0] if len(values) == 1 else values for key, values in parsed.items()}
 
-    def _parse_text_from_stream(self, body) -> str:
+    def _parse_text_from_stream(self, body, content_type: str) -> str:
         """Parse text from a stream."""
         raw_bytes: bytes = body.read()
-        return raw_bytes.decode('utf-8')
+        return self._decode_bytes_with_fallback(raw_bytes, content_type)
 
     def _parse_multipart_from_stream(self, body) -> dict:
         """Parse multipart data from a stream."""
@@ -861,31 +967,42 @@ class RestApplication:
         return {"_raw_body": raw_bytes, "_content_type": "multipart/form-data"}
 
     def _parse_stream_body(self, body, content_type: str) -> Any:
-        """Parse body from a stream based on content type."""
-        if content_type == "application/json":
-            return self._parse_json_from_stream(body)
-        elif content_type == "application/x-www-form-urlencoded":
-            return self._parse_form_from_stream(body)
-        elif content_type == "multipart/form-data":
+        """Parse body from a stream based on content type.
+
+        Args:
+            body: The body stream to parse
+            content_type: Full Content-Type header value (may include charset parameter)
+        """
+        # Extract base content type (without parameters like charset)
+        base_content_type = content_type.split(';')[0].strip()
+
+        if base_content_type == "application/json":
+            return self._parse_json_from_stream(body, content_type)
+        elif base_content_type == "application/x-www-form-urlencoded":
+            return self._parse_form_from_stream(body, content_type)
+        elif base_content_type == "multipart/form-data":
             return self._parse_multipart_from_stream(body)
-        elif content_type == "text/plain":
-            return self._parse_text_from_stream(body)
+        elif base_content_type == "text/plain":
+            return self._parse_text_from_stream(body, content_type)
         else:
             # Unknown content type - return raw bytes
             return body.read()
 
     def _parse_legacy_body(self, body, content_type: str) -> Any:
         """Parse legacy string/bytes body (for backwards compatibility)."""
-        body_str = body.decode('utf-8') if isinstance(body, bytes) else body
+        body_str = self._decode_bytes_with_fallback(body, content_type) if isinstance(body, bytes) else body
 
-        if content_type == "application/json":
+        # Extract base content type (without parameters like charset)
+        base_content_type = content_type.split(';')[0].strip()
+
+        if base_content_type == "application/json":
             return json.loads(body_str)
-        elif content_type == "application/x-www-form-urlencoded":
+        elif base_content_type == "application/x-www-form-urlencoded":
             parsed = parse_qs(body_str, keep_blank_values=True)
             return {key: values[0] if len(values) == 1 else values for key, values in parsed.items()}
-        elif content_type == "multipart/form-data":
+        elif base_content_type == "multipart/form-data":
             return {"_raw_body": body_str, "_content_type": "multipart/form-data"}
-        elif content_type == "text/plain":
+        elif base_content_type == "text/plain":
             return body_str
         return body_str
 

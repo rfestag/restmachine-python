@@ -21,7 +21,7 @@ class HttpRequest:
     path: str
     headers: Dict[str, str] = field(default_factory=dict)
     query_params: Dict[str, str] = field(default_factory=dict)
-    body: Optional[Union[str, Dict[str, Any]]] = None
+    body: Optional[Union[str, bytes, Dict[str, Any]]] = None
     content_type: Optional[str] = None
 
     def with_json_body(self, data: Dict[str, Any]) -> 'HttpRequest':
@@ -45,6 +45,15 @@ class HttpRequest:
         if "Content-Type" not in self.headers:
             self.content_type = "text/plain"
             self.headers["Content-Type"] = "text/plain"
+        return self
+
+    def with_bytes_body(self, data: bytes) -> 'HttpRequest':
+        """Add raw bytes body to the request.
+
+        Useful for testing charset handling and binary data.
+        Does not automatically set Content-Type - use with_header() to set it.
+        """
+        self.body = data
         return self
 
     def with_header(self, name: str, value: str) -> 'HttpRequest':
