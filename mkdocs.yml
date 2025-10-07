@@ -135,18 +135,17 @@ nav:
     - Quick Start: getting-started/quickstart.md
 
   - User Guide:
-    - Basic Application: guide/basic-application.md
-    - ASGI Deployment:
-      - Uvicorn: guide/deployment/uvicorn.md
-      - Hypercorn: guide/deployment/hypercorn.md
-    - Dependency Injection: guide/dependency-injection.md
+    - Concepts: guide/concepts.md
+    - Usage: guide/usage.md
     - Request Validation: guide/validation.md
     - Authentication & Authorization: guide/authentication.md
     - Content Negotiation: guide/content-negotiation.md
     - Conditional Requests (ETags): guide/etags.md
-    - Error Handling: guide/error-handling.md
     - OpenAPI (Swagger) Generation: guide/openapi.md
     - Testing Your Application: guide/testing.md
+    - Deployment:
+      - ASGI Servers: guide/deployment-asgi.md
+      - AWS Lambda: guide/deployment-lambda.md
 
   - Advanced Features:
     - State Machine Callbacks: advanced/state-machine.md
