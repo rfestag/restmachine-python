@@ -257,7 +257,7 @@ asgi_app = ASGIAdapter(app)
 
 **ASGI Deployment:** Startup/shutdown handlers work automatically.
 
-**AWS Lambda:** Startup handlers run during cold start. For shutdown handlers, see [Lambda Extensions](../advanced/lambda-extensions.md).
+**AWS Lambda:** Startup handlers run during cold start. For shutdown handlers, see [Lambda Extensions](../restmachine-aws/guides/lambda-extensions.md).
 
 ## Next Steps
 

@@ -289,6 +289,6 @@ adapter._execute_shutdown_handlers()
 
 ## See Also
 
-- [Startup & Shutdown Handlers](lifecycle.md) - General lifecycle documentation
-- [AWS Lambda Deployment](../guide/deployment/aws-lambda.md) - Lambda deployment guide
-- [Dependency Injection](../guide/dependency-injection.md) - DI patterns
+- [Startup & Shutdown Handlers](../../advanced/lifecycle.md) - General lifecycle documentation
+- [AWS Lambda Deployment](lambda-deployment.md) - Lambda deployment guide
+- [Dependency Injection](../../guide/dependency-injection.md) - DI patterns

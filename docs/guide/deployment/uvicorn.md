@@ -663,5 +663,5 @@ Implement health checks and monitor:
 ## Next Steps
 
 - Learn about [Hypercorn deployment](hypercorn.md) for HTTP/2 and HTTP/3 support
-- Explore [AWS Lambda deployment](aws-lambda.md) for serverless applications
+- Explore [AWS Lambda deployment](../../restmachine-aws/guides/lambda-deployment.md) for serverless applications
 - Read about [Performance Optimization](../../advanced/performance.md) for tuning tips

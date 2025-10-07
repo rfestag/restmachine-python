@@ -1,0 +1,11 @@
+site_name: RestMachine Web
+docs_dir: docs
+
+nav:
+  - Overview: index.md
+  - Guides:
+    - Static Files: guides/static-files.md
+    - Template Rendering: guides/templates.md
+  - API Reference:
+    - Static Router: api/static-router.md
+    - Template Renderer: api/template-renderer.md

@@ -48,10 +48,11 @@ theme:
 
 plugins:
   - search
+  - monorepo
   - mkdocstrings:
       handlers:
         python:
-          paths: [packages/restmachine/src, packages/restmachine-aws/src]
+          paths: [packages/restmachine/src, packages/restmachine-aws/src, packages/restmachine-web/src]
           options:
             docstring_style: google
             show_source: true
@@ -138,7 +139,6 @@ nav:
     - ASGI Deployment:
       - Uvicorn: guide/deployment/uvicorn.md
       - Hypercorn: guide/deployment/hypercorn.md
-      - AWS Lambda: guide/deployment/aws-lambda.md
     - Dependency Injection: guide/dependency-injection.md
     - Request Validation: guide/validation.md
     - Authentication & Authorization: guide/authentication.md
@@ -150,11 +150,14 @@ nav:
   - Advanced Features:
     - State Machine Callbacks: advanced/state-machine.md
     - Startup & Shutdown Handlers: advanced/lifecycle.md
-    - Lambda Extensions: advanced/lambda-extensions.md
     - TLS/mTLS Support: advanced/tls.md
     - Template Rendering: advanced/templates.md
     - Multi-Value Headers: advanced/headers.md
     - Performance Optimization: advanced/performance.md
+
+  - Packages:
+    - AWS (restmachine-aws): '!include ./packages/restmachine-aws/mkdocs.yml'
+    - Web (restmachine-web): '!include ./packages/restmachine-web/mkdocs.yml'
 
   - API Reference:
     - Core:
@@ -163,9 +166,6 @@ nav:
       - Router: api/router.md
       - State Machine: api/state-machine.md
     - ASGI Adapter: api/adapters.md
-    - AWS Integration:
-      - Lambda Adapter: api/aws/adapter.md
-      - Lambda Extension: api/aws/extension.md
     - Dependencies: api/dependencies.md
     - Content Renderers: api/content-renderers.md
     - Error Models: api/error-models.md

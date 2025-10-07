@@ -844,5 +844,5 @@ async def ready(database):
 ## Next Steps
 
 - Learn about [Uvicorn deployment](uvicorn.md) for HTTP/1.1 performance
-- Explore [AWS Lambda deployment](aws-lambda.md) for serverless
+- Explore [AWS Lambda deployment](../../restmachine-aws/guides/lambda-deployment.md) for serverless
 - Check [Performance Optimization](../../advanced/performance.md) tips

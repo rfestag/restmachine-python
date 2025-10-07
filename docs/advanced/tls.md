@@ -868,5 +868,5 @@ def check_cert_age(client_cert):
 
 - [Authentication →](../guide/authentication.md) - Combine with other auth methods
 - [Error Handling →](../guide/error-handling.md) - Handle certificate errors
-- [Deployment →](../guide/deployment/aws-lambda.md) - Deploy with mTLS
+- [Deployment →](../restmachine-aws/guides/lambda-deployment.md) - Deploy with mTLS
 - [Testing →](../guide/testing.md) - Test mTLS endpoints

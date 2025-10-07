@@ -353,5 +353,5 @@ def test_with_lifecycle():
 ## Next Steps
 
 - Learn about [Performance Optimization](performance.md) with caching strategies
-- Explore [Lambda Extensions](lambda-extensions.md) for AWS-specific lifecycle hooks
+- Explore [Lambda Extensions](../restmachine-aws/guides/lambda-extensions.md) for AWS-specific lifecycle hooks
 - Read about [Dependency Injection](../guide/dependency-injection.md) for advanced patterns

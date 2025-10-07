@@ -904,6 +904,6 @@ aws lambda get-function --function-name my-function
 
 ## Next Steps
 
-- Learn about [Uvicorn deployment](uvicorn.md) for local development
-- Explore [Hypercorn deployment](hypercorn.md) for HTTP/2 support
+- Learn about [Uvicorn deployment](../../guide/deployment/uvicorn.md) for local development
+- Explore [Hypercorn deployment](../../guide/deployment/hypercorn.md) for HTTP/2 support
 - Read about [Lifecycle Handlers](../../advanced/lifecycle.md) for advanced startup/shutdown patterns
