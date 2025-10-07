@@ -87,13 +87,13 @@ class UserCreate(BaseModel):
     email: str
 
 @app.validates
-def validate_user(request: Request) -> UserCreate:
+def user_create(request: Request) -> UserCreate:
     import json
     return UserCreate.model_validate(json.loads(request.body))
 
 @app.post('/users')
-def create_user(validate_user: UserCreate):
-    return {"created": validate_user.model_dump()}
+def create_user(user_create: UserCreate):
+    return {"created": user_create.model_dump()}
 ```
 
 ### Serve Multiple Formats
