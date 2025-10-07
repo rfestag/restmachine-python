@@ -21,19 +21,23 @@ from restmachine import RestApplication
 
 app = RestApplication()
 
+@app.resource_exists
+def document(path_params, database):
+    """Get document by ID, returns None if not found."""
+    doc_id = path_params.get("doc_id")
+    return database.get(doc_id)
+
 @app.generate_etag
-def document_etag(request):
+def document_etag(document):
     """Generate ETag based on document version."""
-    doc_id = request.path_params.get("doc_id")
-    document = database.get(doc_id)
     if document:
-        return f'"{doc_id}-v{document["version"]}"'
+        return f'"{document["id"]}-v{document["version"]}"'
     return None
 
 @app.get("/documents/{doc_id}")
-def get_document(request):
-    doc_id = request.path_params["doc_id"]
-    return database.get(doc_id)
+def get_document(document):
+    """404 handled automatically by resource_exists decorator."""
+    return document
 ```
 
 ### How It Works
@@ -57,21 +61,21 @@ documents = {
     "doc1": {"id": "doc1", "title": "Document 1", "version": 1}
 }
 
-@app.generate_etag
-def document_etag(request):
-    doc_id = request.path_params.get("doc_id")
-    if doc_id in documents:
-        return f'"{documents[doc_id]["version"]}"'
-    return None
-
 @app.resource_exists
-def document_exists(request):
-    doc_id = request.path_params.get("doc_id")
+def document(path_params):
+    doc_id = path_params.get("doc_id")
     return documents.get(doc_id)
 
+@app.generate_etag
+def document_etag(document):
+    """Generate ETag from document version."""
+    if document:
+        return f'"{document["version"]}"'
+    return None
+
 @app.get("/documents/{doc_id}")
-def get_document(document_exists):
-    return document_exists
+def get_document(document):
+    return document
 ```
 
 **Request Flow:**
@@ -111,23 +115,22 @@ documents = {
     "doc1": {"id": "doc1", "content": "Original", "version": 1}
 }
 
-@app.generate_etag
-def document_etag(request):
-    doc_id = request.path_params.get("doc_id")
-    if doc_id in documents:
-        version = documents[doc_id]["version"]
-        return f'"{version}"'
-    return None
-
 @app.resource_exists
-def document_exists(request):
-    doc_id = request.path_params.get("doc_id")
+def document(path_params):
+    doc_id = path_params.get("doc_id")
     return documents.get(doc_id)
 
+@app.generate_etag
+def document_etag(document):
+    """Generate ETag from document version."""
+    if document:
+        return f'"{document["version"]}"'
+    return None
+
 @app.put("/documents/{doc_id}")
-def update_document(document_exists, json_body, request):
+def update_document(document, json_body, path_params):
     """Update document and increment version."""
-    doc_id = request.path_params["doc_id"]
+    doc_id = path_params["doc_id"]
 
     # Update the document
     documents[doc_id].update(json_body)
@@ -171,16 +174,15 @@ Use `@app.last_modified` for time-based conditional requests:
 from datetime import datetime
 
 @app.last_modified
-def document_modified_time(request):
+def document_modified_time(document):
     """Get last modified time of document."""
-    doc_id = request.path_params.get("doc_id")
-    if doc_id in documents:
-        return documents[doc_id]["updated_at"]
+    if document:
+        return document["updated_at"]
     return None
 
 @app.get("/documents/{doc_id}")
-def get_document(document_exists):
-    return document_exists
+def get_document(document):
+    return document
 ```
 
 **Request Flow:**
@@ -212,22 +214,22 @@ You can use both mechanisms together for maximum flexibility:
 from datetime import datetime
 
 @app.generate_etag
-def document_etag(request):
-    doc_id = request.path_params.get("doc_id")
-    if doc_id in documents:
-        return f'"{documents[doc_id]["version"]}"'
+def document_etag(document):
+    """Generate ETag from document version."""
+    if document:
+        return f'"{document["version"]}"'
     return None
 
 @app.last_modified
-def document_modified_time(request):
-    doc_id = request.path_params.get("doc_id")
-    if doc_id in documents:
-        return documents[doc_id]["updated_at"]
+def document_modified_time(document):
+    """Get last modified time of document."""
+    if document:
+        return document["updated_at"]
     return None
 
 @app.get("/documents/{doc_id}")
-def get_document(document_exists):
-    return document_exists
+def get_document(document):
+    return document
 ```
 
 The server checks both conditions and returns `304 Not Modified` only if both indicate the resource is unchanged.
@@ -240,10 +242,10 @@ Use version numbers for simple, predictable ETags:
 
 ```python
 @app.generate_etag
-def version_etag(document_exists):
+def version_etag(document):
     """Generate ETag from version number."""
-    if document_exists:
-        return f'"{document_exists["version"]}"'
+    if document:
+        return f'"{document["version"]}"'
     return None
 ```
 
@@ -256,11 +258,11 @@ import hashlib
 import json
 
 @app.generate_etag
-def content_hash_etag(document_exists):
+def content_hash_etag(document):
     """Generate ETag from content hash."""
-    if document_exists:
+    if document:
         # Create hash of document content
-        content = json.dumps(document_exists, sort_keys=True)
+        content = json.dumps(document, sort_keys=True)
         hash_value = hashlib.md5(content.encode()).hexdigest()
         return f'"{hash_value}"'
     return None
@@ -272,10 +274,10 @@ Use modification timestamps:
 
 ```python
 @app.generate_etag
-def timestamp_etag(document_exists):
+def timestamp_etag(document):
     """Generate ETag from timestamp."""
-    if document_exists:
-        timestamp = int(document_exists["updated_at"].timestamp())
+    if document:
+        timestamp = int(document["updated_at"].timestamp())
         return f'"{timestamp}"'
     return None
 ```
@@ -301,41 +303,38 @@ posts = {
     }
 }
 
+@app.resource_exists
+def post(path_params):
+    """Get post by ID, returns None if not found."""
+    post_id = path_params.get("post_id")
+    if post_id:
+        return posts.get(int(post_id))
+    return None
+
 @app.generate_etag
-def post_etag(request):
+def post_etag(post):
     """Generate ETag for blog posts."""
-    post_id = request.path_params.get("post_id")
-    if post_id and int(post_id) in posts:
-        post = posts[int(post_id)]
+    if post:
         # Combine ID and version for ETag
         return f'"{post["id"]}-{post["version"]}"'
     return None
 
 @app.last_modified
-def post_last_modified(request):
+def post_last_modified(post):
     """Get last modified time for blog posts."""
-    post_id = request.path_params.get("post_id")
-    if post_id and int(post_id) in posts:
-        return posts[int(post_id)]["updated_at"]
-    return None
-
-@app.resource_exists
-def post_exists(request):
-    """Check if post exists."""
-    post_id = request.path_params.get("post_id")
-    if post_id:
-        return posts.get(int(post_id))
+    if post:
+        return post["updated_at"]
     return None
 
 @app.get("/posts/{post_id}")
-def get_post(post_exists):
-    """Get a blog post (supports conditional requests)."""
-    return post_exists
+def get_post(post):
+    """Get a blog post. 404 and conditional requests handled automatically."""
+    return post
 
 @app.put("/posts/{post_id}")
-def update_post(post_exists, json_body, request):
-    """Update a blog post (requires matching ETag)."""
-    post_id = int(request.path_params["post_id"])
+def update_post(post, json_body, path_params):
+    """Update a blog post (requires matching ETag via If-Match header)."""
+    post_id = int(path_params["post_id"])
 
     # Update post and increment version
     posts[post_id].update(json_body)
@@ -466,8 +465,8 @@ Increment version or regenerate hash after any modification:
 
 ```python
 @app.put("/documents/{doc_id}")
-def update_document(document_exists, json_body, request):
-    doc_id = request.path_params["doc_id"]
+def update_document(document, json_body, path_params):
+    doc_id = path_params["doc_id"]
     documents[doc_id].update(json_body)
     # IMPORTANT: Invalidate the ETag
     documents[doc_id]["version"] += 1
@@ -479,10 +478,14 @@ def update_document(document_exists, json_body, request):
 Not all resources need ETags:
 
 ```python
+@app.dependency()
+def resource_path(request):
+    return request.path
+
 @app.generate_etag
-def maybe_etag(request):
+def maybe_etag(resource_path):
     # Return None if ETag doesn't make sense
-    if request.path.startswith("/stream/"):
+    if resource_path.startswith("/stream/"):
         return None  # Streaming resources don't use ETags
     # Otherwise generate ETag
     return generate_etag_for_resource()

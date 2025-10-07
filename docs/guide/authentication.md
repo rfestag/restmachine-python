@@ -321,9 +321,9 @@ def require_moderator(current_user):
     return current_user
 
 @app.delete('/posts/{post_id}')
-def delete_post(request: Request, require_moderator, database):
+def delete_post(path_params, require_moderator, database):
     """Moderators and admins can delete posts."""
-    post_id = request.path_params['post_id']
+    post_id = path_params['post_id']
     # Delete logic
     return {"message": "Post deleted"}, 204
 
@@ -384,8 +384,8 @@ def list_users(require_permission(Permission.READ_USERS), database):
     return {"users": database["users"]}
 
 @app.delete('/users/{user_id}')
-def delete_user(require_permission(Permission.DELETE_USERS), request: Request, database):
-    user_id = request.path_params['user_id']
+def delete_user(require_permission(Permission.DELETE_USERS), path_params, database):
+    user_id = path_params['user_id']
     # Delete logic
     return {"message": "User deleted"}, 204
 ```
@@ -394,24 +394,17 @@ def delete_user(require_permission(Permission.DELETE_USERS), request: Request, d
 
 ### Owner-Based Access
 
-Check if user owns the resource:
+Check if user owns the resource using `@app.resource_exists` and authorization dependencies:
 
 ```python
-@app.dependency()
-def post_id(request: Request) -> str:
-    """Extract post_id from path."""
-    return request.path_params.get('post_id')
+@app.resource_exists
+def post(path_params, database):
+    """Get post by ID, returns None if not found (triggers 404)."""
+    post_id = path_params.get('post_id')
+    return next((p for p in database["posts"] if p["id"] == post_id), None)
 
 @app.dependency()
-def post(post_id: str, database):
-    """Get post by ID."""
-    post = next((p for p in database["posts"] if p["id"] == post_id), None)
-    if not post:
-        raise ValueError("Post not found")
-    return post
-
-@app.dependency()
-def require_post_owner(post, current_user):
+def authorized_post(post, current_user):
     """Require user to be post owner or admin."""
     user_role = current_user.get('role')
     user_id = current_user.get('id')
@@ -425,13 +418,10 @@ def require_post_owner(post, current_user):
     return post
 
 @app.put('/posts/{post_id}')
-def update_post(require_post_owner, request: Request):
-    """Update post (owner or admin only)."""
-    import json
-    data = json.loads(request.body)
-
-    require_post_owner.update(data)
-    return require_post_owner
+def update_post(authorized_post, json_body):
+    """Update post (owner or admin only). 404 and 403 handled automatically."""
+    authorized_post.update(json_body)
+    return authorized_post
 ```
 
 ## Optional Authentication
@@ -625,9 +615,8 @@ def database():
 
 # Authentication
 @app.validates
-def validate_login(request: Request) -> LoginRequest:
-    data = json.loads(request.body)
-    return LoginRequest.model_validate(data)
+def login_request(json_body) -> LoginRequest:
+    return LoginRequest.model_validate(json_body)
 
 @app.dependency()
 def jwt_token(request: Request) -> str:
@@ -662,10 +651,10 @@ def require_admin(current_user):
 
 # Routes
 @app.post('/login')
-def login(validate_login: LoginRequest, database):
+def login(login_request: LoginRequest, database):
     # Find user
     user = next(
-        (u for u in database["users"] if u["email"] == validate_login.email),
+        (u for u in database["users"] if u["email"] == login_request.email),
         None
     )
 
@@ -703,28 +692,28 @@ def list_users(require_admin, database):
         ]
     }
 
+@app.resource_exists
+def post(path_params, database):
+    """Get post by ID, returns None if not found (triggers 404)."""
+    post_id = path_params['post_id']
+    return next((p for p in database["posts"] if p["id"] == post_id), None)
+
 @app.get('/posts/{post_id}')
-def get_post(request: Request, current_user, database):
-    post_id = request.path_params['post_id']
-    post = next((p for p in database["posts"] if p["id"] == post_id), None)
+def get_post(post, current_user):
+    """Get post. 404 handled automatically."""
+    return post
 
-    if not post:
-        return Response(404, json.dumps({"error": "Post not found"}))
-
+@app.dependency()
+def authorized_post(post, current_user):
+    """Check if user can modify post (owner or admin)."""
+    if post['author_id'] != current_user['id'] and current_user['role'] != 'admin':
+        raise PermissionError("Not authorized to modify this post")
     return post
 
 @app.delete('/posts/{post_id}')
-def delete_post(request: Request, current_user, database):
-    post_id = request.path_params['post_id']
-    post = next((p for p in database["posts"] if p["id"] == post_id), None)
-
-    if not post:
-        return Response(404, json.dumps({"error": "Post not found"}))
-
-    # Check ownership or admin
-    if post['author_id'] != current_user['id'] and current_user['role'] != 'admin':
-        return Response(403, json.dumps({"error": "Not authorized"}))
-
+def delete_post(authorized_post, path_params, database):
+    """Delete post. 404 and 403 handled automatically."""
+    post_id = path_params['post_id']
     database["posts"] = [p for p in database["posts"] if p["id"] != post_id]
     return {"message": "Post deleted"}, 204
 

@@ -34,7 +34,8 @@ def home():
     return {"message": "Hello from Lambda!"}
 
 @app.get("/users/{user_id}")
-def get_user(user_id: int):
+def get_user(path_params):
+    user_id = path_params['user_id']
     return {"id": user_id, "name": f"User {user_id}"}
 
 # Create Lambda handler

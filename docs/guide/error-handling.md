@@ -6,38 +6,42 @@ RestMachine provides flexible error handling through custom error handlers, auto
 
 ### Automatic Error Handling
 
-RestMachine automatically handles common errors:
+RestMachine automatically handles common errors using declarative decorators:
 
 ```python
 from restmachine import RestApplication, Request, Response
+from pydantic import BaseModel, EmailStr
 
 app = RestApplication()
 
+@app.on_startup
+def database():
+    return {"users": {"1": {"id": "1", "name": "Alice"}}}
+
+@app.resource_exists
+def user(path_params, database):
+    """Returns None if not found, triggering automatic 404."""
+    user_id = path_params['user_id']
+    return database["users"].get(user_id)
+
 @app.get('/users/{user_id}')
-def get_user(request: Request):
-    user_id = request.path_params['user_id']
+def get_user(user):
+    """404 handled automatically by resource_exists decorator."""
+    return {"user": user}
 
-    # Return 404 for missing resource
-    if user_id not in database:
-        return Response(404, '{"error": "User not found"}')
+class UserCreate(BaseModel):
+    email: EmailStr
+    name: str
 
-    return {"user": database[user_id]}
+@app.validates
+def user_create(json_body) -> UserCreate:
+    """Validates request, returns 400/422 automatically on error."""
+    return UserCreate.model_validate(json_body)
 
 @app.post('/users')
-def create_user(request: Request):
-    import json
-
-    try:
-        data = json.loads(request.body)
-    except json.JSONDecodeError:
-        # Return 400 for invalid JSON
-        return Response(400, '{"error": "Invalid JSON"}')
-
-    if 'email' not in data:
-        # Return 400 for validation errors
-        return Response(400, '{"error": "Email is required"}')
-
-    return {"created": data}, 201
+def create_user(user_create: UserCreate):
+    """Validation errors handled automatically."""
+    return {"created": user_create.model_dump()}, 201
 ```
 
 ### HTTP Status Codes
@@ -237,14 +241,9 @@ class UserCreate(BaseModel):
     age: int = Field(..., ge=18, le=120)
 
 @app.validates
-def validate_user(request: Request) -> UserCreate:
-    import json
-    try:
-        data = json.loads(request.body)
-        return UserCreate.model_validate(data)
-    except PydanticValidationError as e:
-        # RestMachine will catch this and call error handler
-        raise
+def user_create(json_body) -> UserCreate:
+    """Validates request body, returns 422 automatically on validation error."""
+    return UserCreate.model_validate(json_body)
 
 @app.error_handler(400)
 def validation_error_handler(request, message, **kwargs):
@@ -688,9 +687,8 @@ def server_error_handler(request, message, **kwargs):
 
 # Validation
 @app.validates
-def validate_user(request: Request) -> UserCreate:
-    data = json.loads(request.body)
-    return UserCreate.model_validate(data)
+def user_create(json_body) -> UserCreate:
+    return UserCreate.model_validate(json_body)
 
 # Dependencies
 @app.dependency()
@@ -705,10 +703,10 @@ def current_user(request: Request):
 
 # Routes
 @app.post('/users')
-def create_user(validate_user: UserCreate, database):
+def create_user(user_create: UserCreate, database):
     # Check for duplicate email
     existing = next(
-        (u for u in database["users"] if u["email"] == validate_user.email),
+        (u for u in database["users"] if u["email"] == user_create.email),
         None
     )
 
@@ -717,28 +715,26 @@ def create_user(validate_user: UserCreate, database):
             409,
             json.dumps(error_response(
                 "Conflict",
-                f"User with email {validate_user.email} already exists",
+                f"User with email {user_create.email} already exists",
                 409
             ))
         )
 
-    user = validate_user.model_dump()
+    user = user_create.model_dump()
     user["id"] = str(len(database["users"]) + 1)
     database["users"].append(user)
 
     return user, 201
 
+@app.resource_exists
+def user(path_params, database):
+    """Returns None if not found, triggering automatic 404."""
+    user_id = path_params['user_id']
+    return next((u for u in database["users"] if u["id"] == user_id), None)
+
 @app.get('/users/{user_id}')
-def get_user(request: Request, database):
-    user_id = request.path_params['user_id']
-    user = next((u for u in database["users"] if u["id"] == user_id), None)
-
-    if not user:
-        return Response(
-            404,
-            json.dumps(error_response("Not Found", f"User {user_id} not found", 404))
-        )
-
+def get_user(user):
+    """404 handled automatically by resource_exists decorator."""
     return user
 
 @app.get('/protected')

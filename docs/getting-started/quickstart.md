@@ -13,7 +13,7 @@ pip install restmachine uvicorn[standard]
 ### 2. Create `app.py`
 
 ```python
-from restmachine import RestApplication, Request
+from restmachine import RestApplication
 
 app = RestApplication()
 

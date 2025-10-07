@@ -64,10 +64,14 @@ Pass database connections, configs, and services to your handlers automatically:
 def database():
     return create_db_connection()
 
+@app.resource_exists
+def user(database, path_params):
+    user_id = path_params['user_id']
+    return database.get_user(user_id)  # Returns None if not found
+
 @app.get('/users/{user_id}')
-def get_user(database, request: Request):
-    user_id = request.path_params['user_id']
-    return database.get_user(user_id)
+def get_user(user):
+    return user  # 404 handled automatically if None
 ```
 
 ### Request Validation
@@ -96,14 +100,19 @@ def create_user(validate_user: UserCreate):
 Automatically serve JSON, XML, or custom formats based on what clients request:
 
 ```python
-@app.content_renderer("application/json")
-def json_renderer(data):
-    import json
-    return json.dumps(data)
+@app.get('/data')
+def get_data():
+    return {"message": "Hello", "timestamp": "2024-01-01"}
 
-@app.content_renderer("text/xml")
-def xml_renderer(data):
-    return f"<result>{data}</result>"
+@app.provides("text/html")
+def render_html(get_data):
+    data = get_data
+    return f"<h1>{data['message']}</h1><p>Time: {data['timestamp']}</p>"
+
+@app.provides("text/xml")
+def render_xml(get_data):
+    data = get_data
+    return f"<result><message>{data['message']}</message></result>"
 ```
 
 ### Manage Resources Cleanly

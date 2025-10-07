@@ -338,16 +338,16 @@ Use decorators to automatically generate appropriate error responses:
 ```python
 # Use @app.resource_exists to return 404 when resource not found
 @app.resource_exists
-def user_exists(path_params):
+def user(path_params):
     user_id = path_params['user_id']
     # Return None to trigger 404, or return the resource
     users = {"1": {"id": "1", "name": "Alice"}}
     return users.get(user_id)
 
 @app.get('/users/{user_id}')
-def get_user(user_exists):
-    # user_exists is injected - if it was None, 404 already returned
-    return user_exists
+def get_user(user):
+    # user is injected - if it was None, 404 already returned
+    return user
 ```
 
 ### Custom Error Handlers
@@ -438,18 +438,18 @@ class UpdateUserRequest(BaseModel):
 
 # Decorators for proper status codes
 @app.resource_exists
-def user_exists(path_params):
+def user(path_params):
     """Returns user or None (which triggers 404)."""
     user_id = path_params.get('user_id')
     return users.get(user_id)
 
 @app.validates
-def validate_create(json_body) -> CreateUserRequest:
+def user_create(json_body) -> CreateUserRequest:
     """Validates create request, returns 422 on error."""
     return CreateUserRequest.model_validate(json_body)
 
 @app.validates
-def validate_update(json_body) -> UpdateUserRequest:
+def user_update(json_body) -> UpdateUserRequest:
     """Validates update request, returns 422 on error."""
     return UpdateUserRequest.model_validate(json_body)
 
@@ -468,36 +468,36 @@ def list_users(query_params):
 
 # Get single user
 @app.get('/users/{user_id}')
-def get_user(user_exists):
-    # user_exists decorator handles 404 automatically
-    return user_exists
+def get_user(user):
+    # resource_exists decorator handles 404 automatically
+    return user
 
 # Create user
 @app.post('/users')
-def create_user(validate_create: CreateUserRequest):
+def create_user(user_create: CreateUserRequest):
     # Validation decorator handles 422 automatically
     user_id = str(len(users) + 1)
     user = {
         "id": user_id,
-        **validate_create.model_dump()
+        **user_create.model_dump()
     }
     users[user_id] = user
     return user, 201
 
 # Update user
 @app.put('/users/{user_id}')
-def update_user(user_exists, validate_update: UpdateUserRequest):
+def update_user(user, user_update: UpdateUserRequest):
     # Both decorators handle 404 and 422 automatically
-    if validate_update.name:
-        user_exists['name'] = validate_update.name
-    if validate_update.email:
-        user_exists['email'] = validate_update.email
+    if user_update.name:
+        user['name'] = user_update.name
+    if user_update.email:
+        user['email'] = user_update.email
 
-    return user_exists
+    return user
 
 # Delete user
 @app.delete('/users/{user_id}')
-def delete_user(user_exists, path_params):
+def delete_user(user, path_params):
     # resource_exists decorator handles 404 automatically
     user_id = path_params['user_id']
     del users[user_id]

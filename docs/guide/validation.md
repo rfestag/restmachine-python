@@ -79,12 +79,12 @@ class UserCreate(BaseModel):
         return v
 
 @app.validates
-def validate_user(json_body) -> UserCreate:
+def user_create(json_body) -> UserCreate:
     return UserCreate.model_validate(json_body)
 
 @app.post('/users')
-def create_user(validate_user: UserCreate):
-    user_data = validate_user.model_dump()
+def create_user(user_create: UserCreate):
+    user_data = user_create.model_dump()
     # Hash password before storing
     user_data['password'] = hash_password(user_data['password'])
     return {"created": user_data}, 201
@@ -118,12 +118,12 @@ class EventCreate(BaseModel):
         return self
 
 @app.validates
-def validate_event(json_body) -> EventCreate:
+def event_create(json_body) -> EventCreate:
     return EventCreate.model_validate(json_body)
 
 @app.post('/events')
-def create_event(validate_event: EventCreate):
-    return {"created": validate_event.model_dump()}, 201
+def create_event(event_create: EventCreate):
+    return {"created": event_create.model_dump()}, 201
 ```
 
 ## Query Parameter Validation
@@ -145,27 +145,27 @@ class ListParams(BaseModel):
     order: SortOrder = SortOrder.asc
 
 @app.validates
-def validate_list_params(query_params) -> ListParams:
+def list_params(query_params) -> ListParams:
     return ListParams.model_validate(query_params)
 
 @app.get('/users')
-def list_users(validate_list_params: ListParams, database):
+def list_users(list_params: ListParams, database):
     users = database["users"]
 
     # Apply sorting if specified
-    if validate_list_params.sort_by:
+    if list_params.sort_by:
         users = sorted(
             users,
-            key=lambda u: u.get(validate_list_params.sort_by, ''),
-            reverse=(validate_list_params.order == SortOrder.desc)
+            key=lambda u: u.get(list_params.sort_by, ''),
+            reverse=(list_params.order == SortOrder.desc)
         )
 
     # Apply pagination
-    offset = (validate_list_params.page - 1) * validate_list_params.limit
+    offset = (list_params.page - 1) * list_params.limit
     return {
-        "users": users[offset:offset+validate_list_params.limit],
-        "page": validate_list_params.page,
-        "limit": validate_list_params.limit,
+        "users": users[offset:offset+list_params.limit],
+        "page": list_params.page,
+        "limit": list_params.limit,
         "total": len(users)
     }
 ```
@@ -241,12 +241,12 @@ class ContactInfo(BaseModel):
         return validate_phone_number(v)
 
 @app.validates
-def validate_contact(json_body) -> ContactInfo:
+def contact_info(json_body) -> ContactInfo:
     return ContactInfo.model_validate(json_body)
 
 @app.post('/contacts')
-def create_contact(validate_contact: ContactInfo):
-    return {"contact": validate_contact.model_dump()}, 201
+def create_contact(contact_info: ContactInfo):
+    return {"contact": contact_info.model_dump()}, 201
 ```
 
 ### Business Rule Validators
@@ -277,7 +277,7 @@ class PurchaseRequest(BaseModel):
         return v
 
 @app.dependency()
-def validate_purchase(json_body, database) -> PurchaseRequest:
+def purchase_request(json_body, database) -> PurchaseRequest:
     purchase = PurchaseRequest.model_validate(json_body)
 
     # Check user exists and has sufficient credits
@@ -294,8 +294,8 @@ def validate_purchase(json_body, database) -> PurchaseRequest:
     return purchase
 
 @app.post('/purchases')
-def create_purchase(validate_purchase: PurchaseRequest):
-    return {"purchase": validate_purchase.model_dump()}, 201
+def create_purchase(purchase_request: PurchaseRequest):
+    return {"purchase": purchase_request.model_dump()}, 201
 ```
 
 ## Error Handling
@@ -445,12 +445,12 @@ class UserProfile(BaseModel):
         return v
 
 @app.validates
-def validate_profile(json_body) -> UserProfile:
+def user_profile(json_body) -> UserProfile:
     return UserProfile.model_validate(json_body)
 
 @app.post('/profiles')
-def create_profile(validate_profile: UserProfile):
-    return {"profile": validate_profile.model_dump()}, 201
+def create_profile(user_profile: UserProfile):
+    return {"profile": user_profile.model_dump()}, 201
 
 # Example request:
 # {
@@ -490,22 +490,22 @@ class UserUpdate(BaseModel):
         return self
 
 @app.validates
-def validate_user_update(json_body) -> UserUpdate:
+def user_update(json_body) -> UserUpdate:
     return UserUpdate.model_validate(json_body)
 
 @app.resource_exists
-def user_to_update(path_params, database):
+def user(path_params, database):
     user_id = path_params.get('user_id')
     return next((u for u in database["users"] if u["id"] == user_id), None)
 
 @app.patch('/users/{user_id}')
-def update_user(user_to_update, validate_user_update: UserUpdate):
+def update_user(user, user_update: UserUpdate):
     # resource_exists decorator handles 404 automatically
     # Update only provided fields
-    update_data = validate_user_update.model_dump(exclude_unset=True)
-    user_to_update.update(update_data)
+    update_data = user_update.model_dump(exclude_unset=True)
+    user.update(update_data)
 
-    return user_to_update
+    return user
 ```
 
 ## Content Type Validation
@@ -608,26 +608,26 @@ def database():
 
 # Validators
 @app.validates
-def validate_post(json_body) -> PostCreate:
+def post_create(json_body) -> PostCreate:
     return PostCreate.model_validate(json_body)
 
 @app.validates
-def validate_post_update(json_body) -> PostUpdate:
+def post_update(json_body) -> PostUpdate:
     return PostUpdate.model_validate(json_body)
 
 # Dependencies
 @app.dependency()
-def verify_author(validate_post: PostCreate, database):
+def verified_post(post_create: PostCreate, database):
     """Verify author exists."""
     # In real app, check user database
-    if not validate_post.author_id:
+    if not post_create.author_id:
         raise ValueError("author_id is required")
-    return validate_post
+    return post_create
 
 # Routes
 @app.post('/posts')
-def create_post(verify_author: PostCreate, database):
-    post = verify_author.model_dump()
+def create_post(verified_post: PostCreate, database):
+    post = verified_post.model_dump()
     post["id"] = str(len(database["posts"]) + 1)
     post["created_at"] = datetime.now().isoformat()
 
@@ -635,23 +635,23 @@ def create_post(verify_author: PostCreate, database):
     return post, 201
 
 @app.resource_exists
-def post_by_id(path_params, database):
+def post(path_params, database):
     post_id = path_params.get('post_id')
     return next((p for p in database["posts"] if p["id"] == post_id), None)
 
 @app.get('/posts/{post_id}')
-def get_post(post_by_id):
+def get_post(post):
     # resource_exists decorator handles 404 automatically
-    return post_by_id
+    return post
 
 @app.patch('/posts/{post_id}')
-def update_post(post_by_id, validate_post_update: PostUpdate):
+def update_post(post, post_update: PostUpdate):
     # resource_exists decorator handles 404 automatically
     # Update only provided fields
-    update_data = validate_post_update.model_dump(exclude_unset=True)
-    post_by_id.update(update_data)
+    update_data = post_update.model_dump(exclude_unset=True)
+    post.update(update_data)
 
-    return post_by_id
+    return post
 
 # Error handler
 @app.error_handler(400)
@@ -711,14 +711,14 @@ Combine Pydantic validation with business logic:
 
 ```python
 @app.dependency()
-def validate_unique_email(validate_user: UserCreate, database):
+def unique_user(user_create: UserCreate, database):
     existing = next(
-        (u for u in database["users"] if u["email"] == validate_user.email),
+        (u for u in database["users"] if u["email"] == user_create.email),
         None
     )
     if existing:
-        raise ValueError(f"Email {validate_user.email} is already registered")
-    return validate_user
+        raise ValueError(f"Email {user_create.email} is already registered")
+    return user_create
 ```
 
 ### 4. Use Type Hints

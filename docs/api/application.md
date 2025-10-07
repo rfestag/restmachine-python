@@ -45,8 +45,8 @@ from restmachine import RestApplication
 app = RestApplication()
 
 @app.get('/hello/{name}')
-def hello(request):
-    name = request.path_params['name']
+def hello(path_params):
+    name = path_params['name']
     return {"message": f"Hello, {name}!"}
 ```
 
@@ -62,30 +62,30 @@ def list_users():
     return {"users": [...]}
 
 @app.post('/users')
-def create_user(request):
-    # Handle POST request
+def create_user(json_body):
+    # json_body automatically injected for JSON requests
     return {"created": True}, 201
 
 @app.put('/users/{user_id}')
-def update_user(request):
-    user_id = request.path_params['user_id']
+def update_user(path_params, json_body):
+    user_id = path_params['user_id']
     return {"updated": user_id}
 
 @app.delete('/users/{user_id}')
-def delete_user(request):
-    user_id = request.path_params['user_id']
+def delete_user(path_params):
+    user_id = path_params['user_id']
     return {"deleted": user_id}, 204
 ```
 
 ### Path Parameters
 
-Use `{param}` syntax for path parameters:
+Use `{param}` syntax for path parameters, accessed via the `path_params` dependency:
 
 ```python
 @app.get('/users/{user_id}/posts/{post_id}')
-def get_post(request):
-    user_id = request.path_params['user_id']
-    post_id = request.path_params['post_id']
+def get_post(path_params):
+    user_id = path_params['user_id']
+    post_id = path_params['post_id']
     return {"user_id": user_id, "post_id": post_id}
 ```
 
@@ -101,7 +101,7 @@ def patch_user(request):
 
 ## Dependency Injection
 
-Share resources across handlers:
+Share resources across handlers using pytest-style dependency injection:
 
 ```python
 @app.dependency()
@@ -109,14 +109,20 @@ def database():
     """Create database connection."""
     return create_db_connection()
 
-@app.get('/users')
-def list_users(database):
-    """Database is automatically injected."""
-    return {"users": database.query("SELECT * FROM users")}
+@app.resource_exists
+def user(database, path_params):
+    """Check if user exists and return it."""
+    user_id = path_params.get('user_id')
+    return database.get_user(user_id)  # Returns None if not found
+
+@app.get('/users/{user_id}')
+def get_user(user):
+    """User is injected, 404 handled automatically if None."""
+    return user
 
 @app.get('/posts')
 def list_posts(database):
-    """Same database instance is reused within request."""
+    """Database instance is reused within request."""
     return {"posts": database.query("SELECT * FROM posts")}
 ```
 
@@ -124,7 +130,7 @@ Dependencies are cached per request by default. See [Dependency Injection Guide]
 
 ## Request Validation
 
-Validate request bodies using Pydantic:
+Validate request bodies using Pydantic with the `@app.validates` decorator:
 
 ```python
 from pydantic import BaseModel
@@ -134,37 +140,38 @@ class UserCreate(BaseModel):
     email: str
 
 @app.validates
-def validate_user(request) -> UserCreate:
-    import json
-    return UserCreate.model_validate(json.loads(request.body))
+def validate_user(json_body) -> UserCreate:
+    """Validates JSON body, returns 422 on validation error."""
+    return UserCreate.model_validate(json_body)
 
 @app.post('/users')
 def create_user(validate_user: UserCreate):
-    """validate_user is automatically validated."""
-    return {"created": validate_user.model_dump()}
+    """Validated model is injected, errors handled automatically."""
+    return {"created": validate_user.model_dump()}, 201
 ```
 
 ## Content Negotiation
 
-Register renderers for different content types:
+Serve multiple formats using the `@app.provides` decorator:
 
 ```python
-@app.content_renderer("application/json")
-def render_json(data):
-    import json
-    return json.dumps(data)
-
-@app.content_renderer("application/xml")
-def render_xml(data):
-    return f"<result>{data}</result>"
-
 @app.get('/data')
 def get_data():
     return {"key": "value"}
-    # Returns JSON or XML based on Accept header
+
+@app.provides("text/html")
+def render_html(get_data):
+    data = get_data
+    return f"<div>{data}</div>"
+
+@app.provides("application/xml")
+def render_xml(get_data):
+    data = get_data
+    return f"<result>{data}</result>"
+# Returns JSON, HTML, or XML based on Accept header
 ```
 
-Built-in renderers: JSON (default), HTML, Plain Text
+Built-in renderers: JSON (default), HTML, Plain Text. See [Content Negotiation Guide](../guide/content-negotiation.md) for details.
 
 ## Error Handling
 
