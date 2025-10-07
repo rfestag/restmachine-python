@@ -60,8 +60,9 @@ def lambda_handler(event, context):
 Pass database connections, configs, and services to your handlers automatically:
 
 ```python
-@app.dependency()
+@app.on_startup
 def database():
+    """Initialize database connection at startup."""
     return create_db_connection()
 
 @app.resource_exists

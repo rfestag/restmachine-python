@@ -57,14 +57,18 @@ Clients use `If-None-Match` to check if a resource has changed:
 ```python
 app = RestApplication()
 
-documents = {
-    "doc1": {"id": "doc1", "title": "Document 1", "version": 1}
-}
+@app.on_startup
+def database():
+    return {
+        "documents": {
+            "doc1": {"id": "doc1", "title": "Document 1", "version": 1}
+        }
+    }
 
 @app.resource_exists
-def document(path_params):
+def document(path_params, database):
     doc_id = path_params.get("doc_id")
-    return documents.get(doc_id)
+    return database["documents"].get(doc_id)
 
 @app.generate_etag
 def document_etag(document):
@@ -111,14 +115,18 @@ Use `If-Match` to prevent lost updates - the request only succeeds if the ETag m
 ```python
 app = RestApplication()
 
-documents = {
-    "doc1": {"id": "doc1", "content": "Original", "version": 1}
-}
+@app.on_startup
+def database():
+    return {
+        "documents": {
+            "doc1": {"id": "doc1", "content": "Original", "version": 1}
+        }
+    }
 
 @app.resource_exists
-def document(path_params):
+def document(path_params, database):
     doc_id = path_params.get("doc_id")
-    return documents.get(doc_id)
+    return database["documents"].get(doc_id)
 
 @app.generate_etag
 def document_etag(document):
@@ -128,15 +136,15 @@ def document_etag(document):
     return None
 
 @app.put("/documents/{doc_id}")
-def update_document(document, json_body, path_params):
+def update_document(document, json_body, path_params, database):
     """Update document and increment version."""
     doc_id = path_params["doc_id"]
 
     # Update the document
-    documents[doc_id].update(json_body)
-    documents[doc_id]["version"] += 1
+    database["documents"][doc_id].update(json_body)
+    database["documents"][doc_id]["version"] += 1
 
-    return documents[doc_id]
+    return database["documents"][doc_id]
 ```
 
 **Request Flow:**
@@ -292,23 +300,27 @@ import json
 
 app = RestApplication()
 
-# Simple in-memory blog post storage
-posts = {
-    1: {
-        "id": 1,
-        "title": "First Post",
-        "content": "Hello, World!",
-        "version": 1,
-        "updated_at": datetime.now()
+# Database initialized at startup
+@app.on_startup
+def database():
+    return {
+        "posts": {
+            1: {
+                "id": 1,
+                "title": "First Post",
+                "content": "Hello, World!",
+                "version": 1,
+                "updated_at": datetime.now()
+            }
+        }
     }
-}
 
 @app.resource_exists
-def post(path_params):
+def post(path_params, database):
     """Get post by ID, returns None if not found."""
     post_id = path_params.get("post_id")
     if post_id:
-        return posts.get(int(post_id))
+        return database["posts"].get(int(post_id))
     return None
 
 @app.generate_etag
@@ -332,28 +344,28 @@ def get_post(post):
     return post
 
 @app.put("/posts/{post_id}")
-def update_post(post, json_body, path_params):
+def update_post(post, json_body, path_params, database):
     """Update a blog post (requires matching ETag via If-Match header)."""
     post_id = int(path_params["post_id"])
 
     # Update post and increment version
-    posts[post_id].update(json_body)
-    posts[post_id]["version"] += 1
-    posts[post_id]["updated_at"] = datetime.now()
+    database["posts"][post_id].update(json_body)
+    database["posts"][post_id]["version"] += 1
+    database["posts"][post_id]["updated_at"] = datetime.now()
 
-    return posts[post_id]
+    return database["posts"][post_id]
 
 @app.post("/posts")
-def create_post(json_body):
+def create_post(json_body, database):
     """Create a new blog post."""
-    post_id = max(posts.keys()) + 1
+    post_id = max(database["posts"].keys()) + 1
     post = {
         "id": post_id,
         "version": 1,
         "updated_at": datetime.now(),
         **json_body
     }
-    posts[post_id] = post
+    database["posts"][post_id] = post
     return post, 201
 ```
 
@@ -465,12 +477,12 @@ Increment version or regenerate hash after any modification:
 
 ```python
 @app.put("/documents/{doc_id}")
-def update_document(document, json_body, path_params):
+def update_document(document, json_body, path_params, database):
     doc_id = path_params["doc_id"]
-    documents[doc_id].update(json_body)
+    database["documents"][doc_id].update(json_body)
     # IMPORTANT: Invalidate the ETag
-    documents[doc_id]["version"] += 1
-    return documents[doc_id]
+    database["documents"][doc_id]["version"] += 1
+    return database["documents"][doc_id]
 ```
 
 ### 4. Handle Missing ETags Gracefully

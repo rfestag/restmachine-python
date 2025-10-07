@@ -104,9 +104,9 @@ def patch_user(request):
 Share resources across handlers using pytest-style dependency injection:
 
 ```python
-@app.dependency()
+@app.on_startup
 def database():
-    """Create database connection."""
+    """Create database connection at startup."""
     return create_db_connection()
 
 @app.resource_exists
@@ -122,11 +122,11 @@ def get_user(user):
 
 @app.get('/posts')
 def list_posts(database):
-    """Database instance is reused within request."""
+    """Database instance is reused across all requests."""
     return {"posts": database.query("SELECT * FROM posts")}
 ```
 
-Dependencies are cached per request by default. See [Dependency Injection Guide](../guide/dependency-injection.md) for details.
+Startup dependencies persist across all requests. See [Dependency Injection Guide](../guide/dependency-injection.md) for details.
 
 ## Request Validation
 

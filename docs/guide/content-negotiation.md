@@ -318,33 +318,37 @@ from datetime import datetime
 
 app = RestApplication()
 
-# Sample blog posts
-posts = {
-    1: {
-        "id": 1,
-        "title": "Getting Started with RestMachine",
-        "content": "RestMachine is a modern REST framework...",
-        "author": "Alice",
-        "created_at": datetime(2024, 1, 15)
-    },
-    2: {
-        "id": 2,
-        "title": "Content Negotiation Best Practices",
-        "content": "Content negotiation allows...",
-        "author": "Bob",
-        "created_at": datetime(2024, 1, 20)
+# Database initialized at startup
+@app.on_startup
+def database():
+    return {
+        "posts": {
+            1: {
+                "id": 1,
+                "title": "Getting Started with RestMachine",
+                "content": "RestMachine is a modern REST framework...",
+                "author": "Alice",
+                "created_at": datetime(2024, 1, 15)
+            },
+            2: {
+                "id": 2,
+                "title": "Content Negotiation Best Practices",
+                "content": "Content negotiation allows...",
+                "author": "Bob",
+                "created_at": datetime(2024, 1, 20)
+            }
+        }
     }
-}
 
 @app.get("/posts")
-def list_posts():
+def list_posts(database):
     """List all blog posts."""
-    return list(posts.values())
+    return list(database["posts"].values())
 
 @app.provides("text/html")
 def render_posts_html(list_posts):
     """Render posts list as HTML."""
-    posts_list = list_posts
+    posts_list = list_posts  # list_posts is the data returned from the route handler
     return render(
         inline="""
         <!DOCTYPE html>
@@ -400,18 +404,21 @@ def render_posts_xml(list_posts):
     {''.join(xml_posts)}
 </posts>"""
 
+@app.resource_exists
+def post(path_params, database):
+    """Get post by ID, returns None if not found."""
+    post_id = int(path_params.get('post_id'))
+    return database["posts"].get(post_id)
+
 @app.get("/posts/{post_id}")
-def get_post(post_id: int):
-    """Get a single blog post."""
-    return posts.get(post_id)
+def get_post(post):
+    """Get a single blog post. 404 handled automatically."""
+    return post
 
 @app.provides("text/html")
 def render_post_html(get_post):
     """Render single post as HTML."""
-    post = get_post
-    if not post:
-        return "<h1>Post Not Found</h1>", 404
-
+    post = get_post  # get_post is the data returned from the route handler
     return render(
         inline="""
         <!DOCTYPE html>

@@ -254,7 +254,7 @@ def create_contact(contact_info: ContactInfo):
 Implement complex business rules in validators:
 
 ```python
-@app.dependency()
+@app.on_startup
 def database():
     return {
         "users": [

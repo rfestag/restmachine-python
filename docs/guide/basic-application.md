@@ -336,13 +336,16 @@ def get_data():
 Use decorators to automatically generate appropriate error responses:
 
 ```python
+@app.on_startup
+def database():
+    return {"users": {"1": {"id": "1", "name": "Alice"}}}
+
 # Use @app.resource_exists to return 404 when resource not found
 @app.resource_exists
-def user(path_params):
+def user(path_params, database):
     user_id = path_params['user_id']
     # Return None to trigger 404, or return the resource
-    users = {"1": {"id": "1", "name": "Alice"}}
-    return users.get(user_id)
+    return database["users"].get(user_id)
 
 @app.get('/users/{user_id}')
 def get_user(user):
@@ -421,11 +424,16 @@ from pydantic import BaseModel, Field
 
 app = RestApplication()
 
-# In-memory data store
-users = {
-    "1": {"id": "1", "name": "Alice", "email": "alice@example.com"},
-    "2": {"id": "2", "name": "Bob", "email": "bob@example.com"}
-}
+# Database (initialized at startup)
+@app.on_startup
+def database():
+    """Initialize database connection at startup."""
+    return {
+        "users": {
+            "1": {"id": "1", "name": "Alice", "email": "alice@example.com"},
+            "2": {"id": "2", "name": "Bob", "email": "bob@example.com"}
+        }
+    }
 
 # Validation models
 class CreateUserRequest(BaseModel):
@@ -438,10 +446,10 @@ class UpdateUserRequest(BaseModel):
 
 # Decorators for proper status codes
 @app.resource_exists
-def user(path_params):
+def user(path_params, database):
     """Returns user or None (which triggers 404)."""
     user_id = path_params.get('user_id')
-    return users.get(user_id)
+    return database["users"].get(user_id)
 
 @app.validates
 def user_create(json_body) -> CreateUserRequest:
@@ -455,9 +463,10 @@ def user_update(json_body) -> UpdateUserRequest:
 
 # List all users
 @app.get('/users')
-def list_users(query_params):
+def list_users(query_params, database):
     # Support filtering by name
     name_filter = query_params.get('name')
+    users = database["users"]
 
     if name_filter:
         filtered = [u for u in users.values()
@@ -474,8 +483,9 @@ def get_user(user):
 
 # Create user
 @app.post('/users')
-def create_user(user_create: CreateUserRequest):
+def create_user(user_create: CreateUserRequest, database):
     # Validation decorator handles 422 automatically
+    users = database["users"]
     user_id = str(len(users) + 1)
     user = {
         "id": user_id,
@@ -497,10 +507,10 @@ def update_user(user, user_update: UpdateUserRequest):
 
 # Delete user
 @app.delete('/users/{user_id}')
-def delete_user(user, path_params):
+def delete_user(user, path_params, database):
     # resource_exists decorator handles 404 automatically
     user_id = path_params['user_id']
-    del users[user_id]
+    del database["users"][user_id]
     return None  # Returns 204 No Content
 
 # Custom error handler

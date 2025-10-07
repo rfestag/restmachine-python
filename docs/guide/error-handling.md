@@ -726,6 +726,10 @@ def create_user(user_create: UserCreate, database):
 
     return user, 201
 
+@app.on_startup
+def database():
+    return {"users": []}
+
 @app.resource_exists
 def user(path_params, database):
     """Returns None if not found, triggering automatic 404."""

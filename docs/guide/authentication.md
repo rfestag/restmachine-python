@@ -14,11 +14,16 @@ import json
 
 app = RestApplication()
 
-# In production, store in database or environment
-VALID_API_KEYS = {
-    "key_12345": {"user_id": "1", "name": "Alice"},
-    "key_67890": {"user_id": "2", "name": "Bob"}
-}
+# Database initialized at startup
+@app.on_startup
+def database():
+    """Initialize API keys and user data at startup."""
+    return {
+        "api_keys": {
+            "key_12345": {"user_id": "1", "name": "Alice"},
+            "key_67890": {"user_id": "2", "name": "Bob"}
+        }
+    }
 
 @app.dependency()
 def api_key(request: Request) -> str:
@@ -29,9 +34,9 @@ def api_key(request: Request) -> str:
     return key
 
 @app.dependency()
-def current_user(api_key: str):
+def current_user(api_key: str, database):
     """Validate API key and get user."""
-    user = VALID_API_KEYS.get(api_key)
+    user = database["api_keys"].get(api_key)
     if not user:
         raise ValueError("Invalid API key")
     return user
