@@ -15,7 +15,7 @@ import json
 import urllib.parse
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, BinaryIO, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Awaitable, BinaryIO, Callable, Dict, Optional, cast
 
 from .models import HTTPMethod, MultiValueHeaders, Request, Response
 from .streaming import BytesStreamBuffer
@@ -130,7 +130,7 @@ class ASGIAdapter:
         """
         self.app = app
 
-    async def __call__(self, scope: Dict[str, Any], receive, send):
+    async def __call__(self, scope: Dict[str, Any], receive: Callable[[], Awaitable[Dict[str, Any]]], send: Callable[[Dict[str, Any]], Awaitable[None]]):
         """
         ASGI 3.0 application entry point.
 
