@@ -4,24 +4,24 @@ RestMachine is a Python REST framework designed to make building APIs simple whi
 
 ## Philosophy
 
-RestMachine follows these core principles:
+RestMachine is designed to get out of your way:
 
 1. **Simple by default** - Start with minimal code, add features as needed
-2. **Explicit over implicit** - Clear, readable code over magic
-3. **Dependency injection** - pytest-style DI for clean, testable code
-4. **HTTP semantics** - Respect HTTP standards and best practices
-5. **Deployment flexibility** - Run anywhere from local dev to AWS Lambda
+2. **Explicit over implicit** - Clear, readable code over hidden behavior
+3. **Easy testing** - Share resources cleanly without global state
+4. **HTTP done right** - Automatic content negotiation, proper status codes, standards-compliant behavior
+5. **Deploy anywhere** - Same code runs locally or in AWS Lambda
 
 ## Architecture
 
-### State Machine
+### Smart Request Processing
 
-RestMachine uses a webmachine-inspired HTTP state machine to handle requests. This provides:
+RestMachine handles HTTP requests intelligently, exposing useful information about what's happening:
 
-- Automatic content negotiation
-- Conditional request handling (ETags, If-Modified-Since)
-- Correct HTTP status codes by default
-- Extensible via callbacks
+- **Automatic content negotiation** - Serves JSON, XML, or custom formats based on client preferences
+- **Conditional requests** - Built-in support for ETags, If-Modified-Since, and other cache headers
+- **Correct status codes** - Returns 404, 405, 406, etc. automatically based on request context
+- **Inspectable facts** - Access details like accepted content types, authentication status, and request validity at any point in your handler
 
 ```mermaid
 graph TD
@@ -38,9 +38,9 @@ graph TD
     J --> L[Send Response]
 ```
 
-### Dependency Injection
+### Sharing Resources
 
-Dependencies are resolved using pytest-style parameter injection:
+Share resources like database connections across handlers without global variables:
 
 ```python
 @app.dependency()
@@ -48,11 +48,11 @@ def database():
     return create_db_connection()
 
 @app.get('/users')
-def list_users(database):  # 'database' automatically injected
+def list_users(database):  # 'database' automatically provided
     return database.query("SELECT * FROM users")
 ```
 
-Dependencies are cached within a request by default, ensuring expensive operations (like database connections) only happen once.
+Resources are created once per request and cached automatically, so expensive operations (like opening database connections) only happen when needed.
 
 ## Core Concepts
 

@@ -10,16 +10,14 @@
 
 ## Overview
 
-RestMachine is a modern Python REST framework that combines the simplicity of Flask-like decorators with powerful features for building robust APIs:
+RestMachine is a modern Python REST framework that makes building APIs straightforward:
 
-- **Flask-like API** - Simple decorator-based route registration
-- **Dependency Injection** - pytest-style DI with automatic caching
-- **State Machine** - Webmachine-inspired HTTP state machine for robust request processing
-- **Content Negotiation** - Automatic content type negotiation with pluggable renderers
-- **Validation** - Optional Pydantic integration for request/response validation
-- **ASGI Support** - Deploy with Uvicorn, Hypercorn, or Daphne
-- **AWS Lambda** - First-class support for serverless deployment
-- **Lightweight** - Zero required dependencies for basic functionality
+- **Easy to learn** - Familiar Flask-like decorators and intuitive patterns
+- **Share resources cleanly** - Pass database connections, configs, and services to handlers without globals
+- **HTTP done right** - Automatic content negotiation, proper status codes, and standards compliance
+- **Flexible validation** - Use Pydantic when you need it, skip it when you don't
+- **Deploy anywhere** - Same code runs on Uvicorn, Hypercorn, or AWS Lambda
+- **Start simple** - Zero required dependencies, add features as you need them
 
 ## Quick Example
 
@@ -57,9 +55,9 @@ def lambda_handler(event, context):
 
 ## Key Features
 
-### Dependency Injection
+### Share Resources Easily
 
-pytest-style dependency injection with automatic caching:
+Pass database connections, configs, and services to your handlers automatically:
 
 ```python
 @app.dependency()
@@ -93,9 +91,9 @@ def create_user(validate_user: UserCreate):
     return {"created": validate_user.model_dump()}
 ```
 
-### Content Negotiation
+### Serve Multiple Formats
 
-Automatic content negotiation with pluggable renderers:
+Automatically serve JSON, XML, or custom formats based on what clients request:
 
 ```python
 @app.content_renderer("application/json")
@@ -108,9 +106,9 @@ def xml_renderer(data):
     return f"<result>{data}</result>"
 ```
 
-### Startup & Shutdown Handlers
+### Manage Resources Cleanly
 
-Clean resource management with lifecycle hooks:
+Set up and tear down resources like database connections automatically:
 
 ```python
 @app.on_startup
@@ -150,16 +148,19 @@ def close_database(database):
 
 ## Why RestMachine?
 
-| Feature | RestMachine | Flask | FastAPI |
-|---------|-------------|-------|---------|
-| Dependency Injection | ✅ pytest-style | ❌ Manual | ✅ Type-based |
-| State Machine | ✅ Webmachine-inspired | ❌ Middleware | ❌ Middleware |
-| Content Negotiation | ✅ Automatic | ⚠️ Manual | ⚠️ Limited |
-| Validation | ✅ Optional Pydantic | ❌ Manual | ✅ Pydantic |
-| ASGI Support | ✅ Built-in | ⚠️ Via extension | ✅ Native |
-| AWS Lambda | ✅ First-class | ⚠️ Via adapter | ⚠️ Via Mangum |
-| Learning Curve | Low | Low | Medium |
-| Zero Dependencies | ✅ Optional | ❌ Required | ❌ Required |
+**RestMachine makes building REST APIs easier** by handling the tricky parts of HTTP for you:
+
+- **Easy to learn** - If you know Flask or FastAPI, you already know RestMachine. Familiar decorator syntax, intuitive patterns.
+
+- **Smart HTTP handling** - RestMachine understands HTTP semantics and automatically handles content negotiation, conditional requests (ETags), and proper status codes. You focus on your business logic.
+
+- **Clean, testable code** - Share resources like database connections across handlers without global state. pytest-style dependency injection makes testing straightforward.
+
+- **Deploy anywhere** - Start developing locally with any ASGI server (Uvicorn, Hypercorn), then deploy to AWS Lambda with zero code changes. Same application code, different deployment targets.
+
+- **Start simple, grow gradually** - Begin with just Python 3.9+, no required dependencies. Add validation (Pydantic), template rendering (Jinja2), or other features only when you need them.
+
+- **Transparent behavior** - The state machine surfaces HTTP request details (content types, cache headers, auth status) as simple facts you can inspect and extend. No hidden magic, just clear control flow.
 
 ## Community & Support
 
