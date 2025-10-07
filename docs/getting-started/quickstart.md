@@ -259,6 +259,85 @@ asgi_app = ASGIAdapter(app)
 
 **AWS Lambda:** Startup handlers run during cold start. For shutdown handlers, see [Lambda Extensions](../restmachine-aws/guides/lambda-extensions.md).
 
+## Generate OpenAPI Documentation
+
+RestMachine automatically generates OpenAPI 3.0 specifications from your code:
+
+```python
+from restmachine import RestApplication
+from pydantic import BaseModel, EmailStr
+
+app = RestApplication()
+
+class UserCreate(BaseModel):
+    name: str
+    email: EmailStr
+
+@app.validates
+def user_create(json_body) -> UserCreate:
+    return UserCreate.model_validate(json_body)
+
+@app.post('/users')
+def create_user(user_create: UserCreate):
+    """Create a new user account."""
+    return {"created": user_create.model_dump()}, 201
+
+# Generate OpenAPI spec
+openapi_json = app.generate_openapi_json(
+    title="My API",
+    version="1.0.0",
+    description="My awesome API"
+)
+
+# Or save to file
+app.save_openapi_json(
+    filename="openapi.json",
+    docs_dir="docs"
+)
+```
+
+### Add Interactive Documentation
+
+Serve Swagger UI for interactive API documentation:
+
+```python
+@app.get('/openapi.json')
+def openapi_spec():
+    """OpenAPI specification endpoint."""
+    import json
+    return json.loads(app.generate_openapi_json(
+        title="My API",
+        version="1.0.0"
+    ))
+
+@app.get('/docs')
+def swagger_ui():
+    """Interactive API documentation."""
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>API Documentation</title>
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
+    </head>
+    <body>
+        <div id="swagger-ui"></div>
+        <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+        <script>
+            SwaggerUIBundle({
+                url: '/openapi.json',
+                dom_id: '#swagger-ui',
+            });
+        </script>
+    </body>
+    </html>
+    """
+```
+
+Visit `http://localhost:8000/docs` to see your interactive API documentation.
+
+See the [OpenAPI Guide](../guide/openapi.md) for advanced features including client SDK generation.
+
 ## Next Steps
 
 Now that you have a running application:

@@ -145,6 +145,7 @@ nav:
     - Content Negotiation: guide/content-negotiation.md
     - Conditional Requests (ETags): guide/etags.md
     - Error Handling: guide/error-handling.md
+    - OpenAPI (Swagger) Generation: guide/openapi.md
     - Testing Your Application: guide/testing.md
 
   - Advanced Features:

@@ -116,6 +116,21 @@ def render_xml(get_data):
     return f"<result><message>{data['message']}</message></result>"
 ```
 
+### Automatic OpenAPI Documentation
+
+Generate OpenAPI 3.0 specifications automatically from your code:
+
+```python
+# Generate OpenAPI spec
+openapi_json = app.generate_openapi_json(
+    title="My API",
+    version="1.0.0"
+)
+
+# Or save to file for Swagger UI, client SDK generation, etc.
+app.save_openapi_json(filename="openapi.json")
+```
+
 ### Manage Resources Cleanly
 
 Set up and tear down resources like database connections automatically:
