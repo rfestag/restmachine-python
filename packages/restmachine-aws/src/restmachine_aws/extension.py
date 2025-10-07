@@ -158,7 +158,7 @@ class ShutdownExtension:
         except Exception as e:
             raise RuntimeError(f"Failed to get next event: {e}") from e
 
-    def load_app(self):
+    def load_app(self) -> Any:
         """
         Load the RestMachine application from the handler module.
 

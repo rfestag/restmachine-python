@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from restmachine import Adapter, Request, Response, HTTPMethod, BytesStreamBuffer
+from restmachine import Adapter, Request, Response, HTTPMethod, BytesStreamBuffer, RestApplication
 from restmachine.models import MultiValueHeaders
 
 
@@ -30,7 +30,7 @@ class AwsApiGatewayAdapter(Adapter):
     - Body encoding is handled transparently
     """
 
-    def __init__(self, app):
+    def __init__(self, app: RestApplication):
         """
         Initialize the adapter with a RestApplication instance.
 
