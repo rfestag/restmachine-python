@@ -32,7 +32,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install mkdocs-material mkdocstrings[python] mkdocs-mermaid2-plugin
+        pip install mkdocs-material mkdocstrings[python] mkdocs-mermaid2-plugin mkdocs-monorepo-plugin
 
     - name: Build documentation
       run: mkdocs build --strict --verbose
