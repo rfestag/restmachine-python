@@ -7,23 +7,32 @@ RestMachine provides a lightweight, platform-agnostic metrics collection system 
 The metrics system is designed to be:
 
 - **Platform-agnostic** - Core collection works anywhere
+- **Auto-configured for AWS Lambda** - CloudWatch EMF enabled automatically when using `AwsApiGatewayAdapter`
 - **Extensible** - Easy to add publishers for any metrics platform
 - **Zero-overhead when disabled** - Metrics collection can be bypassed
 - **Dependency-injected** - Access via standard DI pattern
 
 ### Platform Support
 
-| Platform | Support | Documentation |
-|----------|---------|---------------|
-| **AWS Lambda** | ✅ Built-in (CloudWatch EMF) | [AWS Metrics Guide](restmachine-aws/guides/metrics.md) |
-| **ASGI** | ⚙️ Custom publisher required | [ASGI Integration](#asgi-integration) |
-| **Other** | ⚙️ Custom publisher required | [Custom Publishers](#custom-publishers) |
+| Platform | Auto-Detection | Support | Documentation |
+|----------|----------------|---------|---------------|
+| **AWS Lambda** | ✅ **Automatic** | CloudWatch EMF enabled by default | [AWS Metrics Guide](restmachine-aws/guides/metrics.md) |
+| **ASGI on AWS** | ✅ **Automatic** | CloudWatch EMF enabled when AWS detected | [ASGI Integration](#asgi-integration) |
+| **ASGI (Non-AWS)** | ❌ Manual | Custom publisher required | [ASGI Integration](#asgi-integration) |
+| **Other** | ❌ Manual | Custom publisher required | [Custom Publishers](#custom-publishers) |
 
 ## Quick Start
 
 ### AWS Lambda (Auto-configured)
 
-Metrics are automatically enabled and published to CloudWatch:
+**When running on AWS Lambda, metrics are automatically enabled and published to CloudWatch using EMF (Embedded Metric Format).** No additional configuration is required.
+
+The `AwsApiGatewayAdapter` automatically detects that it's running in an AWS Lambda environment and:
+
+- ✅ Creates a CloudWatch EMF publisher by default
+- ✅ Configures logging to output EMF-formatted metrics
+- ✅ Uses your Lambda function name as the service dimension
+- ✅ Publishes metrics after each request
 
 ```python
 from restmachine import RestApplication
@@ -37,14 +46,15 @@ def get_user(id: str, metrics):
     metrics.add_metric("users.fetched", 1, unit="Count")
     return {"user": id}
 
-# Metrics auto-configured for CloudWatch EMF
+# Metrics automatically enabled with CloudWatch EMF
+# No explicit configuration needed!
 adapter = AwsApiGatewayAdapter(app)
 
 def lambda_handler(event, context):
     return adapter.handle_event(event, context)
 ```
 
-See [AWS CloudWatch Metrics Guide](restmachine-aws/guides/metrics.md) for configuration options.
+To customize the configuration or disable metrics, see [AWS CloudWatch Metrics Guide](restmachine-aws/guides/metrics.md).
 
 ### Other Platforms
 
@@ -398,41 +408,144 @@ class MultiPublisher(MetricsPublisher):
 
 ## ASGI Integration
 
-For ASGI applications, manually inject metrics via middleware:
+**The ASGI adapter automatically detects AWS environments and enables CloudWatch EMF metrics!**
+
+When the `ASGIAdapter` detects it's running on AWS (via environment variables like `AWS_REGION`, `AWS_EXECUTION_ENV`, or ECS metadata), it automatically configures CloudWatch EMF metrics - just like the Lambda adapter.
+
+### AWS Auto-Detection (ECS, App Runner, EC2, etc.)
+
+**If running on AWS infrastructure, metrics are automatically enabled with CloudWatch EMF:**
 
 ```python
 from restmachine import RestApplication
-from restmachine.metrics import MetricsCollector
-from restmachine.servers import create_asgi_handler
+from restmachine.adapters import create_asgi_app
 
-class MetricsMiddleware:
-    def __init__(self, app: RestApplication, publisher):
-        self.app = app
-        self.publisher = publisher
-        self.handler = create_asgi_handler(app)
-
-    async def __call__(self, scope, receive, send):
-        if scope["type"] != "http":
-            await self.handler(scope, receive, send)
-            return
-
-        # Create and inject metrics
-        metrics = MetricsCollector()
-        self.app._dependency_cache.set("metrics", metrics)
-
-        # Handle request
-        await self.handler(scope, receive, send)
-
-        # Publish metrics
-        if self.publisher.is_enabled():
-            self.publisher.publish(metrics)
-
-# Usage
 app = RestApplication()
-asgi_app = MetricsMiddleware(app, PrometheusPublisher())
+
+@app.get("/users/{id}")
+def get_user(id: str, metrics):
+    # Metrics automatically available!
+    metrics.add_metric("users.fetched", 1, unit="Count")
+    return {"user": id}
+
+# Auto-detects AWS and enables CloudWatch EMF
+# Works on: ECS, App Runner, EC2, Lambda (via ASGI), etc.
+asgi_app = create_asgi_app(app)
+
+# Run with uvicorn, hypercorn, etc.
+# uvicorn module:asgi_app
 ```
 
-A dedicated ASGI adapter with built-in metrics is planned for a future release.
+**The adapter automatically detects AWS by checking for:**
+- `AWS_REGION` environment variable
+- `AWS_EXECUTION_ENV` environment variable (Lambda)
+- `ECS_CONTAINER_METADATA_URI` (ECS/Fargate)
+- `AWS_DEFAULT_REGION` environment variable
+
+When AWS is detected:
+- ✅ CloudWatch EMF publisher is automatically configured
+- ✅ Metrics are published to CloudWatch via logs
+- ✅ Service name defaults to `asgi-app` (customizable)
+- ✅ Namespace defaults to `RestMachine` (customizable)
+
+### Customizing AWS Configuration
+
+```python
+from restmachine.adapters import create_asgi_app
+
+# Custom namespace and service name
+asgi_app = create_asgi_app(
+    app,
+    namespace="MyApp/Production",
+    service_name="user-api"
+)
+
+# High-resolution metrics (1-second)
+asgi_app = create_asgi_app(
+    app,
+    namespace="MyApp/API",
+    metrics_resolution=1
+)
+```
+
+### Environment Variables
+
+Configure via environment variables (useful for different environments):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `RESTMACHINE_METRICS_ENABLED` | Force enable/disable metrics | Auto-detect AWS |
+| `RESTMACHINE_METRICS_NAMESPACE` | CloudWatch namespace | `RestMachine` |
+| `RESTMACHINE_SERVICE_NAME` | Service name dimension | `asgi-app` |
+| `RESTMACHINE_METRICS_RESOLUTION` | Resolution (1 or 60 seconds) | `60` |
+
+### Non-AWS Environments
+
+**For non-AWS platforms (local dev, GCP, Azure, on-prem), provide a custom publisher:**
+
+```python
+from restmachine import RestApplication
+from restmachine.adapters import create_asgi_app
+from restmachine.metrics import MetricsPublisher
+
+# Example: Prometheus publisher
+class PrometheusPublisher(MetricsPublisher):
+    def is_enabled(self) -> bool:
+        return True
+
+    def publish(self, collector, request=None, response=None, context=None):
+        # Publish to Prometheus
+        pass
+
+# Explicit custom publisher
+asgi_app = create_asgi_app(app, metrics_publisher=PrometheusPublisher())
+```
+
+### Disabling Metrics
+
+```python
+# Explicitly disable (overrides auto-detection)
+asgi_app = create_asgi_app(app, enable_metrics=False)
+
+# Or via environment variable
+# RESTMACHINE_METRICS_ENABLED=false
+```
+
+### Priority Order
+
+The adapter determines metrics configuration in this priority:
+
+1. **Explicit `enable_metrics` parameter** - Overrides everything
+2. **`RESTMACHINE_METRICS_ENABLED` env var** - Overrides auto-detection
+3. **AWS auto-detection** - Enables EMF if AWS detected
+4. **Default: disabled** - No metrics if not in AWS
+
+### Using with Server Drivers
+
+The auto-detection also works when using RestMachine's server drivers (Uvicorn, Hypercorn):
+
+```python
+from restmachine import RestApplication
+from restmachine.servers import serve
+
+app = RestApplication()
+
+@app.get("/data")
+def get_data(metrics):
+    metrics.add_metric("requests", 1)
+    return {"data": "value"}
+
+# Auto-detects AWS and enables EMF
+# Metrics parameters passed through to ASGIAdapter
+serve(
+    app,
+    server="uvicorn",
+    host="0.0.0.0",
+    port=8000,
+    namespace="MyApp/API",  # Passed to ASGIAdapter
+    service_name="api-server"
+)
+```
 
 ## Best Practices
 

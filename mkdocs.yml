@@ -142,6 +142,7 @@ nav:
     - Content Negotiation: guide/content-negotiation.md
     - Conditional Requests (ETags): guide/etags.md
     - OpenAPI (Swagger) Generation: guide/openapi.md
+    - Metrics & Observability: metrics.md
     - Testing Your Application: guide/testing.md
     - Deployment:
       - ASGI Servers: guide/deployment-asgi.md
@@ -153,7 +154,6 @@ nav:
     - TLS/mTLS Support: advanced/tls.md
     - Template Rendering: advanced/templates.md
     - Multi-Value Headers: advanced/headers.md
-    - Metrics & Observability: metrics.md
     - Performance Optimization: advanced/performance.md
 
   - Packages:

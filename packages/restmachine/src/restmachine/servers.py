@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ServerDriver(ABC):
     """Base class for HTTP server drivers."""
 
-    def __init__(self, app: RestApplication, host: str = "127.0.0.1", port: int = 8000):
+    def __init__(self, app: RestApplication, host: str = "127.0.0.1", port: int = 8000, **adapter_kwargs):
         """
         Initialize the server driver.
 
@@ -28,11 +28,12 @@ class ServerDriver(ABC):
             app: The RestMachine application to serve
             host: Host to bind to
             port: Port to bind to
+            **adapter_kwargs: Additional arguments passed to ASGIAdapter (e.g., metrics config)
         """
         self.app = app
         self.host = host
         self.port = port
-        self.asgi_app = create_asgi_app(app)
+        self.asgi_app = create_asgi_app(app, **adapter_kwargs)
 
     @abstractmethod
     def run(self, **kwargs):

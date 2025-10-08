@@ -12,16 +12,28 @@ Request/Response models.
 
 import io
 import json
+import logging
+import os
 import urllib.parse
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, BinaryIO, Callable, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Awaitable, BinaryIO, Callable, Dict, Optional, Union, cast
 
 from .models import HTTPMethod, MultiValueHeaders, Request, Response
 from .streaming import BytesStreamBuffer
+from .metrics import MetricsCollector, MetricsPublisher, METRICS
 
 if TYPE_CHECKING:
     from .application import RestApplication
+
+logger = logging.getLogger(__name__)
+
+
+# Sentinel for default metrics publisher
+class _DefaultPublisher:
+    pass
+
+_DEFAULT_PUBLISHER = _DefaultPublisher()
 
 
 class Adapter(ABC):
@@ -93,6 +105,7 @@ class ASGIAdapter:
     - Converting RestMachine Response to ASGI response format (streaming if needed)
     - Proper header normalization and encoding
     - Content-Type and Content-Length handling
+    - **Automatic AWS detection** - Enables CloudWatch EMF metrics when running in AWS
 
     Streaming behavior:
     - Request bodies: The adapter receives the first chunk, passes the stream to the
@@ -100,6 +113,12 @@ class ASGIAdapter:
       application can start processing before all data has arrived.
     - Response bodies: File-like objects are streamed in 8KB chunks with proper
       ASGI more_body signaling.
+
+    Metrics behavior:
+    - **AWS auto-detection**: When AWS environment is detected (via AWS_REGION or
+      AWS_EXECUTION_ENV), CloudWatch EMF metrics are automatically enabled
+    - **Manual configuration**: Pass custom metrics_publisher for other platforms
+    - **Disable**: Set enable_metrics=False to disable metrics
 
     Example:
         ```python
@@ -109,10 +128,11 @@ class ASGIAdapter:
         app = RestApplication()
 
         @app.get("/")
-        def home():
+        def home(metrics):
+            metrics.add_metric("requests", 1)
             return {"message": "Hello World"}
 
-        # Create ASGI application
+        # Create ASGI application - metrics auto-enabled if in AWS
         asgi_app = ASGIAdapter(app)
 
         # Use with any ASGI server:
@@ -121,14 +141,191 @@ class ASGIAdapter:
         ```
     """
 
-    def __init__(self, app: "RestApplication"):
+    def __init__(self,
+                 app: "RestApplication",
+                 metrics_publisher: Union[MetricsPublisher, None, _DefaultPublisher] = _DEFAULT_PUBLISHER,
+                 enable_metrics: Optional[bool] = None,
+                 namespace: Optional[str] = None,
+                 service_name: Optional[str] = None,
+                 metrics_resolution: int = 60):
         """
-        Initialize the ASGI adapter.
+        Initialize the ASGI adapter with optional metrics support.
+
+        Automatically detects AWS environment and enables CloudWatch EMF metrics
+        when running on AWS (ECS, EC2, App Runner, etc.).
 
         Args:
             app: The RestMachine application to wrap
+            metrics_publisher: Metrics publisher. Defaults to auto-detection:
+                              - CloudWatch EMF if AWS environment detected
+                              - None if not in AWS
+                              Pass explicit publisher to override, or None to disable.
+            enable_metrics: Explicitly enable/disable metrics (overrides auto-detection)
+            namespace: CloudWatch namespace (used if AWS detected, default: "RestMachine")
+            service_name: Service name dimension (default: from env or "asgi-app")
+            metrics_resolution: Metric resolution in seconds, 1 or 60 (default: 60)
+
+        Examples:
+            # Auto-detect AWS and enable EMF
+            adapter = ASGIAdapter(app)
+
+            # Custom namespace for AWS
+            adapter = ASGIAdapter(app, namespace="MyApp/API")
+
+            # Custom publisher (Prometheus, etc.)
+            adapter = ASGIAdapter(app, metrics_publisher=PrometheusPublisher())
+
+            # Disable metrics
+            adapter = ASGIAdapter(app, enable_metrics=False)
         """
         self.app = app
+
+        # Determine if metrics should be enabled
+        metrics_enabled = self._should_enable_metrics(enable_metrics)
+
+        # Auto-configure publisher if not provided
+        publisher: Optional[MetricsPublisher]
+        if isinstance(metrics_publisher, _DefaultPublisher):
+            if metrics_enabled:
+                publisher = self._create_default_publisher(
+                    namespace=namespace,
+                    service_name=service_name,
+                    resolution=metrics_resolution
+                )
+                if publisher:
+                    self._configure_default_logging()
+            else:
+                publisher = None
+        else:
+            publisher = metrics_publisher
+
+        self.metrics_publisher = publisher
+
+    def _is_aws_environment(self) -> bool:
+        """Detect if running in an AWS environment.
+
+        Checks for AWS-specific environment variables that indicate
+        the application is running on AWS infrastructure.
+
+        Returns:
+            True if AWS environment detected, False otherwise
+        """
+        # Check for AWS_REGION (set in Lambda, ECS, EC2, App Runner, etc.)
+        if os.environ.get('AWS_REGION'):
+            return True
+
+        # Check for AWS_EXECUTION_ENV (set in Lambda)
+        if os.environ.get('AWS_EXECUTION_ENV'):
+            return True
+
+        # Check for ECS metadata endpoint
+        if os.environ.get('ECS_CONTAINER_METADATA_URI') or os.environ.get('ECS_CONTAINER_METADATA_URI_V4'):
+            return True
+
+        # Check for AWS_DEFAULT_REGION (common in AWS deployments)
+        if os.environ.get('AWS_DEFAULT_REGION'):
+            return True
+
+        return False
+
+    def _should_enable_metrics(self, explicit_enable: Optional[bool]) -> bool:
+        """Determine if metrics should be enabled.
+
+        Priority:
+        1. Explicit enable_metrics parameter
+        2. RESTMACHINE_METRICS_ENABLED environment variable
+        3. Auto-detect AWS environment
+        4. Default to False (no metrics)
+
+        Args:
+            explicit_enable: User's explicit enable/disable choice
+
+        Returns:
+            True if metrics should be enabled
+        """
+        if explicit_enable is not None:
+            return explicit_enable
+
+        # Check environment variable
+        env_value = os.environ.get('RESTMACHINE_METRICS_ENABLED', '').lower()
+        if env_value in ('true', '1', 'yes', 'on'):
+            return True
+        elif env_value in ('false', '0', 'no', 'off'):
+            return False
+
+        # Auto-detect AWS environment
+        is_aws = self._is_aws_environment()
+        if is_aws:
+            logger.info("AWS environment detected - enabling CloudWatch EMF metrics")
+        return is_aws
+
+    def _create_default_publisher(self,
+                                  namespace: Optional[str] = None,
+                                  service_name: Optional[str] = None,
+                                  resolution: int = 60) -> Optional[MetricsPublisher]:
+        """Create default metrics publisher based on environment.
+
+        For AWS environments, creates CloudWatch EMF publisher.
+        For non-AWS, returns None (no default publisher).
+
+        Args:
+            namespace: CloudWatch namespace
+            service_name: Service name for dimension
+            resolution: Metric resolution in seconds
+
+        Returns:
+            MetricsPublisher if appropriate for environment, None otherwise
+        """
+        if not self._is_aws_environment():
+            return None
+
+        # In AWS - create CloudWatch EMF publisher
+        try:
+            from restmachine_aws.metrics import CloudWatchEMFPublisher
+
+            # Namespace: arg > env > default
+            final_namespace = namespace or \
+                             os.environ.get('RESTMACHINE_METRICS_NAMESPACE', 'RestMachine')
+
+            # Service name: arg > env > default
+            final_service = service_name or \
+                           os.environ.get('RESTMACHINE_SERVICE_NAME', 'asgi-app')
+
+            # Resolution: arg > env > default
+            if resolution not in (1, 60):
+                resolution_str = os.environ.get('RESTMACHINE_METRICS_RESOLUTION', '60')
+                try:
+                    resolution = int(resolution_str)
+                    if resolution not in (1, 60):
+                        resolution = 60
+                except ValueError:
+                    resolution = 60
+
+            logger.info(f"Configuring CloudWatch EMF metrics: namespace={final_namespace}, service={final_service}")
+
+            publisher: MetricsPublisher = CloudWatchEMFPublisher(
+                namespace=final_namespace,
+                service_name=final_service,
+                default_resolution=resolution
+            )
+            return publisher
+        except ImportError:
+            logger.warning(
+                "AWS environment detected but restmachine-aws not installed. "
+                "Install with: pip install restmachine-aws"
+            )
+            return None
+
+    def _configure_default_logging(self):
+        """Configure logging for EMF output."""
+        emf_logger = logging.getLogger("restmachine.metrics.emf")
+
+        if not emf_logger.handlers:
+            emf_logger.setLevel(METRICS)
+            handler = logging.StreamHandler()
+            handler.setLevel(METRICS)
+            emf_logger.addHandler(handler)
+            emf_logger.propagate = False
 
     async def __call__(self, scope: Dict[str, Any], receive: Callable[[], Awaitable[Dict[str, Any]]], send: Callable[[Dict[str, Any]], Awaitable[None]]):
         """
@@ -157,42 +354,101 @@ class ASGIAdapter:
             })
             return
 
-        # Start the request and get the first body chunk
-        request, more_body = await self._start_request(scope, receive)
+        # Create metrics collector (always, even if publishing disabled)
+        metrics = MetricsCollector()
+        metrics.start_timer("adapter.total_time")
 
-        # Execute the request through RestMachine
-        # If there's more body data to stream, run execute in thread pool
-        # and continue receiving body chunks in background
         try:
-            if more_body and request.body is not None:
-                # Start background task to continue receiving body chunks
-                import asyncio
-                receive_task = asyncio.create_task(
-                    self._continue_receiving_body(request.body, receive)
-                )
+            # Start the request and get the first body chunk
+            metrics.start_timer("adapter.scope_to_request")
+            request, more_body = await self._start_request(scope, receive)
+            metrics.stop_timer("adapter.scope_to_request")
 
-                # Run synchronous execute in thread pool to avoid blocking
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(None, self.app.execute, request)
+            # Inject metrics into dependency cache
+            self.app._dependency_cache.set("metrics", metrics)
 
-                # Ensure body receiving is complete
-                await receive_task
-            else:
-                # No streaming needed, run execute in thread pool
-                import asyncio
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(None, self.app.execute, request)
+            # Execute the request through RestMachine
+            # If there's more body data to stream, run execute in thread pool
+            # and continue receiving body chunks in background
+            metrics.start_timer("application.execute")
+            try:
+                if more_body and request.body is not None:
+                    # Start background task to continue receiving body chunks
+                    import asyncio
+                    receive_task = asyncio.create_task(
+                        self._continue_receiving_body(request.body, receive)
+                    )
+
+                    # Run synchronous execute in thread pool to avoid blocking
+                    loop = asyncio.get_event_loop()
+                    response = await loop.run_in_executor(None, self.app.execute, request)
+
+                    # Ensure body receiving is complete
+                    await receive_task
+                else:
+                    # No streaming needed, run execute in thread pool
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    response = await loop.run_in_executor(None, self.app.execute, request)
+            finally:
+                metrics.stop_timer("application.execute")
+
+            # Add response metrics
+            metrics.start_timer("adapter.response_conversion")
+            metrics.add_metadata("status_code", response.status_code)
+            metrics.add_dimension("method", request.method.value)
+            metrics.add_dimension("path", request.path)
+
+            # Convert RestMachine Response to ASGI response
+            await self._response_to_asgi(response, send)
+            metrics.stop_timer("adapter.response_conversion")
+            metrics.stop_timer("adapter.total_time")
+
+            # Publish metrics (if enabled)
+            await self._safe_publish(metrics, request, response)
 
         except Exception as e:
+            # Record error metrics
+            metrics.add_metric("errors", 1, unit="Count")
+            metrics.add_metadata("error", str(e))
+            metrics.add_metadata("error_type", type(e).__name__)
+
+            # Publish error metrics
+            await self._safe_publish(metrics)
+
             # Handle unexpected errors gracefully
             response = Response(
                 status_code=500,
                 body=json.dumps({"error": "Internal Server Error", "detail": str(e)}),
                 headers={"Content-Type": "application/json"}
             )
+            await self._response_to_asgi(response, send)
 
-        # Convert RestMachine Response to ASGI response
-        await self._response_to_asgi(response, send)
+    async def _safe_publish(self, metrics: MetricsCollector, request: Any = None, response: Any = None):
+        """Safely publish metrics without breaking the request.
+
+        Args:
+            metrics: MetricsCollector with collected metrics
+            request: Optional request object
+            response: Optional response object
+        """
+        if not self.metrics_publisher or not self.metrics_publisher.is_enabled():
+            return
+
+        try:
+            # Run publish in thread pool to avoid blocking
+            import asyncio
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                self.metrics_publisher.publish,
+                metrics,
+                request,
+                response,
+                None
+            )
+        except Exception as e:
+            logger.warning(f"Failed to publish metrics: {e}", exc_info=True)
 
     async def _handle_lifespan(self, receive, send):
         """
@@ -490,19 +746,26 @@ class ASGIAdapter:
             })
 
 
-def create_asgi_app(app: "RestApplication") -> ASGIAdapter:
+def create_asgi_app(app: "RestApplication", **adapter_kwargs: Any) -> ASGIAdapter:
     """
     Create an ASGI application from a RestMachine application.
 
-    This is a convenience function for creating ASGI adapters.
+    This is a convenience function for creating ASGI adapters with optional
+    metrics configuration.
 
     Args:
         app: The RestMachine application to wrap
+        **adapter_kwargs: Additional arguments passed to ASGIAdapter:
+            - metrics_publisher: Custom metrics publisher
+            - enable_metrics: Explicitly enable/disable metrics
+            - namespace: CloudWatch namespace (if AWS detected)
+            - service_name: Service name dimension
+            - metrics_resolution: Metric resolution (1 or 60 seconds)
 
     Returns:
         An ASGI-compatible application
 
-    Example:
+    Examples:
         ```python
         from restmachine import RestApplication
         from restmachine.adapters import create_asgi_app
@@ -510,14 +773,21 @@ def create_asgi_app(app: "RestApplication") -> ASGIAdapter:
         app = RestApplication()
 
         @app.get("/")
-        def home():
+        def home(metrics):
+            metrics.add_metric("requests", 1)
             return {"message": "Hello World"}
 
-        # Create ASGI app
+        # Auto-detect AWS and enable EMF (default)
         asgi_app = create_asgi_app(app)
+
+        # Custom namespace for AWS
+        asgi_app = create_asgi_app(app, namespace="MyApp/API")
+
+        # Disable metrics
+        asgi_app = create_asgi_app(app, enable_metrics=False)
 
         # Run with uvicorn
         # uvicorn module:asgi_app --reload
         ```
     """
-    return ASGIAdapter(app)
+    return ASGIAdapter(app, **adapter_kwargs)
