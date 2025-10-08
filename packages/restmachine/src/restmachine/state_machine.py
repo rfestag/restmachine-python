@@ -60,7 +60,12 @@ class RequestStateMachine:
         """Process a request through the state machine."""
         # Initialize context
         self.ctx = StateContext(app=self.app, request=request)
+
+        # Preserve metrics if set by platform adapter
+        metrics = self.app._dependency_cache.get("metrics")
         self.app._dependency_cache.clear()
+        if metrics is not None:
+            self.app._dependency_cache.set("metrics", metrics)
 
         logger.debug(f"State machine v2: {request.method.value} {request.path}")
 

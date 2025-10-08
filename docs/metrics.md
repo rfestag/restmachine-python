@@ -1,0 +1,651 @@
+# Metrics & Observability
+
+RestMachine provides a lightweight, platform-agnostic metrics collection system for monitoring application performance and tracking business metrics.
+
+## Overview
+
+The metrics system is designed to be:
+
+- **Platform-agnostic** - Core collection works anywhere
+- **Extensible** - Easy to add publishers for any metrics platform
+- **Zero-overhead when disabled** - Metrics collection can be bypassed
+- **Dependency-injected** - Access via standard DI pattern
+
+### Platform Support
+
+| Platform | Support | Documentation |
+|----------|---------|---------------|
+| **AWS Lambda** | ✅ Built-in (CloudWatch EMF) | [AWS Metrics Guide](restmachine-aws/guides/metrics.md) |
+| **ASGI** | ⚙️ Custom publisher required | [ASGI Integration](#asgi-integration) |
+| **Other** | ⚙️ Custom publisher required | [Custom Publishers](#custom-publishers) |
+
+## Quick Start
+
+### AWS Lambda (Auto-configured)
+
+Metrics are automatically enabled and published to CloudWatch:
+
+```python
+from restmachine import RestApplication
+from restmachine_aws import AwsApiGatewayAdapter
+
+app = RestApplication()
+
+@app.get("/users/{id}")
+def get_user(id: str, metrics):
+    # Add custom metrics
+    metrics.add_metric("users.fetched", 1, unit="Count")
+    return {"user": id}
+
+# Metrics auto-configured for CloudWatch EMF
+adapter = AwsApiGatewayAdapter(app)
+
+def lambda_handler(event, context):
+    return adapter.handle_event(event, context)
+```
+
+See [AWS CloudWatch Metrics Guide](restmachine-aws/guides/metrics.md) for configuration options.
+
+### Other Platforms
+
+For non-AWS platforms, implement a custom publisher:
+
+```python
+from restmachine import RestApplication
+from restmachine.metrics import MetricsPublisher
+
+class MyPublisher(MetricsPublisher):
+    def is_enabled(self) -> bool:
+        return True
+
+    def publish(self, collector, request=None, response=None, context=None):
+        # Send metrics to your platform
+        for name, values in collector.metrics.items():
+            for metric_value in values:
+                print(f"{name}: {metric_value.value}")
+
+# Use custom publisher
+publisher = MyPublisher()
+# Integration depends on platform - see Custom Publishers section
+```
+
+## Core Concepts
+
+### MetricsCollector
+
+The `MetricsCollector` is injected as a dependency and provides methods to record metrics:
+
+```python
+@app.get("/endpoint")
+def handler(metrics):
+    # Add metrics
+    metrics.add_metric("requests", 1, unit="Count")
+
+    # Add dimensions (low-cardinality grouping)
+    metrics.add_dimension("environment", "production")
+
+    # Add metadata (high-cardinality context)
+    metrics.add_metadata("request_id", request_id)
+
+    # Time operations
+    metrics.start_timer("operation")
+    do_work()
+    metrics.stop_timer("operation")
+
+    return {"ok": True}
+```
+
+### MetricsPublisher
+
+The abstract base class for publishing metrics to any platform:
+
+```python
+from restmachine.metrics import MetricsPublisher
+
+class MyPublisher(MetricsPublisher):
+    def is_enabled(self) -> bool:
+        """Return True if publishing is enabled."""
+        return True
+
+    def publish(self, collector, request=None, response=None, context=None):
+        """Publish collected metrics."""
+        # collector.metrics - Dict[str, List[MetricValue]]
+        # collector.get_all_dimensions() - Dict[str, str]
+        # collector.metadata - Dict[str, Any]
+        pass
+```
+
+## Adding Metrics
+
+### Basic Metrics
+
+```python
+@app.get("/orders")
+def list_orders(metrics):
+    # Count metrics
+    metrics.add_metric("orders.listed", 1, unit="Count")
+
+    # Value metrics
+    metrics.add_metric("orders.total_value", 1250.00, unit="None")
+
+    # Size metrics
+    metrics.add_metric("response.size", 1024, unit="Bytes")
+
+    return orders
+```
+
+### Using Timers
+
+```python
+@app.get("/data")
+def fetch_data(metrics):
+    metrics.start_timer("database.query")
+    data = db.query("SELECT * FROM users")
+    metrics.stop_timer("database.query")  # Adds metric in milliseconds
+
+    return data
+```
+
+### Multiple Values (Aggregation)
+
+```python
+@app.get("/batch")
+def process_batch(metrics):
+    for item in items:
+        # Each call adds to the metric
+        metrics.add_metric("items.processed", 1, unit="Count")
+        metrics.add_metric("processing.time", process(item), unit="Milliseconds")
+
+    # Publisher receives all values for aggregation
+    return {"processed": len(items)}
+```
+
+## Dimensions vs Metadata
+
+**Dimensions** are for grouping/filtering (low-cardinality):
+
+```python
+# Good - few unique values
+metrics.add_dimension("environment", "production")  # ~3-5 values
+metrics.add_dimension("region", "us-east-1")        # ~10-20 values
+metrics.add_dimension("user_type", "premium")       # ~3-10 values
+```
+
+**Metadata** is for context/debugging (high-cardinality):
+
+```python
+# Good - many unique values
+metrics.add_metadata("user_id", "12345")           # Thousands of values
+metrics.add_metadata("request_id", "abc-def-...")  # Unique per request
+metrics.add_metadata("order_id", order_id)         # Unique identifiers
+```
+
+⚠️ Some platforms (like CloudWatch) limit dimensions (max 30). Use metadata for high-cardinality data.
+
+## Metric Units
+
+Available units from the `MetricUnit` enum:
+
+```python
+from restmachine.metrics import MetricUnit
+
+# Time
+MetricUnit.Seconds
+MetricUnit.Milliseconds
+MetricUnit.Microseconds
+
+# Bytes
+MetricUnit.Bytes
+MetricUnit.Kilobytes
+MetricUnit.Megabytes
+MetricUnit.Gigabytes
+
+# Count
+MetricUnit.Count
+
+# Rates
+MetricUnit.CountPerSecond
+MetricUnit.BytesPerSecond
+
+# Other
+MetricUnit.Percent
+MetricUnit.None
+```
+
+Usage:
+
+```python
+metrics.add_metric("api.latency", 45.2, unit=MetricUnit.Milliseconds)
+metrics.add_metric("requests", 1, unit=MetricUnit.Count)
+metrics.add_metric("response.size", 2048, unit=MetricUnit.Bytes)
+```
+
+## Default Dimensions
+
+Set dimensions that apply to all metrics in a request:
+
+```python
+@app.get("/endpoint")
+def handler(metrics):
+    # Apply to all metrics
+    metrics.set_default_dimensions(
+        environment="production",
+        version="v2"
+    )
+
+    metrics.add_metric("requests", 1)
+    # Includes: environment=production, version=v2
+
+    return {"ok": True}
+```
+
+Clear defaults if needed:
+
+```python
+metrics.clear_default_dimensions()
+```
+
+## Isolated Metrics (Advanced)
+
+Use `EphemeralMetrics` for isolated metric collection:
+
+```python
+from restmachine.metrics import EphemeralMetrics
+
+@app.get("/data")
+def get_data(metrics, tenant_id: str):
+    # Main request metrics
+    metrics.add_metric("api.requests", 1)
+
+    # Isolated tenant metrics (no shared dimensions)
+    tenant_metrics = EphemeralMetrics()
+    tenant_metrics.add_dimension("tenant_id", tenant_id)
+    tenant_metrics.add_metric("tenant.requests", 1)
+
+    # EphemeralMetrics won't be auto-published
+    # Use for custom processing
+
+    return data
+```
+
+## Custom Publishers
+
+Create publishers for any metrics platform.
+
+### Publisher Interface
+
+```python
+from restmachine.metrics import MetricsPublisher, MetricsCollector
+
+class MyPublisher(MetricsPublisher):
+    def is_enabled(self) -> bool:
+        """Return True if publishing is enabled."""
+        return True
+
+    def publish(self, collector: MetricsCollector,
+               request=None, response=None, context=None):
+        """Publish collected metrics.
+
+        Args:
+            collector: MetricsCollector with metrics/dimensions/metadata
+            request: Optional Request object
+            response: Optional Response object
+            context: Optional platform context
+        """
+        # Access metrics
+        for name, values in collector.metrics.items():
+            for metric_value in values:
+                # metric_value.value - The numeric value
+                # metric_value.unit - MetricUnit enum
+                pass
+
+        # Access dimensions
+        dimensions = collector.get_all_dimensions()
+
+        # Access metadata
+        metadata = collector.metadata
+```
+
+### Example: Datadog
+
+```python
+from restmachine.metrics import MetricsPublisher
+import datadog
+
+class DatadogPublisher(MetricsPublisher):
+    def __init__(self, api_key: str):
+        datadog.initialize(api_key=api_key)
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def publish(self, collector, request=None, response=None, context=None):
+        dimensions = collector.get_all_dimensions()
+        tags = [f"{k}:{v}" for k, v in dimensions.items()]
+
+        for name, values in collector.metrics.items():
+            for metric_value in values:
+                datadog.api.Metric.send(
+                    metric=name,
+                    points=[(int(time.time()), metric_value.value)],
+                    tags=tags
+                )
+```
+
+### Example: Prometheus
+
+```python
+from restmachine.metrics import MetricsPublisher
+from prometheus_client import Counter, Histogram
+
+class PrometheusPublisher(MetricsPublisher):
+    def __init__(self):
+        self.counters = {}
+        self.histograms = {}
+
+    def is_enabled(self) -> bool:
+        return True
+
+    def publish(self, collector, request=None, response=None, context=None):
+        dimensions = collector.get_all_dimensions()
+        label_names = list(dimensions.keys())
+
+        for name, values in collector.metrics.items():
+            if 'time' in name or 'latency' in name:
+                # Use Histogram for timing
+                if name not in self.histograms:
+                    self.histograms[name] = Histogram(
+                        name.replace('.', '_'),
+                        f'Metric {name}',
+                        label_names
+                    )
+                for value in values:
+                    self.histograms[name].labels(**dimensions).observe(value.value)
+            else:
+                # Use Counter for counts
+                if name not in self.counters:
+                    self.counters[name] = Counter(
+                        name.replace('.', '_'),
+                        f'Metric {name}',
+                        label_names
+                    )
+                for value in values:
+                    self.counters[name].labels(**dimensions).inc(value.value)
+```
+
+### Example: Multi-Publisher
+
+Publish to multiple backends simultaneously:
+
+```python
+from restmachine.metrics import MetricsPublisher
+
+class MultiPublisher(MetricsPublisher):
+    def __init__(self, *publishers):
+        self.publishers = publishers
+
+    def is_enabled(self) -> bool:
+        return any(p.is_enabled() for p in self.publishers)
+
+    def publish(self, collector, request=None, response=None, context=None):
+        for publisher in self.publishers:
+            if publisher.is_enabled():
+                try:
+                    publisher.publish(collector, request, response, context)
+                except Exception as e:
+                    logging.error(f"Publisher {publisher} failed: {e}")
+```
+
+## ASGI Integration
+
+For ASGI applications, manually inject metrics via middleware:
+
+```python
+from restmachine import RestApplication
+from restmachine.metrics import MetricsCollector
+from restmachine.servers import create_asgi_handler
+
+class MetricsMiddleware:
+    def __init__(self, app: RestApplication, publisher):
+        self.app = app
+        self.publisher = publisher
+        self.handler = create_asgi_handler(app)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.handler(scope, receive, send)
+            return
+
+        # Create and inject metrics
+        metrics = MetricsCollector()
+        self.app._dependency_cache.set("metrics", metrics)
+
+        # Handle request
+        await self.handler(scope, receive, send)
+
+        # Publish metrics
+        if self.publisher.is_enabled():
+            self.publisher.publish(metrics)
+
+# Usage
+app = RestApplication()
+asgi_app = MetricsMiddleware(app, PrometheusPublisher())
+```
+
+A dedicated ASGI adapter with built-in metrics is planned for a future release.
+
+## Best Practices
+
+### 1. Use Descriptive Metric Names
+
+```python
+# Good
+metrics.add_metric("users.created", 1)
+metrics.add_metric("db.query.latency", query_time)
+
+# Avoid
+metrics.add_metric("count", 1)
+metrics.add_metric("time", query_time)
+```
+
+### 2. Consistent Dimensions
+
+```python
+# Good - consistent dimensions across metrics
+metrics.add_dimension("environment", env)
+metrics.add_dimension("region", region)
+```
+
+### 3. Appropriate Units
+
+```python
+# Correct units for clarity
+metrics.add_metric("api.latency", 45.2, unit=MetricUnit.Milliseconds)
+metrics.add_metric("db.connections", 5, unit=MetricUnit.Count)
+metrics.add_metric("response.size", 1024, unit=MetricUnit.Bytes)
+```
+
+### 4. Timer Pattern
+
+```python
+@app.get("/data")
+def fetch_data(metrics):
+    metrics.start_timer("operation.total")
+
+    metrics.start_timer("operation.step1")
+    step1()
+    metrics.stop_timer("operation.step1")
+
+    metrics.start_timer("operation.step2")
+    step2()
+    metrics.stop_timer("operation.step2")
+
+    metrics.stop_timer("operation.total")
+    return result
+```
+
+### 5. Don't Over-dimension
+
+```python
+# Avoid - too many dimensions
+for key, value in request.headers.items():
+    metrics.add_dimension(key, value)
+
+# Better - selective dimensions + metadata
+metrics.add_dimension("user_type", user.type)
+metrics.add_metadata("user_id", user.id)
+```
+
+## Disabling Metrics
+
+When metrics are disabled, the collector is still created but publishing is skipped:
+
+```python
+# Disable via publisher
+adapter = AwsApiGatewayAdapter(app, enable_metrics=False)
+
+# Handler code works unchanged
+@app.get("/test")
+def handler(metrics):
+    # Metrics collected but not published
+    metrics.add_metric("requests", 1)
+    return {"ok": True}
+```
+
+This allows you to keep metrics in code and control publishing via configuration.
+
+## Platform-Specific Documentation
+
+- **[AWS CloudWatch (EMF)](restmachine-aws/guides/metrics.md)** - Auto-configured CloudWatch metrics for Lambda
+- **[Logging Configuration](#logging-configuration)** - Custom logging setup
+- **[Performance Optimization](advanced/performance.md)** - Metrics overhead and optimization
+
+## Logging Configuration
+
+Metrics use a custom `METRICS` log level (25, between INFO and WARNING).
+
+### Custom Log Level
+
+```python
+import logging
+from restmachine.metrics import METRICS
+
+# METRICS = 25 (between INFO=20 and WARNING=30)
+```
+
+### Manual Configuration
+
+```python
+import logging
+from restmachine.metrics import METRICS
+
+# Configure metrics logger
+metrics_logger = logging.getLogger("restmachine.metrics.emf")
+metrics_logger.setLevel(METRICS)
+
+# Add handler
+handler = logging.StreamHandler()
+handler.setLevel(METRICS)
+metrics_logger.addHandler(handler)
+```
+
+### Control Metrics Output
+
+```python
+# Disable metrics logging
+logging.getLogger("restmachine.metrics.emf").setLevel(logging.WARNING)
+
+# Re-enable
+logging.getLogger("restmachine.metrics.emf").setLevel(METRICS)
+```
+
+### Environment-Specific
+
+```python
+import os
+
+if os.environ.get("ENV") == "production":
+    logging.getLogger("restmachine.metrics.emf").setLevel(METRICS)
+else:
+    # Disable in development
+    logging.getLogger("restmachine.metrics.emf").setLevel(logging.CRITICAL)
+```
+
+## Examples
+
+### E-commerce API
+
+```python
+@app.post("/orders")
+def create_order(order_data, metrics):
+    # Dimensions for grouping
+    metrics.add_dimension("order_type", order_data.type)
+    metrics.add_dimension("payment_method", order_data.payment)
+
+    # Time validation
+    metrics.start_timer("order.validation")
+    validate(order_data)
+    metrics.stop_timer("order.validation")
+
+    # Time creation
+    metrics.start_timer("order.creation")
+    order = db.create_order(order_data)
+    metrics.stop_timer("order.creation")
+
+    # Business metrics
+    metrics.add_metric("orders.created", 1, unit=MetricUnit.Count)
+    metrics.add_metric("order.total", order.total, unit=MetricUnit.None)
+
+    # Context metadata
+    metrics.add_metadata("order_id", order.id)
+    metrics.add_metadata("customer_id", order.customer_id)
+
+    return order
+```
+
+### Multi-Region API
+
+```python
+@app.get("/data")
+def get_data(metrics, region: str):
+    # Add region dimension
+    metrics.add_dimension("region", region)
+
+    # Track by region
+    metrics.start_timer(f"data.fetch.{region}")
+    data = fetch_from_region(region)
+    metrics.stop_timer(f"data.fetch.{region}")
+
+    # Count and size
+    metrics.add_metric("data.fetched", len(data), unit=MetricUnit.Count)
+    metrics.add_metric("data.size", sys.getsizeof(data), unit=MetricUnit.Bytes)
+
+    return data
+```
+
+## Troubleshooting
+
+### Metrics dependency is None
+
+The metrics dependency is always available. If you're getting None:
+
+1. Check that your platform adapter is properly configured
+2. Verify the dependency injection is working
+
+### Publisher not being called
+
+1. Check `publisher.is_enabled()` returns True
+2. Verify publisher is passed to adapter
+3. Check logging configuration
+
+### Performance concerns
+
+- Metrics collection is lightweight (~0.1-0.5ms per request)
+- Publishing happens after response is sent (non-blocking)
+- Disable in development to reduce noise
+
+## Related Documentation
+
+- **[AWS CloudWatch Metrics](restmachine-aws/guides/metrics.md)** - CloudWatch EMF configuration
+- **[Performance Optimization](advanced/performance.md)** - Overhead and optimization
+- **[Dependency Injection](guide/dependency-injection.md)** - Understanding DI in RestMachine

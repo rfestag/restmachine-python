@@ -2,11 +2,23 @@
 
 import io
 import json
+import os
+import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union, cast
 
 from restmachine import Adapter, Request, Response, HTTPMethod, BytesStreamBuffer, RestApplication
 from restmachine.models import MultiValueHeaders
+from restmachine.metrics_handler import MetricsHandler
+from restmachine.metrics import MetricsPublisher, METRICS
+from restmachine_aws.metrics import CloudWatchEMFPublisher
+
+
+# Sentinel for default metrics publisher
+class _DefaultPublisher:
+    pass
+
+_DEFAULT_PUBLISHER = _DefaultPublisher()
 
 
 class AwsApiGatewayAdapter(Adapter):
@@ -30,18 +42,67 @@ class AwsApiGatewayAdapter(Adapter):
     - Body encoding is handled transparently
     """
 
-    def __init__(self, app: RestApplication):
+    def __init__(self,
+                 app: RestApplication,
+                 metrics_publisher: Union[MetricsPublisher, None, _DefaultPublisher] = _DEFAULT_PUBLISHER,
+                 enable_metrics: Optional[bool] = None,
+                 namespace: Optional[str] = None,
+                 service_name: Optional[str] = None,
+                 metrics_resolution: int = 60):
         """
         Initialize the adapter with a RestApplication instance.
 
-        Automatically executes startup handlers during cold start to ensure
-        session-scoped dependencies (database connections, API clients, etc.)
-        are initialized before the first request.
+        Automatically executes startup handlers during cold start and
+        configures CloudWatch EMF metrics unless disabled.
 
         Args:
             app: The RestApplication instance to execute requests against
+            metrics_publisher: Metrics publisher. Defaults to CloudWatchEMFPublisher.
+                              Pass None to explicitly disable metrics.
+            enable_metrics: Explicitly enable/disable metrics.
+            namespace: CloudWatch namespace (overrides env var)
+            service_name: Service name for dimension (overrides env var)
+            metrics_resolution: Default resolution, 1 or 60 seconds (default: 60)
+
+        Examples:
+            # Auto EMF with custom namespace
+            adapter = AwsApiGatewayAdapter(
+                app,
+                namespace="MyApp/API",
+                service_name="user-service"
+            )
+
+            # High-resolution metrics
+            adapter = AwsApiGatewayAdapter(
+                app,
+                namespace="MyApp/API",
+                metrics_resolution=1
+            )
+
+            # Disable metrics
+            adapter = AwsApiGatewayAdapter(app, enable_metrics=False)
         """
         self.app = app
+
+        # Determine if metrics should be enabled
+        metrics_enabled = self._should_enable_metrics(enable_metrics)
+
+        # Auto-configure publisher if not provided
+        publisher: Optional[MetricsPublisher]
+        if isinstance(metrics_publisher, _DefaultPublisher):
+            if metrics_enabled:
+                publisher = self._create_default_publisher(
+                    namespace=namespace,
+                    service_name=service_name,
+                    resolution=metrics_resolution
+                )
+                self._configure_default_logging()
+            else:
+                publisher = None
+        else:
+            publisher = metrics_publisher
+
+        self.metrics_handler = MetricsHandler(app, publisher)
 
         # Execute startup handlers during Lambda cold start
         # This ensures database connections, API clients, etc. are initialized
@@ -49,9 +110,70 @@ class AwsApiGatewayAdapter(Adapter):
         if hasattr(app, '_startup_handlers') and app._startup_handlers:
             app.startup_sync()
 
+    def _should_enable_metrics(self, explicit_enable: Optional[bool]) -> bool:
+        """Determine if metrics should be enabled.
+
+        Priority:
+        1. Explicit enable_metrics parameter
+        2. RESTMACHINE_METRICS_ENABLED environment variable
+        3. Default to True
+        """
+        if explicit_enable is not None:
+            return explicit_enable
+
+        env_value = os.environ.get('RESTMACHINE_METRICS_ENABLED', 'true').lower()
+        return env_value not in ('false', '0', 'no', 'off')
+
+    def _create_default_publisher(self,
+                                  namespace: Optional[str] = None,
+                                  service_name: Optional[str] = None,
+                                  resolution: int = 60) -> CloudWatchEMFPublisher:
+        """Create default CloudWatch EMF publisher.
+
+        Priority for config:
+        1. Direct arguments
+        2. Environment variables
+        3. Defaults
+        """
+        # Namespace: arg > env > default
+        final_namespace = namespace or \
+                         os.environ.get('RESTMACHINE_METRICS_NAMESPACE', 'RestMachine')
+
+        # Service name: arg > env > Lambda function name
+        final_service = service_name or \
+                       os.environ.get('RESTMACHINE_SERVICE_NAME') or \
+                       os.environ.get('AWS_LAMBDA_FUNCTION_NAME')
+
+        # Resolution: arg > env > default
+        if resolution not in (1, 60):
+            resolution_str = os.environ.get('RESTMACHINE_METRICS_RESOLUTION', '60')
+            try:
+                resolution = int(resolution_str)
+                if resolution not in (1, 60):
+                    resolution = 60
+            except ValueError:
+                resolution = 60
+
+        return CloudWatchEMFPublisher(
+            namespace=final_namespace,
+            service_name=final_service,
+            default_resolution=resolution
+        )
+
+    def _configure_default_logging(self):
+        """Configure logging for EMF output."""
+        emf_logger = logging.getLogger("restmachine.metrics.emf")
+
+        if not emf_logger.handlers:
+            emf_logger.setLevel(METRICS)
+            handler = logging.StreamHandler()
+            handler.setLevel(METRICS)
+            emf_logger.addHandler(handler)
+            emf_logger.propagate = False
+
     def handle_event(self, event: Dict[str, Any], context: Optional[Any] = None) -> Dict[str, Any]:
         """
-        Handle an AWS API Gateway event.
+        Handle an AWS API Gateway event with metrics support.
 
         Args:
             event: AWS API Gateway event dictionary
@@ -60,9 +182,13 @@ class AwsApiGatewayAdapter(Adapter):
         Returns:
             AWS API Gateway response dictionary
         """
-        request = self.convert_to_request(event, context)
-        response = self.app.execute(request)
-        return self.convert_from_response(response, event, context)
+        return cast(Dict[str, Any], self.metrics_handler.handle_request(
+            event,
+            context,
+            convert_fn=self.convert_to_request,
+            execute_fn=self.app.execute,
+            response_fn=self.convert_from_response
+        ))
 
     def convert_to_request(self, event: Dict[str, Any], context: Optional[Any] = None) -> Request:
         """

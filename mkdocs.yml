@@ -153,6 +153,7 @@ nav:
     - TLS/mTLS Support: advanced/tls.md
     - Template Rendering: advanced/templates.md
     - Multi-Value Headers: advanced/headers.md
+    - Metrics & Observability: metrics.md
     - Performance Optimization: advanced/performance.md
 
   - Packages:

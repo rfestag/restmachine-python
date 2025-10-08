@@ -229,6 +229,12 @@ class RestApplication:
         self._dependencies["multipart_body"] = Dependency(self._get_multipart_body, scope="request")
         self._dependencies["text_body"] = Dependency(self._get_text_body, scope="request")
 
+        # Metrics dependency - always available, but only collected if publisher is enabled
+        self._dependencies["metrics"] = Dependency(
+            lambda: self._dependency_cache.get("metrics"),
+            scope="request"
+        )
+
     @staticmethod
     def _extract_charset_from_content_type(content_type: Optional[str]) -> Optional[str]:
         """Extract the charset parameter from a Content-Type header.

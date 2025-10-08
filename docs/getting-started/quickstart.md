@@ -338,6 +338,54 @@ Visit `http://localhost:8000/docs` to see your interactive API documentation.
 
 See the [OpenAPI Guide](../guide/openapi.md) for advanced features including client SDK generation.
 
+## Observability & Metrics
+
+RestMachine includes built-in metrics collection to help you monitor your application's performance.
+
+### Default Behavior
+
+**AWS Lambda**: Metrics are automatically enabled and published to CloudWatch Logs in EMF (Embedded Metric Format). No configuration required!
+
+```python
+from restmachine_aws import AwsApiGatewayAdapter
+
+# Metrics automatically enabled for CloudWatch
+adapter = AwsApiGatewayAdapter(app)
+```
+
+**ASGI/Other Platforms**: Metrics collection is available but requires a custom publisher. See the [Metrics documentation](../metrics.md) for details.
+
+### Adding Custom Metrics
+
+Inject the `metrics` dependency to track business metrics:
+
+```python
+@app.get('/orders')
+def list_orders(metrics):
+    # Track request count
+    metrics.add_metric("orders.listed", 1, unit="Count")
+
+    # Track timing
+    metrics.start_timer("db.query")
+    orders = db.query("SELECT * FROM orders")
+    metrics.stop_timer("db.query")
+
+    return {"orders": orders}
+```
+
+### What Gets Logged
+
+All requests automatically include:
+- Total request time
+- Application execution time
+- Response conversion time
+- HTTP method and path
+- Status code
+
+For more details:
+- **[Core Metrics Guide](../metrics.md)** - Platform-agnostic metrics features
+- **[AWS CloudWatch Metrics](../restmachine-aws/guides/metrics.md)** - CloudWatch EMF configuration
+
 ## Next Steps
 
 Now that you have a running application:

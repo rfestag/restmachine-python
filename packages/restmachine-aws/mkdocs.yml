@@ -5,6 +5,7 @@ nav:
   - Overview: index.md
   - Guides:
     - Lambda Deployment: guides/lambda-deployment.md
+    - CloudWatch Metrics (EMF): guides/metrics.md
     - Lambda Extensions: guides/lambda-extensions.md
   - API Reference:
     - Adapter: api/adapter.md
