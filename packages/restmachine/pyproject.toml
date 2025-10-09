@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "setuptools-scm>=8.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "restmachine"
-version = "0.1.0"
+dynamic = ["version"]
 description = "A lightweight REST framework with dependency injection and webmachine-style state machine"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -82,3 +82,8 @@ min_rounds = 5
 max_time = 1.0
 calibration_precision = 10
 warmup = true
+
+[tool.setuptools_scm]
+root = "../.."
+tag_regex = "^restmachine-(?P<version>[vV]?\\d+(?:\\.\\d+)*(?:[a-zA-Z-]+(?:\\.\\d+)?)?)$"
+version_file = "src/restmachine/_version.py"

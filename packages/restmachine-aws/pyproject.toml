@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=61.0", "setuptools-scm>=8.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "restmachine-aws"
-version = "0.1.0"
+dynamic = ["version"]
 description = "AWS Lambda adapter for RestMachine framework"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -59,3 +59,8 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short"
+
+[tool.setuptools_scm]
+root = "../.."
+tag_regex = "^restmachine-aws-(?P<version>[vV]?\\d+(?:\\.\\d+)*(?:[a-zA-Z-]+(?:\\.\\d+)?)?)$"
+version_file = "src/restmachine_aws/_version.py"
