@@ -64,5 +64,6 @@ addopts = "-v --tb=short"
 
 [tool.setuptools_scm]
 root = "../.."
-tag_regex = "^restmachine-web-(?P<version>[vV]?\\d+(?:\\.\\d+)*(?:[a-zA-Z-]+(?:\\.\\d+)?)?)$"
+tag_regex = '^restmachine-web-(?P<version>[vV]?\d+(?:\.\d+)*(?:[a-zA-Z-]+(?:\.\d+)?)?)$'
+git_describe_command = "git describe --dirty --tags --long --match 'restmachine-web-*'"
 version_file = "src/restmachine_web/_version.py"

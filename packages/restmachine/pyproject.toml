@@ -85,5 +85,6 @@ warmup = true
 
 [tool.setuptools_scm]
 root = "../.."
-tag_regex = "^restmachine-(?P<version>[vV]?\\d+(?:\\.\\d+)*(?:[a-zA-Z-]+(?:\\.\\d+)?)?)$"
+tag_regex = '^restmachine-(?P<version>[vV]?\d+(?:\.\d+)*(?:[a-zA-Z-]+(?:\.\d+)?)?)$'
+git_describe_command = "git describe --dirty --tags --long --match 'restmachine-*' --exclude 'restmachine-*-*'"
 version_file = "src/restmachine/_version.py"
