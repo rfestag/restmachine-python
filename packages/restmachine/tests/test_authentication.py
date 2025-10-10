@@ -64,7 +64,12 @@ class TestAuthentication(MultiDriverTestBase):
         assert data["message"] == "Public content"
 
     def test_protected_endpoint_requires_auth(self, api):
-        """Test that protected endpoints require authentication."""
+        """Test that protected endpoints require authentication.
+
+        RFC 9110 Section 15.5.2: 401 Unauthorized indicates request lacks valid
+        authentication credentials for target resource.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.2
+        """
         api_client, driver_name = api
 
         response = api_client.access_protected_resource("/protected")
@@ -145,14 +150,24 @@ class TestAuthenticationAndAuthorization(MultiDriverTestBase):
         return app
 
     def test_401_unauthorized(self, api):
-        """Test 401 Unauthorized from authorization failure."""
+        """Test 401 Unauthorized from authorization failure.
+
+        RFC 9110 Section 15.5.2: Server generating 401 MUST send WWW-Authenticate
+        header containing challenge for requested resource.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.2
+        """
         api_client, driver_name = api
 
         response = api_client.access_protected_resource("/protected")
         api_client.expect_unauthorized(response)
 
     def test_403_forbidden_callback(self, api):
-        """Test 403 Forbidden from forbidden callback."""
+        """Test 403 Forbidden from forbidden callback.
+
+        RFC 9110 Section 15.5.4: 403 Forbidden indicates server understood request but
+        refuses to fulfill it. Unlike 401, authentication won't help.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.4
+        """
         api_client, driver_name = api
 
         # Use valid auth to pass authorization, but forbidden callback will trigger
@@ -162,7 +177,12 @@ class TestAuthenticationAndAuthorization(MultiDriverTestBase):
         assert "Forbidden" in response.get_text_body()
 
     def test_403_forbidden_dependency(self, api):
-        """Test 403 Forbidden from forbidden dependency returning None."""
+        """Test 403 Forbidden from forbidden dependency returning None.
+
+        RFC 9110 Section 15.5.4: 403 Forbidden appropriate when user authenticated
+        but lacks necessary permissions for resource.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.4
+        """
         api_client, driver_name = api
 
         # Use valid auth to pass authorization check first

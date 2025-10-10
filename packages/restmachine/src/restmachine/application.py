@@ -702,6 +702,10 @@ class RestApplication:
         """Decorator to register a PATCH route handler on the root router."""
         return self._root_router.patch(path)
 
+    def options(self, path: str):
+        """Decorator to register an OPTIONS route handler on the root router."""
+        return self._root_router.options(path)
+
     def _resolve_dependency(
         self, param_name: str, param_type: Optional[Type], request: Optional[Request], route: Optional[RouteHandler] = None
     ) -> Any:

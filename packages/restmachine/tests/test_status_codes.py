@@ -31,7 +31,12 @@ class TestSuccessStatusCodes(MultiDriverTestBase):
         return app
 
     def test_200_ok_with_content(self, api):
-        """Test 200 OK with response content."""
+        """Test 200 OK with response content.
+
+        RFC 9110 Section 15.3.1: 200 OK indicates request succeeded. Payload
+        depends on request method (GET returns representation).
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.1
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/data")
@@ -40,14 +45,24 @@ class TestSuccessStatusCodes(MultiDriverTestBase):
         assert response.status_code == 200
 
     def test_204_no_content(self, api):
-        """Test 204 No Content when handler returns None."""
+        """Test 204 No Content when handler returns None.
+
+        RFC 9110 Section 15.3.5: 204 No Content indicates server successfully
+        processed request but returns no content. MUST NOT contain message body.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.5
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/no-content")
         api_client.expect_no_content(response)
 
     def test_201_created(self, api):
-        """Test 201 Created from POST request."""
+        """Test 201 Created from POST request.
+
+        RFC 9110 Section 15.3.2: 201 Created indicates request fulfilled and resulted
+        in one or more new resources. Typically sent in response to POST/PUT.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.3.2
+        """
         api_client, driver_name = api
 
         create_data = {"name": "test", "type": "example"}
@@ -120,7 +135,12 @@ class TestBasicApiOperations(MultiDriverTestBase):
         api_client.expect_no_content(response)
 
     def test_nonexistent_resource_returns_404(self, api):
-        """Test that accessing nonexistent resources returns 404."""
+        """Test that accessing nonexistent resources returns 404.
+
+        RFC 9110 Section 15.5.5: 404 Not Found indicates origin server did not find
+        current representation for target resource or unwilling to disclose existence.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.5
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/nonexistent")
@@ -153,7 +173,12 @@ class TestBadRequestErrors(MultiDriverTestBase):
         return app
 
     def test_400_bad_request_malformed(self, api):
-        """Test 400 Bad Request from malformed request."""
+        """Test 400 Bad Request from malformed request.
+
+        RFC 9110 Section 15.5.1: 400 Bad Request indicates server cannot or will not
+        process request due to client error (e.g., malformed syntax, invalid framing).
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.1
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/malformed")
@@ -248,7 +273,12 @@ class TestMethodNotAllowed(MultiDriverTestBase):
         return app
 
     def test_405_method_not_allowed(self, api):
-        """Test 405 Method Not Allowed."""
+        """Test 405 Method Not Allowed.
+
+        RFC 9110 Section 15.5.6: 405 Method Not Allowed indicates method received
+        in request-line is known by origin server but not supported by target resource.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.6
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/test")
@@ -325,7 +355,12 @@ class TestMethodAndResourceErrors(MultiDriverTestBase):
         return app
 
     def test_406_not_acceptable(self, api):
-        """Test 406 Not Acceptable when content negotiation fails."""
+        """Test 406 Not Acceptable when content negotiation fails.
+
+        RFC 9110 Section 15.5.7: 406 Not Acceptable indicates target resource lacks
+        current representation acceptable to user agent (per Accept headers).
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.7
+        """
         api_client, driver_name = api
 
         request = api_client.get("/data").accepts("application/xml")
@@ -374,7 +409,12 @@ class TestServerErrors(MultiDriverTestBase):
         return app
 
     def test_500_internal_server_error(self, api):
-        """Test 500 Internal Server Error from unhandled exception."""
+        """Test 500 Internal Server Error from unhandled exception.
+
+        RFC 9110 Section 15.6.1: 500 Internal Server Error indicates server encountered
+        unexpected condition that prevented it from fulfilling request.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.6.1
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/error")

@@ -39,7 +39,12 @@ class TestContentNegotiationEdgeCases(MultiDriverTestBase):
         return app
 
     def test_accept_header_with_quality_values(self, api):
-        """Test Accept header with quality values."""
+        """Test Accept header with quality values.
+
+        RFC 9110 Section 12.5.1 & 12.4.2: Accept header uses quality values (q parameter,
+        0-1 scale) to indicate relative preference. Higher q values preferred.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-12.5.1
+        """
         api_client, driver_name = api
 
         # Request with quality preferences
@@ -102,7 +107,12 @@ class TestContentNegotiationEdgeCases(MultiDriverTestBase):
         assert "<h1>Hello</h1>" in response.body
 
     def test_unsupported_accept_type_returns_406(self, api):
-        """Test that unsupported Accept type returns 406."""
+        """Test that unsupported Accept type returns 406.
+
+        RFC 9110 Section 15.5.7: 406 Not Acceptable when server cannot produce
+        response matching Accept criteria.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-15.5.7
+        """
         api_client, driver_name = api
 
         request = api_client.get("/data").with_header("Accept", "application/pdf")

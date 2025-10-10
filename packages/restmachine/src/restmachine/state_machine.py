@@ -177,7 +177,7 @@ class RequestStateMachine:
         else:
             known_methods = {
                 HTTPMethod.GET, HTTPMethod.POST, HTTPMethod.PUT,
-                HTTPMethod.DELETE, HTTPMethod.PATCH
+                HTTPMethod.DELETE, HTTPMethod.PATCH, HTTPMethod.OPTIONS
             }
             if self.ctx.request.method not in known_methods:
                 return self._create_error_response(HTTPStatus.NOT_IMPLEMENTED, "Not Implemented")
@@ -817,7 +817,172 @@ class RequestStateMachine:
             response.pre_calculated_headers = headers
             response.__post_init__()
 
+        # Process range requests after response is finalized
+        response = self._process_range_request(response)
+
         return response
+
+    def _process_range_request(self, response: Response) -> Response:
+        """Process Range header and prepare response for partial content.
+
+        RFC 9110 Section 14: Range requests allow clients to request partial
+        transfer of a selected representation.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-14
+
+        This method:
+        1. Checks if response supports ranges
+        2. Parses Range header if present
+        3. Validates ranges
+        4. Sets appropriate headers (Accept-Ranges, Content-Range, 206/416 status)
+        5. Sets range_start/range_end fields for adapters to use
+
+        Adapters are responsible for actually sending the range bytes.
+        """
+        from .models import parse_range_header
+
+        # Convert strings to bytes for range processing
+        # (Range requests work on byte boundaries, not character boundaries)
+        if isinstance(response.body, str):
+            response.body = response.body.encode('utf-8')
+
+        # Determine if response supports range requests
+        supports_ranges = self._supports_ranges(response)
+
+        # Ensure headers exists
+        if response.headers is None:
+            response.headers = MultiValueHeaders()
+
+        # Set Accept-Ranges header
+        if supports_ranges:
+            response.headers["Accept-Ranges"] = "bytes"
+        else:
+            response.headers["Accept-Ranges"] = "none"
+            return response
+
+        # Check for Range header
+        range_header = self.ctx.request.headers.get("Range")
+        if not range_header:
+            # No range requested - return normal response
+            return response
+
+        # Get total size of content
+        total_size = self._get_content_size(response)
+        if total_size is None:
+            # Can't determine size - can't handle ranges
+            return response
+
+        # Check If-Range precondition
+        if not self._check_if_range_precondition(response):
+            # Precondition failed - return full response (200)
+            return response
+
+        # Parse range specification
+        ranges = parse_range_header(range_header, total_size)
+
+        if not ranges:
+            # Invalid or unsatisfiable range - return 416
+            response.status_code = 416
+            response.headers["Content-Range"] = f"bytes */{total_size}"
+            response.body = b"Range Not Satisfiable"
+            response.headers["Content-Length"] = str(len(response.body))
+            return response
+
+        # For now, only handle single range
+        # TODO: Implement multipart/byteranges for multiple ranges
+        start, end = ranges[0]
+
+        # Set partial content response fields
+        response.status_code = 206
+        response.range_start = start
+        response.range_end = end
+        response.headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+        response.headers["Content-Length"] = str(end - start + 1)
+
+        return response
+
+    def _supports_ranges(self, response: Response) -> bool:
+        """Check if response supports range requests."""
+        from pathlib import Path
+        from .models import is_seekable_stream
+
+        # Path objects always support ranges
+        if isinstance(response.body, Path):
+            return True
+
+        # Seekable streams support ranges
+        if is_seekable_stream(response.body):
+            return True
+
+        # Bytes support ranges
+        if isinstance(response.body, bytes):
+            return True
+
+        return False
+
+    def _get_content_size(self, response: Response) -> Optional[int]:
+        """Get total content size in bytes."""
+        from pathlib import Path
+        from .models import is_seekable_stream, get_stream_size
+        from typing import cast, BinaryIO
+
+        # Check Content-Length header first
+        if response.headers:
+            content_length_header = response.headers.get("Content-Length")
+            if content_length_header:
+                try:
+                    return int(content_length_header)
+                except ValueError:
+                    pass
+
+        # Path object? Get file size
+        if isinstance(response.body, Path):
+            try:
+                return response.body.stat().st_size
+            except OSError:
+                return None
+
+        # Seekable stream? Get size from stream
+        if is_seekable_stream(response.body):
+            try:
+                return get_stream_size(cast(BinaryIO, response.body))
+            except Exception:
+                return None
+
+        # Bytes? Get length directly
+        if isinstance(response.body, bytes):
+            return len(response.body)
+
+        return None
+
+    def _check_if_range_precondition(self, response: Response) -> bool:
+        """Check If-Range precondition header.
+
+        RFC 9110 Section 13.1.5: If-Range allows conditional range request.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.5
+
+        Returns:
+            True if precondition passes or no If-Range header present.
+            False if precondition fails (should send full 200 response).
+        """
+        if_range = self.ctx.request.headers.get("If-Range")
+        if not if_range:
+            return True  # No precondition
+
+        if not response.headers:
+            return False  # No headers to check against
+
+        # Check against ETag
+        current_etag = response.headers.get("ETag")
+        if current_etag and if_range == current_etag:
+            return True
+
+        # Check against Last-Modified
+        last_modified = response.headers.get("Last-Modified")
+        if last_modified and if_range == last_modified:
+            return True
+
+        # Precondition failed
+        return False
 
     # ========================================================================
     # ERROR HANDLING HELPERS

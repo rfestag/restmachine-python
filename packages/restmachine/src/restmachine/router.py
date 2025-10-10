@@ -299,6 +299,10 @@ class Router:
         """Decorator to register a PATCH route handler."""
         return self._route_decorator(HTTPMethod.PATCH, path)
 
+    def options(self, path: str):
+        """Decorator to register an OPTIONS route handler."""
+        return self._route_decorator(HTTPMethod.OPTIONS, path)
+
     def _route_decorator(self, method: HTTPMethod, path: str):
         """Internal method to create route decorators."""
         # Import here to avoid circular import

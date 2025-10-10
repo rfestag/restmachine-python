@@ -47,7 +47,11 @@ class TestMultipartFormData(MultiDriverTestBase):
         return app
 
     def test_multipart_form_data_basic(self, api):
-        """Test basic multipart form data handling."""
+        """Test basic multipart form data handling.
+
+        RFC 7578: multipart/form-data media type with boundary parameter for separating parts.
+        https://www.rfc-editor.org/rfc/rfc7578.html
+        """
         api_client, driver_name = api
 
         # Simulate multipart form data
@@ -493,7 +497,12 @@ class TestBasicContentHandling(MultiDriverTestBase):
         return app
 
     def test_can_parse_json_body(self, api):
-        """Test that JSON request bodies are parsed correctly."""
+        """Test that JSON request bodies are parsed correctly.
+
+        RFC 9110 Section 8.3: Content-Type header indicates media type of
+        associated representation. application/json triggers JSON parsing.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-8.3
+        """
         api_client, driver_name = api
 
         data = {"name": "Test Item", "value": 42}

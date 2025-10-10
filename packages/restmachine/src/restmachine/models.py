@@ -280,6 +280,7 @@ class HTTPMethod(Enum):
     PUT = "PUT"
     DELETE = "DELETE"
     PATCH = "PATCH"
+    OPTIONS = "OPTIONS"
 
 
 @dataclass
@@ -415,6 +416,11 @@ class Response:
     - Lambda will read the file and send as body
     - Content-Type is automatically detected from file extension
     - Content-Length is automatically set from file size
+
+    Range Request Support:
+    - range_start/range_end: Set by framework when processing Range header
+    - Adapters use these fields to send only requested byte range
+    - ASGI adapter uses zero-copy extension when possible
     """
 
     status_code: int
@@ -427,13 +433,21 @@ class Response:
     etag: Optional[str] = None
     last_modified: Optional[datetime] = None
 
+    # Range request fields (set by framework during range processing)
+    range_start: Optional[int] = None
+    range_end: Optional[int] = None
+
     def __post_init__(self):
         if self.headers is None:
             self.headers = MultiValueHeaders()
         elif not isinstance(self.headers, MultiValueHeaders):
             self.headers = MultiValueHeaders(self.headers)
 
-        # If we have pre-calculated headers, use them first
+        # Preserve explicitly-set Vary header before applying pre_calculated_headers
+        # Vary headers should be merged, not replaced
+        explicit_vary = self.headers.get("Vary") if self.headers else None
+
+        # If we have pre-calculated headers, merge them in
         if self.pre_calculated_headers:
             self.headers.update(self.pre_calculated_headers)
 
@@ -459,6 +473,14 @@ class Response:
         if self.content_type:
             self.headers["Content-Type"] = self.content_type
 
+        # Set ETag header if etag field is provided
+        if self.etag and "ETag" not in self.headers:
+            self.headers["ETag"] = self.etag
+
+        # Set Last-Modified header if last_modified field is provided
+        if self.last_modified and "Last-Modified" not in self.headers:
+            self.headers["Last-Modified"] = self.last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
+
         # Automatically inject Content-Length header (but not for streaming bodies, Path, or 204)
         if self.status_code != HTTPStatus.NO_CONTENT:
             if self.body is not None and not isinstance(self.body, (io.IOBase, Path)):
@@ -482,21 +504,29 @@ class Response:
             # Path: Already set above from file size
             # io.IOBase: Adapter will need to handle Transfer-Encoding: chunked
 
-        # Automatically inject Vary header only if not already provided via pre_calculated_headers
-        if not self.pre_calculated_headers or "Vary" not in self.pre_calculated_headers:
-            vary_values = []
+        # Automatically inject Vary header values
+        # Vary headers should be merged (can have multiple values)
+        vary_values = []
 
-            # Add "Authorization" to Vary if request has Authorization header
-            if self.request and self.request.headers.get("Authorization"):
+        # Start with any explicitly-set Vary values from handler
+        if explicit_vary:
+            # Parse existing Vary header (comma-separated)
+            explicit_values = [v.strip() for v in explicit_vary.split(',')]
+            vary_values.extend(explicit_values)
+
+        # Add "Authorization" to Vary if request has Authorization header
+        if self.request and self.request.headers.get("Authorization"):
+            if "Authorization" not in vary_values:
                 vary_values.append("Authorization")
 
-            # Add "Accept" to Vary if endpoint accepts more than one content type
-            if self.available_content_types and len(self.available_content_types) > 1:
+        # Add "Accept" to Vary if endpoint accepts more than one content type
+        if self.available_content_types and len(self.available_content_types) > 1:
+            if "Accept" not in vary_values:
                 vary_values.append("Accept")
 
-            # Set Vary header if we have values to include
-            if vary_values:
-                self.headers["Vary"] = ", ".join(vary_values)
+        # Set merged Vary header if we have values
+        if vary_values:
+            self.headers["Vary"] = ", ".join(vary_values)
 
     def set_etag(self, etag: str, weak: bool = False):
         """Set the ETag header.
@@ -525,6 +555,14 @@ class Response:
             self.headers = {}
         self.headers["Last-Modified"] = last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
         self.last_modified = last_modified
+
+    def is_range_response(self) -> bool:
+        """Check if this is a partial content (range) response.
+
+        Returns:
+            True if range_start and range_end are set, indicating this is a 206 Partial Content response
+        """
+        return self.range_start is not None and self.range_end is not None
 
     def generate_etag_from_content(self, weak: bool = False):
         """Generate and set ETag based on response body content.
@@ -630,3 +668,189 @@ def etags_match(etag1: str, etag2: str, strong_comparison: bool = True) -> bool:
 
     # Weak comparison: values must match regardless of weak/strong
     return value1 == value2
+
+
+def parse_range_header(range_spec: str, total_size: int) -> List[Tuple[int, int]]:
+    """Parse HTTP Range header value into list of (start, end) byte ranges.
+
+    RFC 9110 Section 14.2: Range header format is "bytes=<range-spec>"
+    https://www.rfc-editor.org/rfc/rfc9110.html#section-14.2
+
+    Examples:
+        "bytes=0-499" -> [(0, 499)]
+        "bytes=500-999" -> [(500, 999)]
+        "bytes=-500" -> [(total_size-500, total_size-1)] (last 500 bytes)
+        "bytes=500-" -> [(500, total_size-1)] (all but first 500 bytes)
+        "bytes=0-0,-1" -> [(0, 0), (total_size-1, total_size-1)] (first and last byte)
+
+    Args:
+        range_spec: Range header value (e.g., "bytes=0-499")
+        total_size: Total size of the resource in bytes
+
+    Returns:
+        List of (start, end) tuples where both are inclusive byte positions.
+        Empty list if range specification is invalid or unsatisfiable.
+
+    Note:
+        Byte ranges are inclusive: bytes=0-499 means bytes 0 through 499 (500 bytes total)
+    """
+    if not range_spec or not range_spec.startswith("bytes="):
+        return []
+
+    ranges = []
+    parts = range_spec[6:].split(",")
+
+    for part in parts:
+        part = part.strip()
+
+        if "-" not in part:
+            return []  # Invalid format
+
+        start_str, end_str = part.split("-", 1)
+
+        try:
+            if start_str == "":
+                # Suffix range: -500 means last 500 bytes
+                if not end_str:
+                    return []  # Invalid: just "-"
+                suffix = int(end_str)
+                if suffix <= 0:
+                    return []  # Invalid: must be positive
+                start = max(0, total_size - suffix)
+                end = total_size - 1
+            elif end_str == "":
+                # Open-ended: 500- means from byte 500 to end
+                start = int(start_str)
+                end = total_size - 1
+            else:
+                # Both specified: 0-499
+                start = int(start_str)
+                end = int(end_str)
+
+            # Validate range
+            if start < 0 or start >= total_size:
+                return []  # Invalid: start out of bounds
+            if end < start:
+                return []  # Invalid: end before start
+
+            # Clamp end to total size
+            end = min(end, total_size - 1)
+
+            ranges.append((start, end))
+
+        except ValueError:
+            return []  # Invalid number format
+
+    return ranges
+
+
+def is_seekable_stream(obj: Any) -> bool:
+    """Check if object is a seekable stream suitable for range requests.
+
+    Args:
+        obj: Object to check
+
+    Returns:
+        True if object has read(), seek(), tell(), and is actually seekable
+    """
+    return (
+        hasattr(obj, 'read') and
+        hasattr(obj, 'seek') and
+        hasattr(obj, 'tell') and
+        hasattr(obj, 'seekable') and
+        callable(obj.read) and
+        callable(obj.seek) and
+        obj.seekable()
+    )
+
+
+def get_stream_size(stream: BinaryIO) -> int:
+    """Get size of seekable stream without consuming it.
+
+    Args:
+        stream: Seekable stream
+
+    Returns:
+        Size of stream in bytes
+    """
+    current_pos = stream.tell()
+    stream.seek(0, 2)  # Seek to end (SEEK_END)
+    size = stream.tell()
+    stream.seek(current_pos)  # Restore position
+    return size
+
+
+def FileResponse(
+    path: Union[str, Path],
+    status_code: int = 200,
+    headers: Optional[Dict[str, str]] = None,
+    content_type: Optional[str] = None,
+    filename: Optional[str] = None,
+    as_attachment: bool = False
+) -> Response:
+    """Create a Response configured for serving a file with automatic range support.
+
+    This helper automatically:
+    - Sets Content-Type based on file extension (unless overridden)
+    - Sets Content-Length from file size
+    - Enables range request support (Accept-Ranges: bytes)
+    - Optionally sets Content-Disposition for downloads
+
+    Range requests (RFC 9110 Section 14) are automatically handled by the framework
+    for Path objects, allowing clients to request partial content.
+
+    Args:
+        path: File path (str or Path object)
+        status_code: HTTP status code (default: 200)
+        headers: Additional headers to include
+        content_type: Override Content-Type (auto-detected if not provided)
+        filename: Download filename for Content-Disposition (defaults to file's name)
+        as_attachment: If True, sets Content-Disposition to "attachment" (triggers download)
+
+    Returns:
+        Response configured for file serving
+
+    Examples:
+        # Serve a file with auto-detected Content-Type
+        return FileResponse("data/report.pdf")
+
+        # Serve with custom filename for download
+        return FileResponse(
+            "data/report.pdf",
+            filename="Monthly_Report.pdf",
+            as_attachment=True
+        )
+
+        # Serve with custom Content-Type
+        return FileResponse(
+            "data/custom.dat",
+            content_type="application/x-custom"
+        )
+
+    Note:
+        - ASGI adapters will use zero-copy file sending when possible
+        - Lambda adapters will read the file and base64 encode for transmission
+        - Range requests are automatically supported for all file responses
+    """
+    # Convert string path to Path object
+    if isinstance(path, str):
+        path = Path(path)
+
+    # Initialize headers dict
+    response_headers = MultiValueHeaders(headers) if headers else MultiValueHeaders()
+
+    # Set Content-Disposition if filename or as_attachment is specified
+    if as_attachment or filename:
+        download_name = filename or path.name
+        # Escape quotes in filename
+        safe_filename = download_name.replace('"', '\\"')
+        disposition = f'attachment; filename="{safe_filename}"' if as_attachment else f'inline; filename="{safe_filename}"'
+        response_headers["Content-Disposition"] = disposition
+
+    # Create Response - Path handling will auto-set Content-Type and Content-Length
+    return Response(
+        status_code=status_code,
+        body=path,
+        headers=response_headers,
+        content_type=content_type
+    )

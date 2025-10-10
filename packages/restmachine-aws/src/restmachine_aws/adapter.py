@@ -395,6 +395,11 @@ class AwsApiGatewayAdapter(Adapter):
         Handles proper JSON serialization, header encoding, streaming bodies, and file paths.
         For streaming bodies and Path objects, reads the entire content since Lambda requires complete responses.
 
+        Range Request Support:
+        - Detects 206 Partial Content responses (response.is_range_response())
+        - Extracts only the requested byte range from Path, stream, or bytes body
+        - Base64 encodes the range content for transmission
+
         Args:
             response: Response from the app
             event: Original AWS API Gateway event
@@ -403,6 +408,10 @@ class AwsApiGatewayAdapter(Adapter):
         Returns:
             AWS API Gateway response dictionary
         """
+        # Handle range responses specially
+        if response.is_range_response():
+            return self._convert_range_response(response)
+
         # Convert body to string and track if we used base64 encoding
         is_base64 = False
 
@@ -474,6 +483,81 @@ class AwsApiGatewayAdapter(Adapter):
         }
 
         return api_response
+
+    def _convert_range_response(self, response: Response) -> Dict[str, Any]:
+        """
+        Convert a 206 Partial Content response to AWS API Gateway format.
+
+        Extracts the requested byte range from the body and base64 encodes it.
+
+        RFC 9110 Section 14: Range requests allow partial content transfer.
+        Lambda requires complete responses, so we extract the range and send it.
+
+        Args:
+            response: Response with range_start and range_end set
+
+        Returns:
+            AWS API Gateway response dictionary with base64-encoded range
+        """
+        from restmachine.models import is_seekable_stream
+        from typing import cast, BinaryIO
+        import base64
+
+        # Validate range fields are set (guaranteed by is_range_response())
+        if response.range_start is None or response.range_end is None:
+            raise ValueError("Range response missing range_start or range_end fields")
+
+        range_start = response.range_start
+        range_end = response.range_end
+
+        # Extract the range bytes based on body type
+        range_bytes: bytes
+
+        if isinstance(response.body, Path):
+            # Path object - read only the requested range
+            path_obj = response.body
+            with path_obj.open('rb') as f:
+                f.seek(range_start)
+                range_bytes = f.read(range_end - range_start + 1)
+
+        elif is_seekable_stream(response.body):
+            # Seekable stream - seek and read range
+            stream = cast(BinaryIO, response.body)
+            stream.seek(range_start)
+            range_bytes = stream.read(range_end - range_start + 1)
+
+            # Close stream if possible
+            if hasattr(stream, 'close'):
+                stream.close()
+
+        elif isinstance(response.body, bytes):
+            # Bytes - slice the range
+            range_bytes = response.body[range_start:range_end + 1]
+
+        else:
+            # Unsupported body type for range - should not happen
+            # Fall back to empty response
+            range_bytes = b""
+
+        # Base64 encode the range bytes
+        body_str = base64.b64encode(range_bytes).decode('ascii')
+
+        # Convert headers to dict
+        if response.headers:
+            if isinstance(response.headers, MultiValueHeaders):
+                headers_dict = response.headers.to_dict()
+            else:
+                headers_dict = dict(response.headers)
+        else:
+            headers_dict = {}
+
+        # Build the API Gateway response for 206 Partial Content
+        return {
+            "statusCode": response.status_code,  # Should be 206
+            "headers": headers_dict,
+            "body": body_str,
+            "isBase64Encoded": True
+        }
 
     def _is_alb_event(self, event: Dict[str, Any]) -> bool:
         """

@@ -91,7 +91,11 @@ class TestETagGeneration(MultiDriverTestBase):
         return app
 
     def test_etag_generation_for_existing_resource(self, api):
-        """Test ETag generation for existing resource."""
+        """Test ETag generation for existing resource.
+
+        RFC 9110 Section 8.8.3: ETag field provides current entity-tag for selected representation.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.3
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/documents/doc1")
@@ -103,7 +107,12 @@ class TestETagGeneration(MultiDriverTestBase):
         assert data["version"] == 1
 
     def test_etag_changes_after_update(self, api):
-        """Test that ETag changes after resource update."""
+        """Test that ETag changes after resource update.
+
+        RFC 9110 Section 8.8.3: ETags MUST change when representation changes to allow
+        cache invalidation and conflict detection.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.3
+        """
         api_client, driver_name = api
 
         # Get initial ETag
@@ -206,7 +215,12 @@ class TestIfNoneMatchHeaders(MultiDriverTestBase):
         return app
 
     def test_if_none_match_with_matching_etag_returns_304(self, api):
-        """Test If-None-Match with matching ETag returns 304."""
+        """Test If-None-Match with matching ETag returns 304.
+
+        RFC 9110 Section 13.1.2: If-None-Match with matching ETag on GET/HEAD
+        MUST return 304 Not Modified with empty body.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2
+        """
         api_client, driver_name = api
 
         # Get document and its ETag
@@ -229,14 +243,24 @@ class TestIfNoneMatchHeaders(MultiDriverTestBase):
         assert data["id"] == "doc1"
 
     def test_if_none_match_star_with_existing_resource_returns_304(self, api):
-        """Test If-None-Match: * with existing resource returns 304."""
+        """Test If-None-Match: * with existing resource returns 304.
+
+        RFC 9110 Section 13.1.2: If-None-Match with "*" matches any existing
+        representation and returns 304 for GET/HEAD requests.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2
+        """
         api_client, driver_name = api
 
         response = api_client.get_if_none_match("/documents/doc1", "*")
         api_client.expect_not_modified(response)
 
     def test_if_none_match_star_with_nonexistent_resource_returns_404(self, api):
-        """Test If-None-Match: * with nonexistent resource returns 404."""
+        """Test If-None-Match: * with nonexistent resource returns 404.
+
+        RFC 9110 Section 13.1.2: If-None-Match evaluates to false when no
+        representation exists; normal 404 response applies.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2
+        """
         api_client, driver_name = api
 
         response = api_client.get_if_none_match("/documents/nonexistent", "*")
@@ -257,7 +281,12 @@ class TestIfNoneMatchHeaders(MultiDriverTestBase):
         assert response.status_code in [201, 412]
 
     def test_if_none_match_with_multiple_etags(self, api):
-        """Test If-None-Match with multiple ETags."""
+        """Test If-None-Match with multiple ETags.
+
+        RFC 9110 Section 13.1.2: If-None-Match can include multiple entity-tags.
+        Condition evaluates to false if ANY listed ETag matches.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.2
+        """
         api_client, driver_name = api
 
         # Get current ETag
@@ -349,7 +378,12 @@ class TestIfMatchHeaders(MultiDriverTestBase):
         return app
 
     def test_if_match_with_correct_etag_allows_update(self, api):
-        """Test If-Match with correct ETag allows update."""
+        """Test If-Match with correct ETag allows update.
+
+        RFC 9110 Section 13.1.1: If-Match precondition succeeds when current ETag
+        matches, allowing state-changing method (PUT/DELETE) to proceed.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1
+        """
         api_client, driver_name = api
 
         # Get current ETag
@@ -364,7 +398,12 @@ class TestIfMatchHeaders(MultiDriverTestBase):
         assert data["version"] == 2
 
     def test_if_match_with_wrong_etag_returns_412(self, api):
-        """Test If-Match with wrong ETag returns 412."""
+        """Test If-Match with wrong ETag returns 412.
+
+        RFC 9110 Section 13.1.1: If-Match with non-matching ETag causes precondition
+        to fail. Section 15.5.13: Server MUST respond with 412 Precondition Failed.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1
+        """
         api_client, driver_name = api
 
         wrong_etag = '"wrong-etag"'
@@ -373,7 +412,12 @@ class TestIfMatchHeaders(MultiDriverTestBase):
         api_client.expect_precondition_failed(response)
 
     def test_if_match_star_with_existing_resource_allows_update(self, api):
-        """Test If-Match: * with existing resource allows update."""
+        """Test If-Match: * with existing resource allows update.
+
+        RFC 9110 Section 13.1.1: If-Match with "*" evaluates to true if origin server
+        has a current representation for the target resource.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1
+        """
         api_client, driver_name = api
 
         update_data = {"title": "Updated with Star"}
@@ -382,7 +426,12 @@ class TestIfMatchHeaders(MultiDriverTestBase):
         assert data["title"] == "Updated with Star"
 
     def test_if_match_star_with_nonexistent_resource_returns_404(self, api):
-        """Test If-Match: * with nonexistent resource returns 404 (restmachine behavior)."""
+        """Test If-Match: * with nonexistent resource returns 404 (restmachine behavior).
+
+        RFC 9110 Section 13.1.1: If-Match with "*" evaluates to false when no
+        representation exists. Implementation may return 404 or 412; restmachine returns 404.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1
+        """
         api_client, driver_name = api
 
         update_data = {"title": "Should Not Create"}
@@ -407,7 +456,12 @@ class TestIfMatchHeaders(MultiDriverTestBase):
         api_client.expect_not_found(response3)
 
     def test_if_match_with_multiple_etags(self, api):
-        """Test If-Match with multiple ETags."""
+        """Test If-Match with multiple ETags.
+
+        RFC 9110 Section 13.1.1: If-Match can include multiple entity-tags.
+        Condition evaluates to true if ANY listed ETag matches.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.1
+        """
         api_client, driver_name = api
 
         # Get current ETag
@@ -479,7 +533,12 @@ class TestLastModifiedHeaders(MultiDriverTestBase):
         return app
 
     def test_last_modified_header_present(self, api):
-        """Test that Last-Modified header is present."""
+        """Test that Last-Modified header is present.
+
+        RFC 9110 Section 8.8.2: Last-Modified header field indicates date/time
+        the origin server believes representation was last modified.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.2
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/documents/doc1")
@@ -489,7 +548,12 @@ class TestLastModifiedHeaders(MultiDriverTestBase):
         assert last_modified is not None
 
     def test_if_modified_since_with_newer_modification(self, api):
-        """Test If-Modified-Since when resource was modified after the date."""
+        """Test If-Modified-Since when resource was modified after the date.
+
+        RFC 9110 Section 13.1.3: If-Modified-Since evaluates to true (return full response)
+        when Last-Modified is later than field value.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.3
+        """
         api_client, driver_name = api
 
         # Use a date before the document's last modified time
@@ -499,7 +563,12 @@ class TestLastModifiedHeaders(MultiDriverTestBase):
         assert data["id"] == "doc1"
 
     def test_if_modified_since_with_older_modification(self, api):
-        """Test If-Modified-Since when resource wasn't modified after the date."""
+        """Test If-Modified-Since when resource wasn't modified after the date.
+
+        RFC 9110 Section 13.1.3: If-Modified-Since evaluates to false when Last-Modified
+        is earlier/equal to field value. Server SHOULD return 304 Not Modified.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.3
+        """
         api_client, driver_name = api
 
         # Use a date after the document's last modified time
@@ -508,7 +577,12 @@ class TestLastModifiedHeaders(MultiDriverTestBase):
         api_client.expect_not_modified(response)
 
     def test_if_unmodified_since_with_newer_modification(self, api):
-        """Test If-Unmodified-Since when resource was modified after the date."""
+        """Test If-Unmodified-Since when resource was modified after the date.
+
+        RFC 9110 Section 13.1.4: If-Unmodified-Since evaluates to false when
+        Last-Modified is later than field value. Server MUST respond with 412.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.4
+        """
         api_client, driver_name = api
 
         # Use a date before the document's last modified time
@@ -521,7 +595,12 @@ class TestLastModifiedHeaders(MultiDriverTestBase):
         api_client.expect_precondition_failed(response)
 
     def test_if_unmodified_since_with_older_modification(self, api):
-        """Test If-Unmodified-Since when resource wasn't modified after the date."""
+        """Test If-Unmodified-Since when resource wasn't modified after the date.
+
+        RFC 9110 Section 13.1.4: If-Unmodified-Since evaluates to true when
+        Last-Modified is earlier/equal to field value. Request proceeds normally.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.1.4
+        """
         api_client, driver_name = api
 
         # Use a date after the document's last modified time
@@ -609,7 +688,12 @@ class TestCombinedConditionalHeaders(MultiDriverTestBase):
         assert "doc1-v1" in etag
 
     def test_if_match_and_if_unmodified_since_both_pass(self, api):
-        """Test update when both If-Match and If-Unmodified-Since conditions pass."""
+        """Test update when both If-Match and If-Unmodified-Since conditions pass.
+
+        RFC 9110 Section 13.2.2: When multiple preconditions present, ALL must
+        evaluate to true for request to proceed.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.2.2
+        """
         api_client, driver_name = api
 
         # Get current ETag
@@ -631,7 +715,12 @@ class TestCombinedConditionalHeaders(MultiDriverTestBase):
         assert data["title"] == "Updated with Both Conditions"
 
     def test_if_match_passes_if_unmodified_since_fails(self, api):
-        """Test behavior when If-Match passes but If-Unmodified-Since fails."""
+        """Test behavior when If-Match passes but If-Unmodified-Since fails.
+
+        RFC 9110 Section 13.2.2: When multiple preconditions present, request fails
+        (412) if ANY precondition evaluates to false.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.2.2
+        """
         api_client, driver_name = api
 
         # Get current ETag
@@ -653,7 +742,13 @@ class TestCombinedConditionalHeaders(MultiDriverTestBase):
         api_client.expect_precondition_failed(response2)
 
     def test_if_none_match_and_if_modified_since_both_return_304(self, api):
-        """Test when both If-None-Match and If-Modified-Since return 304."""
+        """Test when both If-None-Match and If-Modified-Since return 304.
+
+        RFC 9110 Section 13.2.2: For GET/HEAD, when If-None-Match present with
+        If-Modified-Since, server SHOULD use If-None-Match alone. Both indicate
+        304 Not Modified in this test.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-13.2.2
+        """
         api_client, driver_name = api
 
         # Get current ETag

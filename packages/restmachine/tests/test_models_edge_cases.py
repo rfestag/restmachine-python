@@ -395,7 +395,12 @@ class TestRequestConditionalHeaderParsing:
     """Test Request methods for parsing conditional headers."""
 
     def test_get_if_match_with_weak_etags(self):
-        """Test parsing If-Match header with weak ETags (W/ prefix)."""
+        """Test parsing If-Match header with weak ETags (W/ prefix).
+
+        RFC 9110 Section 8.8.3: Weak entity-tags prefixed with "W/". Section 13.1.1:
+        If-Match performs strong comparison by default; weak ETags won't match.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.3
+        """
         request = Request(
             method=HTTPMethod.GET,
             path="/test",
@@ -646,7 +651,12 @@ class TestETagsMatchFunction:
         assert etags_match("", "") is False
 
     def test_etags_match_strong_comparison_both_strong(self):
-        """Test strong comparison with two strong ETags."""
+        """Test strong comparison with two strong ETags.
+
+        RFC 9110 Section 8.8.3.2: Strong comparison: two validators match if both
+        not weak and opaque-tags character-for-character equivalent.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-8.8.3.2
+        """
         assert etags_match('"etag1"', '"etag1"', strong_comparison=True) is True
         assert etags_match('"etag1"', '"etag2"', strong_comparison=True) is False
 

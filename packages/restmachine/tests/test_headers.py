@@ -38,7 +38,12 @@ class TestContentLengthHandling(MultiDriverTestBase):
         return app
 
     def test_content_length_with_text_body(self, api):
-        """Test Content-Length header with text body."""
+        """Test Content-Length header with text body.
+
+        RFC 9110 Section 8.6: Content-Length provides anticipated size of payload
+        body in octets (bytes), not characters.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-8.6
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/text")
@@ -773,7 +778,12 @@ class TestMultiValueHeaders(MultiDriverTestBase):
         return app
 
     def test_multiple_set_cookie_headers(self, api):
-        """Test that multiple Set-Cookie headers are preserved."""
+        """Test that multiple Set-Cookie headers are preserved.
+
+        RFC 6265 Section 3: Origin servers SHOULD NOT fold multiple Set-Cookie header
+        fields into single field. Each cookie requires separate Set-Cookie header.
+        https://www.rfc-editor.org/rfc/rfc6265.html#section-3
+        """
         api_client, driver_name = api
 
         response = api_client.get_resource("/cookies")

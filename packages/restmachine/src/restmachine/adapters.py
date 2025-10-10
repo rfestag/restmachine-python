@@ -680,13 +680,23 @@ class ASGIAdapter:
         Handles proper encoding, Content-Type, and Content-Length headers.
         Supports streaming response bodies and efficient file serving via Path objects.
 
-        For Path objects, uses the ASGI http.response.pathsend extension for efficient
-        file serving when supported by the server.
+        For Path objects, uses the ASGI http.response.pathsend or http.response.zerocopysend
+        extensions for efficient file serving when supported by the server.
+
+        Range Request Support:
+        - For Path ranges: Uses http.response.zerocopysend with offset/count (zero-copy)
+        - For stream ranges: Seeks and streams the requested range
+        - For byte ranges: Slices and sends the requested bytes
 
         Args:
             response: RestMachine Response object
             send: ASGI send callable
         """
+        # Check for range response - handle specially
+        if response.is_range_response():
+            await self._send_range_response(response, send)
+            return
+
         # Check if body is a Path (file to serve)
         is_path = isinstance(response.body, Path)
 
@@ -744,6 +754,142 @@ class ASGIAdapter:
                 "type": "http.response.body",
                 "body": body,
             })
+
+    async def _send_range_response(self, response: Response, send):
+        """
+        Send a 206 Partial Content response.
+
+        Uses zero-copy extensions when possible for efficient file serving.
+
+        RFC 9110 Section 14: Range requests allow partial content transfer.
+        https://www.rfc-editor.org/rfc/rfc9110.html#section-14
+
+        Args:
+            response: Response with range_start and range_end set
+            send: ASGI send callable
+        """
+        from .models import is_seekable_stream
+        from typing import cast, BinaryIO
+
+        # Validate range fields are set (guaranteed by is_range_response())
+        if response.range_start is None or response.range_end is None:
+            raise ValueError("Range response missing range_start or range_end fields")
+
+        # Prepare headers (already includes Content-Range, Content-Length)
+        headers = self._prepare_asgi_headers(response, False, None)
+
+        # Check if body is a Path (file)
+        is_path = isinstance(response.body, Path)
+
+        # Try zero-copy send for file ranges
+        if is_path:
+            path_obj = cast(Path, response.body)
+
+            # Build response start with zerocopysend extension
+            response_start = {
+                "type": "http.response.start",
+                "status": 206,
+                "headers": headers,
+            }
+
+            # Send response start
+            await send(response_start)
+
+            # Try zero-copy send (supported by uvicorn, hypercorn)
+            try:
+                await send({
+                    "type": "http.response.zerocopysend",
+                    "file": str(path_obj.absolute()),
+                    "offset": response.range_start,
+                    "count": response.range_end - response.range_start + 1
+                })
+                return
+            except (KeyError, TypeError):
+                # Server doesn't support zerocopysend - fall back to reading
+                with path_obj.open('rb') as f:
+                    f.seek(response.range_start)
+                    remaining = response.range_end - response.range_start + 1
+                    await self._send_chunked_bytes(f, send, remaining)
+                return
+
+        # Handle stream ranges
+        if is_seekable_stream(response.body):
+            # Send response start
+            await send({
+                "type": "http.response.start",
+                "status": 206,
+                "headers": headers,
+            })
+
+            # Seek and stream the range
+            stream = cast(BinaryIO, response.body)
+            stream.seek(response.range_start)
+            remaining = response.range_end - response.range_start + 1
+            await self._send_chunked_bytes(stream, send, remaining)
+
+            # Close stream if it's a file
+            if hasattr(stream, 'close'):
+                stream.close()
+            return
+
+        # Handle bytes ranges
+        if isinstance(response.body, bytes):
+            # Send response start
+            await send({
+                "type": "http.response.start",
+                "status": 206,
+                "headers": headers,
+            })
+
+            # Slice and send
+            range_bytes = response.body[response.range_start:response.range_end + 1]
+            await send({
+                "type": "http.response.body",
+                "body": range_bytes,
+            })
+            return
+
+        # Fallback - shouldn't reach here
+        await send({
+            "type": "http.response.start",
+            "status": 206,
+            "headers": headers,
+        })
+        await send({
+            "type": "http.response.body",
+            "body": b"",
+        })
+
+    async def _send_chunked_bytes(self, stream: BinaryIO, send, total_bytes: int, chunk_size: int = 65536):
+        """
+        Send a specific number of bytes from a stream in chunks.
+
+        Args:
+            stream: Stream to read from (already seeked to correct position)
+            send: ASGI send callable
+            total_bytes: Total number of bytes to send
+            chunk_size: Size of each chunk (default 64KB)
+        """
+        remaining = total_bytes
+
+        while remaining > 0:
+            to_read = min(chunk_size, remaining)
+            chunk = stream.read(to_read)
+
+            if not chunk:
+                break  # Stream ended unexpectedly
+
+            # Ensure chunk is bytes
+            if isinstance(chunk, str):
+                chunk = chunk.encode('utf-8')
+
+            await send({
+                "type": "http.response.body",
+                "body": chunk,
+                "more_body": remaining > len(chunk)
+            })
+
+            remaining -= len(chunk)
 
 
 def create_asgi_app(app: "RestApplication", **adapter_kwargs: Any) -> ASGIAdapter:
