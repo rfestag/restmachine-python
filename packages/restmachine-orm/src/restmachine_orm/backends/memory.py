@@ -71,7 +71,8 @@ class InMemoryBackend(Backend):
         storage_data = self.adapter.model_to_storage(instance)
         storage[pk_value] = deepcopy(storage_data)
 
-        return storage_data
+        # Return model format (not storage format)
+        return self.adapter.storage_to_model(model_class, storage_data)
 
     def upsert(self, model_class: type["Model"], data: dict[str, Any]) -> dict[str, Any]:
         """Create or update a record (upsert)."""
@@ -85,7 +86,8 @@ class InMemoryBackend(Backend):
         storage_data = self.adapter.model_to_storage(instance)
         storage[pk_value] = deepcopy(storage_data)
 
-        return storage_data
+        # Return model format (not storage format)
+        return self.adapter.storage_to_model(model_class, storage_data)
 
     def get(self, model_class: type["Model"], **filters: Any) -> Optional[dict[str, Any]]:
         """Get a single record by primary key."""
@@ -118,7 +120,10 @@ class InMemoryBackend(Backend):
         storage_data = self.adapter.model_to_storage(instance)
         storage[pk_value] = deepcopy(storage_data)
 
-        return storage_data
+        # Return model format (not storage format)
+        # Note: For update, this return value is currently ignored by Model.save()
+        # but we return it for consistency and future hooks support
+        return self.adapter.storage_to_model(model_class, storage_data)
 
     def delete(self, model_class: type["Model"], instance: "Model") -> bool:
         """Delete a record."""

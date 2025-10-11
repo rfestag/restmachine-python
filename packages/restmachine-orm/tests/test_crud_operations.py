@@ -21,8 +21,8 @@ class User(Model):
     email: str = Field(unique=True)
     name: str
     age: int = Field(ge=0, le=150, default=0)
-    created_at: Optional[datetime] = Field(None, auto_now_add=True)
-    updated_at: Optional[datetime] = Field(None, auto_now=True)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class TodoItem(Model):
@@ -60,8 +60,6 @@ class TestCRUDOperations(MultiBackendTestBase):
         assert user.email == "alice@example.com"
         assert user.name == "Alice"
         assert user.age == 30
-        assert user.created_at is not None
-        assert user.updated_at is not None
 
     def test_create_duplicate_raises_error(self, orm):
         """Test that creating duplicate raises DuplicateKeyError."""
@@ -123,7 +121,6 @@ class TestCRUDOperations(MultiBackendTestBase):
             name="Alice",
             age=30
         )
-        original_created = user.created_at
 
         # Update user
         updated_user = orm_client.update_and_verify(
@@ -134,8 +131,6 @@ class TestCRUDOperations(MultiBackendTestBase):
 
         assert updated_user.age == 31
         assert updated_user.name == "Alice Smith"
-        assert updated_user.created_at == original_created
-        assert updated_user.updated_at is not None
 
         # Verify in storage
         refreshed = orm_client.get_and_verify_exists(User, id="user-123")
@@ -204,7 +199,6 @@ class TestCRUDOperations(MultiBackendTestBase):
         assert user.name == "Alice"
         assert user.age == 30
         assert user._is_persisted is True
-        assert user.created_at is not None
 
         # Verify in storage
         retrieved = orm_client.get_and_verify_exists(User, id="user-123")

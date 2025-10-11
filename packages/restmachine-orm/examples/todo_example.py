@@ -45,8 +45,8 @@ class User(Model):
     name: str = Field(min_length=1, max_length=100)
     age: int = Field(ge=0, le=150, default=0)
     role: str = Field(default="user")  # user, admin, etc.
-    created_at: datetime = Field(auto_now_add=True)
-    updated_at: datetime = Field(auto_now=True)
+    created_at: datetime = Field()
+    updated_at: datetime = Field()
 
 
 class TodoItem(Model):
@@ -70,8 +70,8 @@ class TodoItem(Model):
     description: Optional[str] = Field(None, max_length=1000)
     completed: bool = False
     priority: int = Field(ge=1, le=5, default=3)
-    created_at: datetime = Field(auto_now_add=True)
-    updated_at: datetime = Field(auto_now=True)
+    created_at: datetime = Field()
+    updated_at: datetime = Field()
 
     @partition_key
     def pk(self) -> str:

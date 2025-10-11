@@ -23,8 +23,8 @@ class User(Model):
     email: str = Field(unique=True, index=True)
     name: str = Field(max_length=100)
     age: int = Field(ge=0, le=150, default=0)
-    created_at: Optional[datetime] = Field(None, auto_now_add=True)
-    updated_at: Optional[datetime] = Field(None, auto_now=True)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class TodoItem(Model):
@@ -38,8 +38,8 @@ class TodoItem(Model):
     title: str = Field(min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     completed: bool = False
-    created_at: Optional[datetime] = Field(None, auto_now_add=True)
-    updated_at: Optional[datetime] = Field(None, auto_now=True)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     @partition_key
     def pk(self) -> str:
@@ -49,7 +49,9 @@ class TodoItem(Model):
     @sort_key
     def sk(self) -> str:
         """Sort key: TODO#{created_at}#{todo_id}"""
-        return f"TODO#{self.created_at.isoformat()}#{self.todo_id}"
+        if self.created_at:
+            return f"TODO#{self.created_at.isoformat()}#{self.todo_id}"
+        return f"TODO#{self.todo_id}"
 
 
 class TestModelDefinition:
@@ -123,21 +125,6 @@ class TestModelValidation:
         # Title too long (max_length=200)
         with pytest.raises(Exception):
             TodoItem(user_id="alice", todo_id="todo-123", title="x" * 201)
-
-    def test_auto_now_add_field(self):
-        """Test auto_now_add sets timestamp on creation."""
-        user = User(id="user-123", email="alice@example.com", name="Alice")
-        assert user.created_at is not None
-        assert isinstance(user.created_at, datetime)
-
-    def test_auto_now_field(self):
-        """Test auto_now updates timestamp."""
-        user = User(id="user-123", email="alice@example.com", name="Alice")
-        original_updated = user.updated_at
-        assert original_updated is not None
-
-        # Simulate a save operation that would trigger auto_now
-        # (actual save testing requires a backend)
 
     def test_default_values(self):
         """Test default field values."""

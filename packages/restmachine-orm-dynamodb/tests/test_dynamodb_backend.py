@@ -31,8 +31,8 @@ class User(Model):
     email: str = Field(unique=True)
     name: str
     age: int = Field(ge=0, le=150, default=0)
-    created_at: Optional[datetime] = Field(None, auto_now_add=True)
-    updated_at: Optional[datetime] = Field(None, auto_now=True)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     @partition_key
     def pk(self) -> str:
@@ -52,8 +52,8 @@ class TodoItem(Model):
     description: Optional[str] = None
     completed: bool = False
     priority: int = Field(ge=1, le=5, default=3)
-    created_at: Optional[datetime] = Field(None, auto_now_add=True)
-    updated_at: Optional[datetime] = Field(None, auto_now=True)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
     @partition_key
     def pk(self) -> str:
@@ -115,8 +115,6 @@ class TestDynamoDBCRUD:
         assert user.email == "alice@example.com"
         assert user.name == "Alice"
         assert user.age == 30
-        assert user.created_at is not None
-        assert user.updated_at is not None
 
         # Verify in DynamoDB
         item = backend.table.get_item(Key={"pk": "USER#user-123", "sk": "PROFILE"})
@@ -179,8 +177,6 @@ class TestDynamoDBCRUD:
 
         # Create user
         user = User.create(id="user-123", email="alice@example.com", name="Alice", age=30)
-        original_created = user.created_at
-        original_updated = user.updated_at
 
         # Update user
         user.age = 31
@@ -189,9 +185,6 @@ class TestDynamoDBCRUD:
 
         assert user.age == 31
         assert user.name == "Alice Smith"
-        assert user.created_at == original_created
-        # auto_now should update timestamp
-        assert user.updated_at is not None
 
         # Verify in database
         refreshed = User.get(id="user-123")
@@ -246,7 +239,6 @@ class TestDynamoDBCRUD:
         assert user.name == "Alice"
         assert user.age == 30
         assert user._is_persisted is True
-        assert user.created_at is not None
 
         # Verify in database
         retrieved = User.get(id="user-123")
@@ -265,7 +257,6 @@ class TestDynamoDBCRUD:
             name="Alice",
             age=30
         )
-        original_created = user1.created_at
 
         # Upsert with same ID but different data
         user2 = User.upsert(
@@ -287,9 +278,6 @@ class TestDynamoDBCRUD:
         assert retrieved.email == "alice.new@example.com"
         assert retrieved.name == "Alice Smith"
         assert retrieved.age == 31
-
-        # Note: upsert completely replaces the record, so created_at will be new
-        assert retrieved.created_at is not None
 
     def test_upsert_no_duplicate_error(self, backend):
         """Test that upsert does not raise DuplicateKeyError."""

@@ -27,8 +27,8 @@ class User(Model):
     email: str = Field(unique=True)
     name: str
     age: int = Field(ge=0, le=150, default=0)
-    created_at: Optional[datetime] = Field(None, auto_now_add=True)
-    updated_at: Optional[datetime] = Field(None, auto_now=True)
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 class TodoItem(Model):
@@ -88,8 +88,6 @@ class TestInMemoryCRUD:
         assert user.name == "Alice"
         assert user.age == 30
         assert user._is_persisted is True
-        assert user.created_at is not None
-        assert user.updated_at is not None
 
     def test_create_todo(self):
         """Test creating a todo item."""
@@ -136,7 +134,6 @@ class TestInMemoryCRUD:
         """Test updating a user record."""
         # Create user
         user = User.create(id="user-123", email="alice@example.com", name="Alice", age=30)
-        original_created = user.created_at
 
         # Update user
         user.age = 31
@@ -145,8 +142,6 @@ class TestInMemoryCRUD:
 
         assert user.age == 31
         assert user.name == "Alice Smith"
-        assert user.created_at == original_created
-        assert user.updated_at is not None
 
         # Verify in storage
         refreshed = User.get(id="user-123")
@@ -193,7 +188,6 @@ class TestInMemoryCRUD:
         assert user.name == "Alice"
         assert user.age == 30
         assert user._is_persisted is True
-        assert user.created_at is not None
 
         # Verify in storage
         retrieved = User.get(id="user-123")

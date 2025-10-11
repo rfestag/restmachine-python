@@ -38,8 +38,8 @@ class User(Model):
     email: str = Field(unique=True)
     name: str
     age: int = Field(ge=0, le=150, default=0)
-    created_at: Optional[datetime] = Field(None, auto_now_add=True)
-    updated_at: Optional[datetime] = Field(None, auto_now=True)
+    created_at: Optional[datetime] = Field(None)
+    updated_at: Optional[datetime] = Field(None)
 
 
 # Create users
@@ -110,8 +110,8 @@ class TodoItem(Model):
     title: str = Field(min_length=1, max_length=200)
     description: Optional[str] = None
     completed: bool = False
-    created_at: Optional[datetime] = Field(None, auto_now_add=True)
-    updated_at: Optional[datetime] = Field(None, auto_now=True)
+    created_at: Optional[datetime] = Field(None)
+    updated_at: Optional[datetime] = Field(None)
 
     @partition_key
     def pk(self) -> str:

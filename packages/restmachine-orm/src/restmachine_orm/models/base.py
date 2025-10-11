@@ -5,10 +5,7 @@ Provides ActiveRecord-style interface using Pydantic for validation.
 """
 
 from typing import Any, Optional, ClassVar, TYPE_CHECKING
-from datetime import datetime
-from pydantic import BaseModel, ConfigDict, model_validator
-
-from restmachine_orm.models.fields import get_field_orm_metadata
+from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from restmachine_orm.backends.base import Backend
@@ -61,26 +58,6 @@ class Model(BaseModel):
 
     # Track if this is a new record or loaded from database
     _is_persisted: bool = False
-
-    @model_validator(mode="after")
-    def _set_auto_fields(self) -> "Model":
-        """Set auto-generated fields like auto_now_add."""
-        if not self._is_persisted:
-            # New record - set auto_now_add fields
-            for field_name, field_info in self.__class__.model_fields.items():
-                metadata = get_field_orm_metadata(field_info)
-                if metadata.get("auto_now_add") and not getattr(self, field_name, None):
-                    # Use object.__setattr__ to bypass validation and avoid recursion
-                    object.__setattr__(self, field_name, datetime.now(tz=None))
-
-        # Always update auto_now fields
-        for field_name, field_info in self.__class__.model_fields.items():
-            metadata = get_field_orm_metadata(field_info)
-            if metadata.get("auto_now"):
-                # Use object.__setattr__ to bypass validation and avoid recursion
-                object.__setattr__(self, field_name, datetime.now(tz=None))
-
-        return self
 
     @classmethod
     def _get_backend(cls) -> "Backend":
@@ -148,13 +125,14 @@ class Model(BaseModel):
         instance = cls(**kwargs)
         data = instance.model_dump()
 
+        # Backend returns the data that was stored
         result = backend.upsert(cls, data)
-        # Update instance with any backend-generated values
-        for key, value in result.items():
-            if hasattr(instance, key):
-                setattr(instance, key, value)
-        instance._is_persisted = True
-        return instance
+
+        # Create fresh instance from backend response
+        # This ensures we have any backend-generated values
+        persisted_instance = cls(**result)
+        persisted_instance._is_persisted = True
+        return persisted_instance
 
     def save(self) -> "Model":
         """
@@ -185,18 +163,13 @@ class Model(BaseModel):
 
         if not self._is_persisted:
             # Create new record
-            result = backend.create(self.__class__, data)
-            # Update instance with any backend-generated values
-            for key, value in result.items():
-                if hasattr(self, key):
-                    setattr(self, key, value)
+            backend.create(self.__class__, data)
             self._is_persisted = True
         else:
-            # Update existing record - backend handles key extraction
-            result = backend.update(self.__class__, self)
-            for key, value in result.items():
-                if hasattr(self, key):
-                    setattr(self, key, value)
+            # Update existing record
+            # Instance already has the correct state
+            # Backend just persists what we have
+            backend.update(self.__class__, self)
 
         return self
 
