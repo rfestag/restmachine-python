@@ -120,103 +120,33 @@ class TestCacheControlHeader(MultiDriverTestBase):
 
         return app
 
-    def test_cache_control_max_age(self, api):
-        """Test Cache-Control: max-age directive.
+    @pytest.mark.parametrize("endpoint,expected_directive", [
+        ("/cacheable", "max-age=3600"),
+        ("/cacheable", "public"),
+        ("/private", "private"),
+        ("/no-cache", "no-cache"),
+        ("/no-store", "no-store"),
+        ("/must-revalidate", "must-revalidate"),
+        ("/immutable", "immutable"),
+    ])
+    def test_cache_control_directives(self, api, endpoint, expected_directive):
+        """Test various Cache-Control directives per RFC 9111.
 
-        RFC 9111 Section 5.2.2.1: max-age directive indicates response is fresh
-        for specified number of seconds after generation.
-        https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.2.1
+        RFC 9111: HTTP Caching - defines cache-control directives:
+        - max-age (5.2.2.1): Response fresh for specified seconds
+        - public (5.2.2.9): May be stored by any cache
+        - private (5.2.2.6): Single user only, no shared cache
+        - no-cache (5.2.2.4): Must revalidate before use
+        - no-store (5.2.2.5): Must not store any part
+        - must-revalidate (5.2.2.2): No stale response without validation
+        RFC 8246: immutable - Response body will not change over time
         """
         api_client, driver_name = api
 
-        response = api_client.get_resource("/cacheable")
+        response = api_client.get_resource(endpoint)
         cache_control = response.get_header("Cache-Control")
 
-        assert "max-age=3600" in cache_control
-
-    def test_cache_control_public(self, api):
-        """Test Cache-Control: public directive.
-
-        RFC 9111 Section 5.2.2.9: public directive indicates response may be
-        stored by any cache, even if normally non-cacheable.
-        https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.2.9
-        """
-        api_client, driver_name = api
-
-        response = api_client.get_resource("/cacheable")
-        cache_control = response.get_header("Cache-Control")
-
-        assert "public" in cache_control
-
-    def test_cache_control_private(self, api):
-        """Test Cache-Control: private directive.
-
-        RFC 9111 Section 5.2.2.6: private directive indicates response is
-        intended for single user and must not be stored by shared cache.
-        https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.2.6
-        """
-        api_client, driver_name = api
-
-        response = api_client.get_resource("/private")
-        cache_control = response.get_header("Cache-Control")
-
-        assert "private" in cache_control
-
-    def test_cache_control_no_cache(self, api):
-        """Test Cache-Control: no-cache directive.
-
-        RFC 9111 Section 5.2.2.4: no-cache directive indicates cached response
-        must not be used without successful validation with origin server.
-        https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.2.4
-        """
-        api_client, driver_name = api
-
-        response = api_client.get_resource("/no-cache")
-        cache_control = response.get_header("Cache-Control")
-
-        assert "no-cache" in cache_control
-
-    def test_cache_control_no_store(self, api):
-        """Test Cache-Control: no-store directive.
-
-        RFC 9111 Section 5.2.2.5: no-store directive indicates cache must not
-        store any part of either request or response. Used for sensitive data.
-        https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.2.5
-        """
-        api_client, driver_name = api
-
-        response = api_client.get_resource("/no-store")
-        cache_control = response.get_header("Cache-Control")
-
-        assert "no-store" in cache_control
-
-    def test_cache_control_must_revalidate(self, api):
-        """Test Cache-Control: must-revalidate directive.
-
-        RFC 9111 Section 5.2.2.2: must-revalidate indicates cache must not use
-        stale response without successful validation on origin server.
-        https://www.rfc-editor.org/rfc/rfc9111.html#section-5.2.2.2
-        """
-        api_client, driver_name = api
-
-        response = api_client.get_resource("/must-revalidate")
-        cache_control = response.get_header("Cache-Control")
-
-        assert "must-revalidate" in cache_control
-
-    def test_cache_control_immutable(self, api):
-        """Test Cache-Control: immutable directive.
-
-        RFC 8246: immutable directive indicates response body will not change
-        over time. Optimization for assets with versioned URLs.
-        https://www.rfc-editor.org/rfc/rfc8246.html
-        """
-        api_client, driver_name = api
-
-        response = api_client.get_resource("/immutable")
-        cache_control = response.get_header("Cache-Control")
-
-        assert "immutable" in cache_control
+        assert expected_directive in cache_control
 
 
 class TestExpiresHeader(MultiDriverTestBase):

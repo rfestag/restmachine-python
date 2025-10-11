@@ -111,92 +111,10 @@ class TestCORSPreflight(MultiDriverTestBase):
 
         return app
 
-    def test_preflight_returns_204_no_content(self, api):
-        """Test CORS preflight returns 204 No Content.
+    def test_preflight_response_complete(self, api):
+        """Test CORS preflight returns complete response with all required headers.
 
         CORS spec: Preflight should return 204 with CORS headers.
-        """
-        api_client, driver_name = api
-
-        request = api_client.options("/api/data")
-        request = request.with_header("Origin", "https://app.example.com")
-        request = request.with_header("Access-Control-Request-Method", "POST")
-        response = api_client.execute(request)
-
-        assert response.status_code == 204
-
-    def test_preflight_includes_allow_origin_header(self, api):
-        """Test CORS preflight includes Access-Control-Allow-Origin."""
-        api_client, driver_name = api
-
-        request = api_client.options("/api/data")
-        request = request.with_header("Origin", "https://app.example.com")
-        request = request.with_header("Access-Control-Request-Method", "POST")
-        response = api_client.execute(request)
-
-        allow_origin = response.get_header("Access-Control-Allow-Origin")
-        assert allow_origin == "https://app.example.com"
-
-    def test_preflight_includes_allow_methods_header(self, api):
-        """Test CORS preflight includes Access-Control-Allow-Methods.
-
-        Should auto-detect methods from registered routes.
-        """
-        api_client, driver_name = api
-
-        request = api_client.options("/api/data")
-        request = request.with_header("Origin", "https://app.example.com")
-        request = request.with_header("Access-Control-Request-Method", "POST")
-        response = api_client.execute(request)
-
-        allow_methods = response.get_header("Access-Control-Allow-Methods")
-        assert allow_methods is not None
-        assert "GET" in allow_methods
-        assert "POST" in allow_methods
-        assert "OPTIONS" in allow_methods
-
-    def test_preflight_includes_allow_headers(self, api):
-        """Test CORS preflight includes Access-Control-Allow-Headers."""
-        api_client, driver_name = api
-
-        request = api_client.options("/api/data")
-        request = request.with_header("Origin", "https://app.example.com")
-        request = request.with_header("Access-Control-Request-Method", "POST")
-        response = api_client.execute(request)
-
-        allow_headers = response.get_header("Access-Control-Allow-Headers")
-        assert allow_headers is not None
-        assert "Content-Type" in allow_headers
-        assert "Authorization" in allow_headers
-
-    def test_preflight_includes_allow_credentials(self, api):
-        """Test CORS preflight includes Access-Control-Allow-Credentials."""
-        api_client, driver_name = api
-
-        request = api_client.options("/api/data")
-        request = request.with_header("Origin", "https://app.example.com")
-        request = request.with_header("Access-Control-Request-Method", "POST")
-        response = api_client.execute(request)
-
-        allow_credentials = response.get_header("Access-Control-Allow-Credentials")
-        assert allow_credentials == "true"
-
-    def test_preflight_includes_max_age(self, api):
-        """Test CORS preflight includes Access-Control-Max-Age."""
-        api_client, driver_name = api
-
-        request = api_client.options("/api/data")
-        request = request.with_header("Origin", "https://app.example.com")
-        request = request.with_header("Access-Control-Request-Method", "POST")
-        response = api_client.execute(request)
-
-        max_age = response.get_header("Access-Control-Max-Age")
-        assert max_age is not None
-        assert int(max_age) > 0
-
-    def test_preflight_includes_allow_header_for_rfc_compliance(self, api):
-        """Test CORS preflight includes Allow header.
-
         RFC 9110 Section 10.2.1: OPTIONS response should include Allow header.
         """
         api_client, driver_name = api
@@ -206,6 +124,32 @@ class TestCORSPreflight(MultiDriverTestBase):
         request = request.with_header("Access-Control-Request-Method", "POST")
         response = api_client.execute(request)
 
+        # Status
+        assert response.status_code == 204
+
+        # CORS headers
+        allow_origin = response.get_header("Access-Control-Allow-Origin")
+        assert allow_origin == "https://app.example.com"
+
+        allow_methods = response.get_header("Access-Control-Allow-Methods")
+        assert allow_methods is not None
+        assert "GET" in allow_methods
+        assert "POST" in allow_methods
+        assert "OPTIONS" in allow_methods
+
+        allow_headers = response.get_header("Access-Control-Allow-Headers")
+        assert allow_headers is not None
+        assert "Content-Type" in allow_headers
+        assert "Authorization" in allow_headers
+
+        allow_credentials = response.get_header("Access-Control-Allow-Credentials")
+        assert allow_credentials == "true"
+
+        max_age = response.get_header("Access-Control-Max-Age")
+        assert max_age is not None
+        assert int(max_age) > 0
+
+        # RFC compliance - Allow header
         allow_header = response.get_header("Allow")
         assert allow_header is not None
         assert "GET" in allow_header
@@ -258,44 +202,8 @@ class TestCORSActualRequests(MultiDriverTestBase):
 
         return app
 
-    def test_actual_request_includes_allow_origin(self, api):
-        """Test actual request includes Access-Control-Allow-Origin."""
-        api_client, driver_name = api
-
-        request = api_client.get("/api/data")
-        request = request.with_header("Origin", "https://app.example.com")
-        response = api_client.execute(request)
-
-        assert response.status_code == 200
-        allow_origin = response.get_header("Access-Control-Allow-Origin")
-        assert allow_origin == "https://app.example.com"
-
-    def test_actual_request_includes_expose_headers(self, api):
-        """Test actual request includes Access-Control-Expose-Headers."""
-        api_client, driver_name = api
-
-        request = api_client.get("/api/data")
-        request = request.with_header("Origin", "https://app.example.com")
-        response = api_client.execute(request)
-
-        expose_headers = response.get_header("Access-Control-Expose-Headers")
-        assert expose_headers is not None
-        assert "X-Request-ID" in expose_headers
-        assert "X-Total-Count" in expose_headers
-
-    def test_actual_request_includes_allow_credentials(self, api):
-        """Test actual request includes Access-Control-Allow-Credentials."""
-        api_client, driver_name = api
-
-        request = api_client.get("/api/data")
-        request = request.with_header("Origin", "https://app.example.com")
-        response = api_client.execute(request)
-
-        allow_credentials = response.get_header("Access-Control-Allow-Credentials")
-        assert allow_credentials == "true"
-
-    def test_actual_request_includes_vary_origin(self, api):
-        """Test actual request includes Vary: Origin header.
+    def test_actual_request_includes_cors_headers(self, api):
+        """Test actual request includes all CORS headers.
 
         Vary: Origin is required for proper caching of CORS responses.
         """
@@ -305,6 +213,21 @@ class TestCORSActualRequests(MultiDriverTestBase):
         request = request.with_header("Origin", "https://app.example.com")
         response = api_client.execute(request)
 
+        assert response.status_code == 200
+
+        # CORS headers
+        allow_origin = response.get_header("Access-Control-Allow-Origin")
+        assert allow_origin == "https://app.example.com"
+
+        allow_credentials = response.get_header("Access-Control-Allow-Credentials")
+        assert allow_credentials == "true"
+
+        expose_headers = response.get_header("Access-Control-Expose-Headers")
+        assert expose_headers is not None
+        assert "X-Request-ID" in expose_headers
+        assert "X-Total-Count" in expose_headers
+
+        # Vary header for caching
         vary_header = response.get_header("Vary")
         assert vary_header is not None
         assert "Origin" in vary_header
@@ -579,8 +502,8 @@ class TestCORSMethodAutoDetection(MultiDriverTestBase):
 
         return app
 
-    def test_auto_detects_all_methods_from_routes(self, api):
-        """Test CORS auto-detects all registered methods."""
+    def test_auto_detects_methods_in_cors_and_allow_headers(self, api):
+        """Test CORS auto-detects methods in both CORS and Allow headers (RFC compliance)."""
         api_client, driver_name = api
 
         request = api_client.options("/resource")
@@ -588,29 +511,17 @@ class TestCORSMethodAutoDetection(MultiDriverTestBase):
         request = request.with_header("Access-Control-Request-Method", "POST")
         response = api_client.execute(request)
 
+        # Check CORS methods header
         allow_methods = response.get_header("Access-Control-Allow-Methods")
         assert allow_methods is not None
-        assert "GET" in allow_methods
-        assert "POST" in allow_methods
-        assert "PUT" in allow_methods
-        assert "DELETE" in allow_methods
-        assert "OPTIONS" in allow_methods
+        for method in ["GET", "POST", "PUT", "DELETE", "OPTIONS"]:
+            assert method in allow_methods
 
-    def test_auto_detected_methods_in_allow_header(self, api):
-        """Test auto-detected methods appear in Allow header (RFC compliance)."""
-        api_client, driver_name = api
-
-        request = api_client.options("/resource")
-        request = request.with_header("Origin", "https://app.example.com")
-        request = request.with_header("Access-Control-Request-Method", "POST")
-        response = api_client.execute(request)
-
+        # Check RFC Allow header
         allow_header = response.get_header("Allow")
         assert allow_header is not None
-        assert "GET" in allow_header
-        assert "POST" in allow_header
-        assert "PUT" in allow_header
-        assert "DELETE" in allow_header
+        for method in ["GET", "POST", "PUT", "DELETE"]:
+            assert method in allow_header
 
 
 class TestCORSMethodOverride(MultiDriverTestBase):
@@ -673,33 +584,19 @@ class TestCORSAppConfigurationAPI(MultiDriverTestBase):
         with pytest.raises(ValueError, match="origins parameter is required"):
             app.cors()
 
-    def test_cors_accepts_string_origin(self, api):
-        """Test cors() accepts single origin as string."""
+    @pytest.mark.parametrize("origins,expected", [
+        ("https://app.example.com", ["https://app.example.com"]),
+        (["https://app.example.com", "https://admin.example.com"],
+         ["https://app.example.com", "https://admin.example.com"]),
+        ("*", "*"),
+    ])
+    def test_cors_accepts_various_origin_formats(self, api, origins, expected):
+        """Test cors() accepts different origin input formats."""
         app = RestApplication()
-        app.cors(origins="https://app.example.com")
-
-        # Should not raise
-        assert app._cors_config is not None
-        assert app._cors_config.origins == ["https://app.example.com"]
-
-    def test_cors_accepts_list_of_origins(self, api):
-        """Test cors() accepts list of origins."""
-        app = RestApplication()
-        app.cors(origins=[
-            "https://app.example.com",
-            "https://admin.example.com"
-        ])
+        app.cors(origins=origins)
 
         assert app._cors_config is not None
-        assert len(app._cors_config.origins) == 2
-
-    def test_cors_accepts_wildcard_string(self, api):
-        """Test cors() accepts wildcard as string."""
-        app = RestApplication()
-        app.cors(origins="*")
-
-        assert app._cors_config is not None
-        assert app._cors_config.origins == "*"
+        assert app._cors_config.origins == expected
 
     def test_cors_as_decorator(self, api):
         """Test cors() can be used as route decorator."""
