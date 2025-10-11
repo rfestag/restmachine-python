@@ -160,6 +160,17 @@ class RequestStateMachine:
         self.ctx.request.path_params = path_params
         self.ctx.handler_dependencies = list(self.ctx.route_handler.param_info.keys())
 
+        # Generate CSP nonce early if needed (before handler execution)
+        csp_config = self.app._get_csp_config(
+            self.ctx.route_handler,
+            path=self.ctx.request.path,
+            request=self.ctx.request
+        )
+        if csp_config and csp_config.nonce:
+            import secrets
+            nonce_value = secrets.token_urlsafe(32)
+            self.ctx.request.csp_nonce = nonce_value  # type: ignore
+
         # Copy pre-resolved state callbacks
         for state_name, callback in self.ctx.route_handler.state_callbacks.items():
             wrapper = DependencyWrapper(callback, state_name, callback.__name__)
@@ -904,6 +915,9 @@ class RequestStateMachine:
         # Add CORS headers
         response = self._add_cors_headers(response)
 
+        # Add CSP headers
+        response = self._add_csp_headers(response)
+
         # Process range requests
         response = self._process_range_request(response)
 
@@ -985,6 +999,33 @@ class RequestStateMachine:
                 response.headers["Vary"] = f"{vary_header}, Origin"
         else:
             response.headers["Vary"] = "Origin"
+
+        return response
+
+    def _add_csp_headers(self, response: Response) -> Response:
+        """Add CSP headers to response."""
+        csp_config = self.app._get_csp_config(
+            self.ctx.route_handler,
+            path=self.ctx.request.path,
+            request=self.ctx.request
+        )
+
+        if not csp_config:
+            return response
+
+        if response.headers is None:
+            response.headers = MultiValueHeaders()
+
+        # Use nonce if it was generated earlier (in state_route_exists)
+        nonce_value = None
+        if csp_config.nonce:
+            nonce_value = getattr(self.ctx.request, 'csp_nonce', None)
+
+        # Build CSP header
+        header_value = csp_config.build_header(nonce_value=nonce_value)
+        header_name = csp_config.header_name()
+
+        response.headers[header_name] = header_value
 
         return response
 

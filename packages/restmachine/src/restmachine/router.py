@@ -4,6 +4,7 @@ from typing import Callable, List, Literal, Optional, Tuple, Dict, Any, Union, T
 from .models import HTTPMethod
 from .dependencies import Dependency, AcceptsWrapper, DependencyScope
 from .cors import CORSConfig
+from .csp import CSPConfig
 
 if TYPE_CHECKING:
     from .application import RouteHandler
@@ -224,6 +225,9 @@ class Router:
         # CORS configuration for this router (overrides app-level)
         self._cors_config: Optional[CORSConfig] = None
 
+        # CSP configuration for this router (overrides app-level)
+        self._csp_config: Optional[CSPConfig] = None
+
     def mount(self, prefix: str, router: "Router"):
         """Mount another router with a given prefix.
 
@@ -320,6 +324,11 @@ class Router:
             if hasattr(func, '_restmachine_cors_config'):
                 route.cors_config = func._restmachine_cors_config
                 delattr(func, '_restmachine_cors_config')  # Clean up marker
+
+            # Check if function has CSP config marker (from @csp decorator)
+            if hasattr(func, '_restmachine_csp_config'):
+                route.csp_config = func._restmachine_csp_config
+                delattr(func, '_restmachine_csp_config')  # Clean up marker
 
             self._routes.append(route)
 
@@ -476,6 +485,106 @@ class Router:
         # This allows cors() to be used both for router-level config and as a route decorator
         if self._cors_config is None:
             self._cors_config = config
+
+        # Return decorator function
+        return decorator
+
+    def csp(
+        self,
+        # Fetch directives
+        default_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        script_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        style_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        img_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        font_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        connect_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        frame_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        object_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        media_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        worker_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        # Document directives
+        base_uri: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        # Navigation directives
+        form_action: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        # Special options
+        nonce: bool = False,
+        report_uri: Optional[str] = None,
+        report_only: bool = False,
+        # Preset
+        preset: Optional[CSPConfig] = None,
+    ):
+        """Configure Content Security Policy for this router or as a route decorator.
+
+        Can be used in two ways:
+
+        1. Router-level configuration (applies to all routes in this router):
+            ```python
+            api_router = Router()
+            api_router.csp(default_src=["self"])
+            ```
+
+        2. Route-level decorator (applies to specific endpoint):
+            ```python
+            @api_router.get("/data")
+            @api_router.csp(script_src=["self", "https://cdn.com"])
+            def get_data():
+                return {"data": "value"}
+            ```
+
+        Args:
+            default_src: Default source list for fetch directives.
+            script_src: Valid sources for JavaScript.
+            style_src: Valid sources for stylesheets.
+            img_src: Valid sources for images.
+            font_src: Valid sources for fonts.
+            connect_src: Valid sources for fetch, WebSocket, etc.
+            frame_src: Valid sources for frames.
+            object_src: Valid sources for plugins.
+            media_src: Valid sources for audio/video.
+            worker_src: Valid sources for workers.
+            base_uri: Valid URLs for the <base> element.
+            form_action: Valid endpoints for form submissions.
+            nonce: Generate nonce for inline scripts/styles.
+            report_uri: Endpoint for CSP violation reports.
+            report_only: Use report-only mode (doesn't block, just reports).
+            preset: Use a pre-configured CSP preset.
+
+        Returns:
+            Decorator function if used as decorator, None if router-level config.
+        """
+        # If preset is provided, use it
+        if preset:
+            config = preset
+        else:
+            # Create config from parameters
+            config = CSPConfig(
+                default_src=default_src,
+                script_src=script_src,
+                style_src=style_src,
+                img_src=img_src,
+                font_src=font_src,
+                connect_src=connect_src,
+                frame_src=frame_src,
+                object_src=object_src,
+                media_src=media_src,
+                worker_src=worker_src,
+                base_uri=base_uri,
+                form_action=form_action,
+                nonce=nonce,
+                report_uri=report_uri,
+                report_only=report_only,
+            )
+
+        # Decorator for route-level CSP
+        def decorator(func: Callable):
+            # Mark the function with CSP config so route decorator can pick it up
+            func._restmachine_csp_config = config  # type: ignore
+            return func
+
+        # Store router-level config (but don't overwrite if already set)
+        # This allows csp() to be used both for router-level config and as a route decorator
+        if self._csp_config is None:
+            self._csp_config = config
 
         # Return decorator function
         return decorator

@@ -43,6 +43,7 @@ from .exceptions import PYDANTIC_AVAILABLE, AcceptsParsingError
 from .models import HTTPMethod, Request, Response
 from .router import Router
 from .cors import CORSConfig
+from .csp import CSPConfig
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -101,6 +102,9 @@ class RouteHandler:
 
         # CORS configuration for this route (overrides router/app-level)
         self.cors_config: Optional[CORSConfig] = None
+
+        # CSP configuration for this route (overrides router/app-level)
+        self.csp_config: Optional[CSPConfig] = None
 
         # State machine callbacks resolved from handler dependencies
         # These are the ONLY route-specific lookups we maintain
@@ -177,6 +181,10 @@ class RestApplication:
 
         # CORS configuration (app-level)
         self._cors_config: Optional[CORSConfig] = None
+
+        # CSP configuration (app-level)
+        self._csp_config: Optional[CSPConfig] = None
+        self._csp_provider: Optional[Callable[[Request], CSPConfig]] = None
 
         # Create default root router - all routes go through this
         self._root_router = Router(app=self)
@@ -799,6 +807,131 @@ class RestApplication:
         # Return decorator function
         return decorator
 
+    def csp(
+        self,
+        # Fetch directives
+        default_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        script_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        style_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        img_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        font_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        connect_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        frame_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        object_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        media_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        worker_src: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        # Document directives
+        base_uri: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        # Navigation directives
+        form_action: Optional[Union[List[str], Callable[[], List[str]]]] = None,
+        # Special options
+        nonce: bool = False,
+        report_uri: Optional[str] = None,
+        report_only: bool = False,
+        # Preset
+        preset: Optional[CSPConfig] = None,
+    ):
+        """Configure Content Security Policy for the application or as a route decorator.
+
+        Can be used in three ways:
+
+        1. App-level configuration (applies to all routes):
+            ```python
+            app.csp(default_src=["self"])
+            ```
+
+        2. Route-level decorator (applies to specific endpoint):
+            ```python
+            @app.get("/api/data")
+            @app.csp(script_src=["self", "https://cdn.com"])
+            def get_data():
+                return {"data": "value"}
+            ```
+
+        3. Using a preset:
+            ```python
+            app.csp(preset=CSPPreset.STRICT)
+            ```
+
+        Args:
+            default_src: Default source list for fetch directives.
+            script_src: Valid sources for JavaScript.
+            style_src: Valid sources for stylesheets.
+            img_src: Valid sources for images.
+            font_src: Valid sources for fonts.
+            connect_src: Valid sources for fetch, WebSocket, etc.
+            frame_src: Valid sources for frames.
+            object_src: Valid sources for plugins.
+            media_src: Valid sources for audio/video.
+            worker_src: Valid sources for workers.
+            base_uri: Valid URLs for the <base> element.
+            form_action: Valid endpoints for form submissions.
+            nonce: Generate nonce for inline scripts/styles.
+            report_uri: Endpoint for CSP violation reports.
+            report_only: Use report-only mode (doesn't block, just reports).
+            preset: Use a pre-configured CSP preset (CSPPreset.STRICT, etc.).
+
+        Returns:
+            Decorator function if used as decorator, None if app-level config.
+        """
+        # If preset is provided, use it
+        if preset:
+            config = preset
+        else:
+            # Create config from parameters
+            config = CSPConfig(
+                default_src=default_src,
+                script_src=script_src,
+                style_src=style_src,
+                img_src=img_src,
+                font_src=font_src,
+                connect_src=connect_src,
+                frame_src=frame_src,
+                object_src=object_src,
+                media_src=media_src,
+                worker_src=worker_src,
+                base_uri=base_uri,
+                form_action=form_action,
+                nonce=nonce,
+                report_uri=report_uri,
+                report_only=report_only,
+            )
+
+        # Decorator for route-level CSP
+        def decorator(func: Callable):
+            # Mark the function with CSP config so route decorator can pick it up
+            func._restmachine_csp_config = config  # type: ignore
+            return func
+
+        # Store app-level config (but don't overwrite if already set)
+        # This allows csp() to be used both for app-level config and as a route decorator
+        if self._csp_config is None:
+            self._csp_config = config
+
+        # Return decorator function
+        return decorator
+
+    def csp_provider(self, func: Callable):
+        """Register a per-request CSP provider.
+
+        The provider is called for each request and should return a CSPConfig
+        based on the request properties (path, headers, etc.).
+
+        Usage:
+            ```python
+            @app.csp_provider
+            def get_csp_for_request(request):
+                if request.path.startswith("/admin"):
+                    return CSPConfig(default_src=["self"], script_src=["self"])
+                return CSPConfig(default_src=["self"], script_src=["self", "https://cdn.com"])
+            ```
+
+        Args:
+            func: Provider function that takes request and returns CSPConfig
+        """
+        self._csp_provider = func
+        return func
+
     def _resolve_dependency(
         self, param_name: str, param_type: Optional[Type], request: Optional[Request], route: Optional[RouteHandler] = None
     ) -> Any:
@@ -1198,6 +1331,42 @@ class RestApplication:
 
         # Least specific: app-level config
         return self._cors_config
+
+    def _get_csp_config(self, route_handler: Optional[RouteHandler] = None, path: Optional[str] = None, request: Optional[Request] = None) -> Optional[CSPConfig]:
+        """Get CSP config with hierarchy: provider > route > router > app.
+
+        Args:
+            route_handler: Current route handler (may have route-specific CSP config)
+            path: Request path (used to find mounted router if route_handler is None)
+            request: Request object (for CSP provider)
+
+        Returns:
+            CSPConfig or None if CSP is not configured
+        """
+        from .router import normalize_path
+
+        # Most dynamic: CSP provider (if configured)
+        if self._csp_provider and request:
+            return self._csp_provider(request)
+
+        # Most specific: route-level config
+        if route_handler and route_handler.csp_config:
+            return route_handler.csp_config
+
+        # Middle: router-level config
+        # Check mounted routers by path (regardless of route_handler)
+        if path:
+            for mount_prefix, mounted_router in self._root_router._mounted_routers:
+                normalized_prefix = normalize_path("/", mount_prefix)
+                if path.startswith(normalized_prefix):
+                    if mounted_router._csp_config:
+                        return mounted_router._csp_config
+
+        if self._root_router._csp_config:
+            return self._root_router._csp_config
+
+        # Least specific: app-level config
+        return self._csp_config
 
     def on_startup(self, func: Optional[Callable] = None):
         """Register a startup handler to run when the application starts.

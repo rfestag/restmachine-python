@@ -141,6 +141,8 @@ nav:
     - Authentication & Authorization: guide/authentication.md
     - Content Negotiation: guide/content-negotiation.md
     - Conditional Requests (ETags): guide/etags.md
+    - CORS (Cross-Origin Sharing): guide/cors.md
+    - Content Security Policy (CSP): guide/csp.md
     - OpenAPI (Swagger) Generation: guide/openapi.md
     - Metrics & Observability: metrics.md
     - Testing Your Application: guide/testing.md
