@@ -52,7 +52,7 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
-          paths: [packages/restmachine/src, packages/restmachine-aws/src, packages/restmachine-web/src]
+          paths: [packages/restmachine/src, packages/restmachine-aws/src, packages/restmachine-web/src, packages/restmachine-orm/src, packages/restmachine-orm-dynamodb/src]
           options:
             docstring_style: google
             show_source: true
@@ -161,6 +161,8 @@ nav:
   - Packages:
     - AWS (restmachine-aws): '!include ./packages/restmachine-aws/mkdocs.yml'
     - Web (restmachine-web): '!include ./packages/restmachine-web/mkdocs.yml'
+    - ORM (restmachine-orm): '!include ./packages/restmachine-orm/mkdocs.yml'
+    - ORM DynamoDB (restmachine-orm-dynamodb): '!include ./packages/restmachine-orm-dynamodb/mkdocs.yml'
 
   - API Reference:
     - Core:

@@ -1,0 +1,8 @@
+site_name: RestMachine ORM - DynamoDB Backend
+site_description: DynamoDB backend for RestMachine ORM
+docs_dir: docs
+
+nav:
+  - DynamoDB:
+    - Overview: index.md
+    - API Reference: api.md
