@@ -1,0 +1,764 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>restmachine.models &mdash; restmachine 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            restmachine
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Contents:</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API Reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">restmachine</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">restmachine.models</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for restmachine.models</h1><div class="highlight"><pre>
+<span></span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">Core data models for the REST framework.</span>
+<span class="sd">&quot;&quot;&quot;</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">datetime</span><span class="w"> </span><span class="kn">import</span> <span class="n">datetime</span><span class="p">,</span> <span class="n">timezone</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">Enum</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">http</span><span class="w"> </span><span class="kn">import</span> <span class="n">HTTPStatus</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span><span class="p">,</span> <span class="n">Dict</span><span class="p">,</span> <span class="n">List</span><span class="p">,</span> <span class="n">Optional</span><span class="p">,</span> <span class="n">Tuple</span><span class="p">,</span> <span class="n">Union</span>
+
+<span class="c1"># Set up logger for this module</span>
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="MultiValueHeaders">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">MultiValueHeaders</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Multi-value, case-insensitive headers container.</span>
+
+<span class="sd">    HTTP headers are case-insensitive per RFC 7230, and the same header can appear</span>
+<span class="sd">    multiple times. This class handles both requirements:</span>
+
+<span class="sd">    - Case-insensitive lookups</span>
+<span class="sd">    - Multiple values per header name</span>
+
+<span class="sd">    Common headers that can appear multiple times:</span>
+
+<span class="sd">    - Set-Cookie, Accept, Accept-Language, Accept-Encoding</span>
+<span class="sd">    - Vary, WWW-Authenticate, Warning, Via, Link</span>
+
+<span class="sd">    Example::</span>
+
+<span class="sd">        headers = MultiValueHeaders()</span>
+<span class="sd">        headers.add(&#39;Set-Cookie&#39;, &#39;session=abc&#39;)</span>
+<span class="sd">        headers.add(&#39;Set-Cookie&#39;, &#39;user=123&#39;)</span>
+<span class="sd">        headers.get(&#39;set-cookie&#39;)      # Returns &#39;session=abc&#39; (first value)</span>
+<span class="sd">        headers.get_all(&#39;set-cookie&#39;)  # Returns [&#39;session=abc&#39;, &#39;user=123&#39;]</span>
+<span class="sd">        headers[&#39;content-type&#39;] = &#39;application/json&#39;  # Sets single value</span>
+
+<span class="sd">        # Dict-like iteration (returns first value for each header)</span>
+<span class="sd">        for name, value in headers.items():</span>
+<span class="sd">            print(f&quot;{name}: {value}&quot;)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+<div class="viewcode-block" id="MultiValueHeaders.__init__">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.__init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Initialize headers from dict, list of tuples, or another MultiValueHeaders.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            data: Can be:</span>
+<span class="sd">                - Dict[str, str] or Dict[str, List[str]]</span>
+<span class="sd">                - List of (name, value) tuples</span>
+<span class="sd">                - Another MultiValueHeaders instance</span>
+<span class="sd">                - None</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Internal storage: Dict[lowercase_name, List[Tuple[original_name, value]]]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="n">Tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]]</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">if</span> <span class="n">data</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">MultiValueHeaders</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">v</span><span class="p">)</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">items</span><span class="p">()}</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+                <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                    <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+                        <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">value</span><span class="p">:</span>
+                            <span class="bp">self</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+                    <span class="k">else</span><span class="p">:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+                <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">data</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.add">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.add">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">add</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Add a header value, allowing multiple values for the same name.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            name: Header name (case-insensitive)</span>
+<span class="sd">            value: Header value</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">name_lower</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">name_lower</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">[</span><span class="n">name_lower</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">[</span><span class="n">name_lower</span><span class="p">]</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">))</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.get">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.get">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get the first value for a header name.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            name: Header name (case-insensitive)</span>
+<span class="sd">            default: Default value if header not found</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            First header value or default</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Handle non-string keys gracefully</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">return</span> <span class="n">default</span>
+
+        <span class="n">name_lower</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">name_lower</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">[</span><span class="n">name_lower</span><span class="p">]:</span>
+            <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">[</span><span class="n">name_lower</span><span class="p">][</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">default</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.get_all">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.get_all">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_all</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get all values for a header name.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            name: Header name (case-insensitive)</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            List of all values for this header (empty list if not found)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">name_lower</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">name_lower</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span><span class="n">value</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">[</span><span class="n">name_lower</span><span class="p">]]</span>
+        <span class="k">return</span> <span class="p">[]</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.set">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.set">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Set a header to a single value, replacing any existing values.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            name: Header name (case-insensitive)</span>
+<span class="sd">            value: Header value</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">name_lower</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">[</span><span class="n">name_lower</span><span class="p">]</span> <span class="o">=</span> <span class="p">[(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)]</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.__setitem__">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.__setitem__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__setitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">value</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Set a header to a single value (dict-like interface).&quot;&quot;&quot;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.__getitem__">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.__getitem__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__getitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Get first value for a header (dict-like interface).</span>
+
+<span class="sd">        Raises:</span>
+<span class="sd">            KeyError: If header not found</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Handle non-string keys - raise KeyError</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+
+        <span class="n">value</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">value</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">value</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.__contains__">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.__contains__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__contains__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Check if header exists (case-insensitive).&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">return</span> <span class="kc">False</span>
+        <span class="k">return</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.__delitem__">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.__delitem__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__delitem__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Delete all values for a header.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="nb">str</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+
+        <span class="n">name_lower</span> <span class="o">=</span> <span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">name_lower</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+            <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">[</span><span class="n">name_lower</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="ne">KeyError</span><span class="p">(</span><span class="n">name</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.__iter__">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.__iter__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__iter__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Iterate over header names (using original casing of first occurrence).&quot;&quot;&quot;</span>
+        <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="k">if</span> <span class="n">values</span><span class="p">:</span>
+                <span class="k">yield</span> <span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.keys">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.keys">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">keys</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return header names (using original casing of first occurrence).&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.values">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.values">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">values</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return first value for each header.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">if</span> <span class="n">values</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.items">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.items">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">items</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return (name, first_value) pairs.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">[(</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">],</span> <span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">])</span> <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">if</span> <span class="n">values</span><span class="p">]</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.items_all">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.items_all">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">items_all</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Return all (name, value) pairs including duplicates.</span>
+
+<span class="sd">        Useful for serialization to formats that support multiple headers.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">values</span><span class="p">():</span>
+            <span class="n">result</span><span class="o">.</span><span class="n">extend</span><span class="p">(</span><span class="n">values</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.to_dict">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.to_dict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_dict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Convert to a simple dict with first value for each header.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Dict with lowercase keys and first values</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span><span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]:</span> <span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">1</span><span class="p">]</span> <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">if</span> <span class="n">values</span><span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.to_multidict">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.to_multidict">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">to_multidict</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Convert to a dict with lists of all values.</span>
+
+<span class="sd">        Returns:</span>
+<span class="sd">            Dict with lowercase keys and lists of all values</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="p">{</span>
+            <span class="n">values</span><span class="p">[</span><span class="mi">0</span><span class="p">][</span><span class="mi">0</span><span class="p">]:</span> <span class="p">[</span><span class="n">v</span> <span class="k">for</span> <span class="n">_</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">values</span><span class="p">]</span>
+            <span class="k">for</span> <span class="n">values</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">values</span><span class="p">()</span> <span class="k">if</span> <span class="n">values</span>
+        <span class="p">}</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.update">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.update">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">update</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">other</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">        Update headers from dict or iterable.</span>
+
+<span class="sd">        For dict-like behavior, this replaces existing headers with the same name</span>
+<span class="sd">        rather than adding to them. Use add() directly if you want to append values.</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">other</span><span class="p">,</span> <span class="n">MultiValueHeaders</span><span class="p">):</span>
+            <span class="c1"># For MultiValueHeaders, we need to handle multi-value headers properly</span>
+            <span class="c1"># Group by header name first, then set all values at once</span>
+            <span class="k">for</span> <span class="n">name_lower</span><span class="p">,</span> <span class="n">values</span> <span class="ow">in</span> <span class="n">other</span><span class="o">.</span><span class="n">_headers</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="c1"># Clear existing values for this header</span>
+                <span class="k">if</span> <span class="n">name_lower</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">:</span>
+                    <span class="k">del</span> <span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">[</span><span class="n">name_lower</span><span class="p">]</span>
+                <span class="c1"># Add all new values</span>
+                <span class="k">for</span> <span class="n">original_name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">values</span><span class="p">:</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">original_name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">other</span><span class="p">,</span> <span class="nb">dict</span><span class="p">):</span>
+            <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">other</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">value</span><span class="p">,</span> <span class="nb">list</span><span class="p">):</span>
+                    <span class="c1"># Replace with all values from list</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span> <span class="k">if</span> <span class="n">value</span> <span class="k">else</span> <span class="kc">None</span>
+                    <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">value</span><span class="p">[</span><span class="mi">1</span><span class="p">:]:</span>
+                        <span class="bp">self</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">v</span><span class="p">)</span>
+                <span class="k">else</span><span class="p">:</span>
+                    <span class="c1"># Replace with single value</span>
+                    <span class="bp">self</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="nb">isinstance</span><span class="p">(</span><span class="n">other</span><span class="p">,</span> <span class="p">(</span><span class="nb">list</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">)):</span>
+            <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="n">other</span><span class="p">:</span>
+                <span class="c1"># For list of tuples, set first occurrence, add subsequent ones</span>
+                <span class="c1"># But since we process sequentially, we just set each one</span>
+                <span class="c1"># which means last one wins for simple cases</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">set</span><span class="p">(</span><span class="n">key</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.__repr__">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.__repr__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__repr__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;String representation showing all headers.&quot;&quot;&quot;</span>
+        <span class="n">items</span> <span class="o">=</span> <span class="p">[(</span><span class="n">name</span><span class="p">,</span> <span class="n">value</span><span class="p">)</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">value</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">items</span><span class="p">()]</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">&quot;MultiValueHeaders(</span><span class="si">{</span><span class="n">items</span><span class="si">!r}</span><span class="s2">)&quot;</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.__len__">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.__len__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="fm">__len__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return number of distinct header names.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_headers</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="MultiValueHeaders.copy">
+<a class="viewcode-back" href="../../api.html#restmachine.models.MultiValueHeaders.copy">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">copy</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Return a shallow copy of the headers.&quot;&quot;&quot;</span>
+        <span class="k">return</span> <span class="n">MultiValueHeaders</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span></div>
+</div>
+
+
+
+<span class="c1"># Backward compatibility alias</span>
+<span class="n">CaseInsensitiveDict</span> <span class="o">=</span> <span class="n">MultiValueHeaders</span>
+
+
+<div class="viewcode-block" id="HTTPMethod">
+<a class="viewcode-back" href="../../api.html#restmachine.models.HTTPMethod">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">HTTPMethod</span><span class="p">(</span><span class="n">Enum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Enumeration of supported HTTP methods.&quot;&quot;&quot;</span>
+
+    <span class="n">GET</span> <span class="o">=</span> <span class="s2">&quot;GET&quot;</span>
+    <span class="n">POST</span> <span class="o">=</span> <span class="s2">&quot;POST&quot;</span>
+    <span class="n">PUT</span> <span class="o">=</span> <span class="s2">&quot;PUT&quot;</span>
+    <span class="n">DELETE</span> <span class="o">=</span> <span class="s2">&quot;DELETE&quot;</span>
+    <span class="n">PATCH</span> <span class="o">=</span> <span class="s2">&quot;PATCH&quot;</span></div>
+
+
+
+<div class="viewcode-block" id="Request">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Request">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Request</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Represents an HTTP request.</span>
+
+<span class="sd">    Supports the ASGI TLS extension for TLS/SSL connection information.</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="n">method</span><span class="p">:</span> <span class="n">HTTPMethod</span>
+    <span class="n">path</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">headers</span><span class="p">:</span> <span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="s1">&#39;MultiValueHeaders&#39;</span><span class="p">]</span>
+    <span class="n">body</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">query_params</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">path_params</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">tls</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>  <span class="c1"># ASGI TLS extension: whether connection uses TLS</span>
+    <span class="n">client_cert</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>  <span class="c1"># ASGI TLS extension: client certificate info</span>
+
+<div class="viewcode-block" id="Request.__post_init__">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Request.__post_init__">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Ensure headers is a MultiValueHeaders for case-insensitive header lookups.&quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">,</span> <span class="n">MultiValueHeaders</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="n">MultiValueHeaders</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Request.get_accept_header">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Request.get_accept_header">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_accept_header</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the Accept header, defaulting to */* if not present.&quot;&quot;&quot;</span>
+        <span class="c1"># Try lowercase first (from ASGI), fall back to title case (from test drivers)</span>
+        <span class="n">result</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;accept&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;Accept&quot;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">result</span> <span class="k">if</span> <span class="n">result</span> <span class="k">else</span> <span class="s2">&quot;*/*&quot;</span></div>
+
+
+<div class="viewcode-block" id="Request.get_content_type">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Request.get_content_type">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_content_type</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the Content-Type header.&quot;&quot;&quot;</span>
+        <span class="c1"># Try lowercase first (from ASGI), fall back to title case (from test drivers)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;content-type&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;Content-Type&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Request.get_authorization_header">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Request.get_authorization_header">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_authorization_header</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the Authorization header.&quot;&quot;&quot;</span>
+        <span class="c1"># Try lowercase first (from ASGI), fall back to title case (from test drivers)</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;authorization&quot;</span><span class="p">)</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;Authorization&quot;</span><span class="p">)</span></div>
+
+
+<div class="viewcode-block" id="Request.get_if_match">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Request.get_if_match">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_if_match</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the If-Match header values as a list of ETags.&quot;&quot;&quot;</span>
+        <span class="n">if_match</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;If-Match&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">if_match</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">if_match</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;*&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;*&quot;</span><span class="p">]</span>
+        <span class="c1"># Parse comma-separated ETags, handling quoted values</span>
+        <span class="n">etags</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">etag</span> <span class="ow">in</span> <span class="n">if_match</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">):</span>
+            <span class="n">etag</span> <span class="o">=</span> <span class="n">etag</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">etag</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">etag</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
+                <span class="n">etags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">etag</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">etag</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;W/&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">etag</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
+                <span class="n">etags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">etag</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">etags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;&quot;</span><span class="si">{</span><span class="n">etag</span><span class="si">}</span><span class="s1">&quot;&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">etags</span></div>
+
+
+<div class="viewcode-block" id="Request.get_if_none_match">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Request.get_if_none_match">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_if_none_match</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the If-None-Match header values as a list of ETags.&quot;&quot;&quot;</span>
+        <span class="n">if_none_match</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;If-None-Match&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">if_none_match</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">if_none_match</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;*&quot;</span><span class="p">:</span>
+            <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;*&quot;</span><span class="p">]</span>
+        <span class="c1"># Parse comma-separated ETags, handling quoted values</span>
+        <span class="n">etags</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">etag</span> <span class="ow">in</span> <span class="n">if_none_match</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">):</span>
+            <span class="n">etag</span> <span class="o">=</span> <span class="n">etag</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+            <span class="k">if</span> <span class="n">etag</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">etag</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
+                <span class="n">etags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">etag</span><span class="p">)</span>
+            <span class="k">elif</span> <span class="n">etag</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;W/&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">etag</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
+                <span class="n">etags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">etag</span><span class="p">)</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="n">etags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;&quot;</span><span class="si">{</span><span class="n">etag</span><span class="si">}</span><span class="s1">&quot;&#39;</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">etags</span></div>
+
+
+<div class="viewcode-block" id="Request.get_if_modified_since">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Request.get_if_modified_since">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_if_modified_since</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">datetime</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the If-Modified-Since header as a datetime object.&quot;&quot;&quot;</span>
+        <span class="n">if_modified_since</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;If-Modified-Since&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">if_modified_since</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Parse HTTP date format: &quot;Mon, 01 Jan 2024 00:00:00 GMT&quot;</span>
+            <span class="n">parsed</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">strptime</span><span class="p">(</span><span class="n">if_modified_since</span><span class="p">,</span> <span class="s2">&quot;</span><span class="si">%a</span><span class="s2">, </span><span class="si">%d</span><span class="s2"> %b %Y %H:%M:%S %Z&quot;</span><span class="p">)</span>
+            <span class="c1"># Convert to UTC timezone-aware datetime for proper comparison</span>
+            <span class="k">return</span> <span class="n">parsed</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="c1"># Try alternative format: &quot;Mon, 01-Jan-2024 00:00:00 GMT&quot;</span>
+                <span class="n">parsed</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">strptime</span><span class="p">(</span><span class="n">if_modified_since</span><span class="p">,</span> <span class="s2">&quot;</span><span class="si">%a</span><span class="s2">, </span><span class="si">%d</span><span class="s2">-%b-%Y %H:%M:%S %Z&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">parsed</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">None</span></div>
+
+
+<div class="viewcode-block" id="Request.get_if_unmodified_since">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Request.get_if_unmodified_since">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">get_if_unmodified_since</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Optional</span><span class="p">[</span><span class="n">datetime</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Get the If-Unmodified-Since header as a datetime object.&quot;&quot;&quot;</span>
+        <span class="n">if_unmodified_since</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;If-Unmodified-Since&quot;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">if_unmodified_since</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="c1"># Parse HTTP date format: &quot;Mon, 01 Jan 2024 00:00:00 GMT&quot;</span>
+            <span class="n">parsed</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">strptime</span><span class="p">(</span><span class="n">if_unmodified_since</span><span class="p">,</span> <span class="s2">&quot;</span><span class="si">%a</span><span class="s2">, </span><span class="si">%d</span><span class="s2"> %b %Y %H:%M:%S %Z&quot;</span><span class="p">)</span>
+            <span class="c1"># Convert to UTC timezone-aware datetime for proper comparison</span>
+            <span class="k">return</span> <span class="n">parsed</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+            <span class="k">try</span><span class="p">:</span>
+                <span class="c1"># Try alternative format: &quot;Mon, 01-Jan-2024 00:00:00 GMT&quot;</span>
+                <span class="n">parsed</span> <span class="o">=</span> <span class="n">datetime</span><span class="o">.</span><span class="n">strptime</span><span class="p">(</span><span class="n">if_unmodified_since</span><span class="p">,</span> <span class="s2">&quot;</span><span class="si">%a</span><span class="s2">, </span><span class="si">%d</span><span class="s2">-%b-%Y %H:%M:%S %Z&quot;</span><span class="p">)</span>
+                <span class="k">return</span> <span class="n">parsed</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">tzinfo</span><span class="o">=</span><span class="n">timezone</span><span class="o">.</span><span class="n">utc</span><span class="p">)</span>
+            <span class="k">except</span> <span class="ne">ValueError</span><span class="p">:</span>
+                <span class="k">return</span> <span class="kc">None</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="Response">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Response">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">Response</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Represents an HTTP response.&quot;&quot;&quot;</span>
+
+    <span class="n">status_code</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">body</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">headers</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="s1">&#39;MultiValueHeaders&#39;</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">content_type</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">request</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="s1">&#39;Request&#39;</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">available_content_types</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">list</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">pre_calculated_headers</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">Union</span><span class="p">[</span><span class="n">Dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">str</span><span class="p">],</span> <span class="s1">&#39;MultiValueHeaders&#39;</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">etag</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">last_modified</span><span class="p">:</span> <span class="n">Optional</span><span class="p">[</span><span class="n">datetime</span><span class="p">]</span> <span class="o">=</span> <span class="kc">None</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">):</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="n">MultiValueHeaders</span><span class="p">()</span>
+        <span class="k">elif</span> <span class="ow">not</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">,</span> <span class="n">MultiValueHeaders</span><span class="p">):</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="n">MultiValueHeaders</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">)</span>
+
+        <span class="c1"># If we have pre-calculated headers, use them first</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_calculated_headers</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">pre_calculated_headers</span><span class="p">)</span>
+
+        <span class="c1"># Set content type</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">content_type</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;Content-Type&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">content_type</span>
+
+        <span class="c1"># Automatically inject Content-Length header</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">status_code</span> <span class="o">!=</span> <span class="n">HTTPStatus</span><span class="o">.</span><span class="n">NO_CONTENT</span><span class="p">:</span>  <span class="c1"># Do not include Content-Length for No Content responses</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="c1"># Calculate byte length of body</span>
+                <span class="n">body_bytes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">body</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">body</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">body</span>
+                <span class="n">content_length</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">body_bytes</span><span class="p">)</span> <span class="k">if</span> <span class="n">body_bytes</span> <span class="k">else</span> <span class="mi">0</span>
+            <span class="k">else</span><span class="p">:</span>
+                <span class="c1"># No body, set Content-Length to 0</span>
+                <span class="n">content_length</span> <span class="o">=</span> <span class="mi">0</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;Content-Length&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">content_length</span><span class="p">)</span>
+
+        <span class="c1"># Automatically inject Vary header only if not already provided via pre_calculated_headers</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_calculated_headers</span> <span class="ow">or</span> <span class="s2">&quot;Vary&quot;</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">pre_calculated_headers</span><span class="p">:</span>
+            <span class="n">vary_values</span> <span class="o">=</span> <span class="p">[]</span>
+
+            <span class="c1"># Add &quot;Authorization&quot; to Vary if request has Authorization header</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">request</span><span class="o">.</span><span class="n">headers</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">&quot;Authorization&quot;</span><span class="p">):</span>
+                <span class="n">vary_values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;Authorization&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Add &quot;Accept&quot; to Vary if endpoint accepts more than one content type</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">available_content_types</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">available_content_types</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="n">vary_values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;Accept&quot;</span><span class="p">)</span>
+
+            <span class="c1"># Set Vary header if we have values to include</span>
+            <span class="k">if</span> <span class="n">vary_values</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;Vary&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="s2">&quot;, &quot;</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">vary_values</span><span class="p">)</span>
+
+<div class="viewcode-block" id="Response.set_etag">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Response.set_etag">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_etag</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">etag</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">weak</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Set the ETag header.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            etag: The ETag value (without quotes)</span>
+<span class="sd">            weak: Whether this is a weak ETag (prefixed with W/)</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="p">{}</span>
+
+        <span class="k">if</span> <span class="n">weak</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;ETag&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;W/&quot;</span><span class="si">{</span><span class="n">etag</span><span class="si">}</span><span class="s1">&quot;&#39;</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;ETag&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="sa">f</span><span class="s1">&#39;&quot;</span><span class="si">{</span><span class="n">etag</span><span class="si">}</span><span class="s1">&quot;&#39;</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">etag</span> <span class="o">=</span> <span class="n">etag</span></div>
+
+
+<div class="viewcode-block" id="Response.set_last_modified">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Response.set_last_modified">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">set_last_modified</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">last_modified</span><span class="p">:</span> <span class="n">datetime</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Set the Last-Modified header.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            last_modified: The last modified datetime</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="c1"># Format as HTTP date: &quot;Mon, 01 Jan 2024 00:00:00 GMT&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">headers</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">headers</span><span class="p">[</span><span class="s2">&quot;Last-Modified&quot;</span><span class="p">]</span> <span class="o">=</span> <span class="n">last_modified</span><span class="o">.</span><span class="n">strftime</span><span class="p">(</span><span class="s2">&quot;</span><span class="si">%a</span><span class="s2">, </span><span class="si">%d</span><span class="s2"> %b %Y %H:%M:%S GMT&quot;</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">last_modified</span> <span class="o">=</span> <span class="n">last_modified</span></div>
+
+
+<div class="viewcode-block" id="Response.generate_etag_from_content">
+<a class="viewcode-back" href="../../api.html#restmachine.models.Response.generate_etag_from_content">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">generate_etag_from_content</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">weak</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">):</span>
+<span class="w">        </span><span class="sd">&quot;&quot;&quot;Generate and set ETag based on response body content.</span>
+
+<span class="sd">        Args:</span>
+<span class="sd">            weak: Whether to generate a weak ETag</span>
+<span class="sd">        &quot;&quot;&quot;</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">body</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">return</span>
+
+        <span class="c1"># Generate SHA-256 hash of content for ETag</span>
+        <span class="n">content_bytes</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">body</span><span class="o">.</span><span class="n">encode</span><span class="p">(</span><span class="s1">&#39;utf-8&#39;</span><span class="p">)</span> <span class="k">if</span> <span class="nb">isinstance</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">body</span><span class="p">,</span> <span class="nb">str</span><span class="p">)</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">body</span>
+        <span class="n">etag</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">(</span><span class="n">content_bytes</span><span class="p">)</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">set_etag</span><span class="p">(</span><span class="n">etag</span><span class="p">,</span> <span class="n">weak</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="parse_etags">
+<a class="viewcode-back" href="../../api.html#restmachine.models.parse_etags">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">parse_etags</span><span class="p">(</span><span class="n">etag_header</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">List</span><span class="p">[</span><span class="nb">str</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Parse comma-separated ETag values from a header.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        etag_header: The raw ETag header value</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        List of parsed ETag values (including quotes and W/ prefix if present)</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">etag_header</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[]</span>
+
+    <span class="k">if</span> <span class="n">etag_header</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span> <span class="o">==</span> <span class="s2">&quot;*&quot;</span><span class="p">:</span>
+        <span class="k">return</span> <span class="p">[</span><span class="s2">&quot;*&quot;</span><span class="p">]</span>
+
+    <span class="n">etags</span> <span class="o">=</span> <span class="p">[]</span>
+    <span class="k">for</span> <span class="n">etag</span> <span class="ow">in</span> <span class="n">etag_header</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">&quot;,&quot;</span><span class="p">):</span>
+        <span class="n">etag</span> <span class="o">=</span> <span class="n">etag</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">etag</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">etag</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
+            <span class="n">etags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">etag</span><span class="p">)</span>
+        <span class="k">elif</span> <span class="n">etag</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;W/&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">etag</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
+            <span class="n">etags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">etag</span><span class="p">)</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="c1"># Assume unquoted ETag, add quotes</span>
+            <span class="n">etags</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s1">&#39;&quot;</span><span class="si">{</span><span class="n">etag</span><span class="si">}</span><span class="s1">&quot;&#39;</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">etags</span></div>
+
+
+
+<div class="viewcode-block" id="etags_match">
+<a class="viewcode-back" href="../../api.html#restmachine.models.etags_match">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">etags_match</span><span class="p">(</span><span class="n">etag1</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">etag2</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">strong_comparison</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Compare two ETag values according to RFC 7232.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        etag1: First ETag value (with quotes and W/ prefix if applicable)</span>
+<span class="sd">        etag2: Second ETag value (with quotes and W/ prefix if applicable)</span>
+<span class="sd">        strong_comparison: Whether to perform strong comparison (weak ETags don&#39;t match)</span>
+
+<span class="sd">    Returns:</span>
+<span class="sd">        True if ETags match according to the comparison type</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">etag1</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">etag2</span><span class="p">:</span>
+        <span class="k">return</span> <span class="kc">False</span>
+
+    <span class="c1"># Extract the actual ETag values (without W/ prefix and quotes)</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">extract_etag_value</span><span class="p">(</span><span class="n">etag</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">bool</span><span class="p">]:</span>
+        <span class="n">etag</span> <span class="o">=</span> <span class="n">etag</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+        <span class="n">is_weak</span> <span class="o">=</span> <span class="n">etag</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;W/&#39;</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">is_weak</span><span class="p">:</span>
+            <span class="n">etag</span> <span class="o">=</span> <span class="n">etag</span><span class="p">[</span><span class="mi">2</span><span class="p">:]</span>  <span class="c1"># Remove W/ prefix</span>
+        <span class="k">if</span> <span class="n">etag</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">)</span> <span class="ow">and</span> <span class="n">etag</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s1">&#39;&quot;&#39;</span><span class="p">):</span>
+            <span class="n">etag</span> <span class="o">=</span> <span class="n">etag</span><span class="p">[</span><span class="mi">1</span><span class="p">:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>  <span class="c1"># Remove quotes</span>
+        <span class="k">return</span> <span class="n">etag</span><span class="p">,</span> <span class="n">is_weak</span>
+
+    <span class="n">value1</span><span class="p">,</span> <span class="n">is_weak1</span> <span class="o">=</span> <span class="n">extract_etag_value</span><span class="p">(</span><span class="n">etag1</span><span class="p">)</span>
+    <span class="n">value2</span><span class="p">,</span> <span class="n">is_weak2</span> <span class="o">=</span> <span class="n">extract_etag_value</span><span class="p">(</span><span class="n">etag2</span><span class="p">)</span>
+
+    <span class="c1"># Strong comparison: both must be strong ETags and values must match</span>
+    <span class="k">if</span> <span class="n">strong_comparison</span><span class="p">:</span>
+        <span class="k">return</span> <span class="ow">not</span> <span class="p">(</span><span class="n">is_weak1</span> <span class="ow">or</span> <span class="n">is_weak2</span><span class="p">)</span> <span class="ow">and</span> <span class="n">value1</span> <span class="o">==</span> <span class="n">value2</span>
+
+    <span class="c1"># Weak comparison: values must match regardless of weak/strong</span>
+    <span class="k">return</span> <span class="n">value1</span> <span class="o">==</span> <span class="n">value2</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2024, REST Framework Contributors.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
