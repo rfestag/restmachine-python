@@ -86,82 +86,100 @@ class RestMachineDriver(DriverInterface):
 
     def _convert_from_restmachine_response(self, response) -> HttpResponse:
         """Convert RestMachine Response to DSL HttpResponse."""
-        # Handle streaming, Path, and non-streaming bodies
-        body = response.body
-        content_type = response.content_type
-
-        # Check if this is a range response
-        is_range = response.is_range_response() if hasattr(response, 'is_range_response') else False
-
-        if is_range:
-            # Handle range responses - extract only the requested range
-            range_start = response.range_start
-            range_end = response.range_end
-
-            if isinstance(body, Path):
-                # Read only the requested range from file
-                if body.exists() and body.is_file():
-                    with body.open('rb') as f:
-                        f.seek(range_start)
-                        body_bytes = f.read(range_end - range_start + 1)
-                else:
-                    body_bytes = b""
-                body = body_bytes
-
-            elif isinstance(body, io.IOBase):
-                # Read only the requested range from stream
-                if hasattr(body, 'seek'):
-                    body.seek(range_start)
-                body_bytes = body.read(range_end - range_start + 1)
-                body = body_bytes
-
-            elif isinstance(body, bytes):
-                # Slice the requested range
-                body = body[range_start:range_end + 1]
-
-            # Range responses are always bytes, don't try to decode
-            # (tests expect bytes for range responses)
-
-        else:
-            # Non-range response - original behavior
-            # If body is a Path, read the file
-            if isinstance(body, Path):
-                if body.exists() and body.is_file():
-                    with body.open('rb') as f:
-                        body_bytes = f.read()
-                    # Try to decode as UTF-8
-                    try:
-                        body = body_bytes.decode('utf-8')
-                    except UnicodeDecodeError:
-                        # Keep as bytes if not valid UTF-8
-                        body = body_bytes
-                else:
-                    body = None
-
-            # If body is a stream, read it all
-            elif isinstance(body, io.IOBase):
-                body_bytes = body.read()
-                # Try to decode as UTF-8
-                try:
-                    body = body_bytes.decode('utf-8')
-                except UnicodeDecodeError:
-                    # Keep as bytes if not valid UTF-8
-                    body = body_bytes
-
-            # Parse JSON bodies
-            if body and content_type and 'application/json' in content_type:
-                try:
-                    body = json.loads(body) if isinstance(body, (str, bytes)) else body
-                except (json.JSONDecodeError, TypeError):
-                    # Keep as string if not valid JSON
-                    pass
+        body = self._extract_body(response)
 
         return HttpResponse(
             status_code=response.status_code,
             headers=response.headers.copy() if response.headers else {},
             body=body,
-            content_type=content_type
+            content_type=response.content_type
         )
+
+    def _extract_body(self, response):
+        """Extract body based on type and range status."""
+        is_range = response.is_range_response() if hasattr(response, 'is_range_response') else False
+
+        if is_range:
+            return self._extract_range_body(response)
+        return self._extract_full_body(response)
+
+    def _extract_range_body(self, response):
+        """Extract only the requested range from body."""
+        body = response.body
+        range_start = response.range_start
+        range_end = response.range_end
+
+        if isinstance(body, Path):
+            return self._read_range_from_path(body, range_start, range_end)
+        elif isinstance(body, io.IOBase):
+            return self._read_range_from_stream(body, range_start, range_end)
+        elif isinstance(body, bytes):
+            return body[range_start:range_end + 1]
+        return body
+
+    def _read_range_from_path(self, path: Path, start: int, end: int) -> bytes:
+        """Read a range from a Path object."""
+        if path.exists() and path.is_file():
+            with path.open('rb') as f:
+                f.seek(start)
+                return f.read(end - start + 1)
+        return b""
+
+    def _read_range_from_stream(self, stream: io.IOBase, start: int, end: int) -> bytes:
+        """Read a range from a stream."""
+        if hasattr(stream, 'seek'):
+            stream.seek(start)
+        return stream.read(end - start + 1)
+
+    def _extract_full_body(self, response):
+        """Extract full body from Path, stream, or other types."""
+        body = self._read_body_source(response.body)
+        return self._parse_json_if_needed(body, response.content_type)
+
+    def _read_body_source(self, body):
+        """Read body from Path or stream."""
+        if isinstance(body, Path):
+            return self._read_path_body(body)
+        elif isinstance(body, io.IOBase):
+            return self._read_stream_body(body)
+        return body
+
+    def _read_path_body(self, path: Path):
+        """Read body from a Path object."""
+        if not path.exists() or not path.is_file():
+            return None
+
+        with path.open('rb') as f:
+            body_bytes = f.read()
+
+        # Try to decode as UTF-8
+        try:
+            return body_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            # Keep as bytes if not valid UTF-8
+            return body_bytes
+
+    def _read_stream_body(self, stream: io.IOBase):
+        """Read body from a stream."""
+        body_bytes = stream.read()
+
+        # Try to decode as UTF-8
+        try:
+            return body_bytes.decode('utf-8')
+        except UnicodeDecodeError:
+            # Keep as bytes if not valid UTF-8
+            return body_bytes
+
+    def _parse_json_if_needed(self, body, content_type):
+        """Parse JSON bodies if content type indicates JSON."""
+        if not body or not content_type or 'application/json' not in content_type:
+            return body
+
+        try:
+            return json.loads(body) if isinstance(body, (str, bytes)) else body
+        except (json.JSONDecodeError, TypeError):
+            # Keep as string if not valid JSON
+            return body
 
     def get_openapi_spec(self) -> Dict[str, Any]:
         """Get OpenAPI specification from the application."""

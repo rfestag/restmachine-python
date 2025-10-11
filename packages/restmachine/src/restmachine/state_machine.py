@@ -887,9 +887,32 @@ class RequestStateMachine:
 
     def _finalize_response_object(self, response: Response, headers: MultiValueHeaders) -> Response:
         """Finalize a Response object with headers and content type."""
+        # Validate Path responses
+        response = self._validate_path_response(response)
+        if response.status_code == HTTPStatus.NOT_FOUND:
+            return response
+
+        # Set content type
+        response = self._set_content_type(response)
+
+        # Apply headers
+        response = self._apply_headers(response, headers)
+
+        # Add OPTIONS Allow header
+        response = self._add_options_allow_header(response)
+
+        # Add CORS headers
+        response = self._add_cors_headers(response)
+
+        # Process range requests
+        response = self._process_range_request(response)
+
+        return response
+
+    def _validate_path_response(self, response: Response) -> Response:
+        """Validate Path objects - return 404 if path doesn't exist."""
         from pathlib import Path
 
-        # Validate Path objects - if path doesn't exist or isn't a file, return 404
         if isinstance(response.body, Path):
             if not response.body.exists() or not response.body.is_file():
                 return Response(
@@ -897,19 +920,33 @@ class RequestStateMachine:
                     json.dumps({"error": "Not Found", "detail": "File not found"}),
                     content_type="application/json"
                 )
-            # For Path responses, Content-Type is set from file extension in Response.__post_init__
-        elif not response.content_type and self.ctx.chosen_renderer:
-            # Not a Path response - set content type from chosen renderer
+        return response
+
+    def _set_content_type(self, response: Response) -> Response:
+        """Set content type from chosen renderer if not already set."""
+        from pathlib import Path
+
+        # Path responses get Content-Type from file extension in Response.__post_init__
+        if isinstance(response.body, Path):
+            return response
+
+        # Not a Path response - set content type from chosen renderer
+        if not response.content_type and self.ctx.chosen_renderer:
             response.content_type = self.ctx.chosen_renderer.media_type
             response.headers = response.headers or {}
             response.headers["Content-Type"] = self.ctx.chosen_renderer.media_type
 
-        # Add processed headers if not already set
+        return response
+
+    def _apply_headers(self, response: Response, headers: MultiValueHeaders) -> Response:
+        """Apply processed headers to response."""
         if not response.pre_calculated_headers:
             response.pre_calculated_headers = headers
             response.__post_init__()
+        return response
 
-        # Add Allow header for OPTIONS responses (RFC 9110 Section 10.2.1)
+    def _add_options_allow_header(self, response: Response) -> Response:
+        """Add Allow header for OPTIONS responses (RFC 9110 Section 10.2.1)."""
         if self.ctx.request.method == HTTPMethod.OPTIONS:
             allowed_methods = self.app._root_router.get_methods_for_path(self.ctx.request.path)
             allow_header = ", ".join([m.value for m in allowed_methods])
@@ -918,32 +955,36 @@ class RequestStateMachine:
                 response.headers = MultiValueHeaders()
             response.headers["Allow"] = allow_header
 
-        # Add CORS headers to actual responses (not preflight)
+        return response
+
+    def _add_cors_headers(self, response: Response) -> Response:
+        """Add CORS headers to actual responses (not preflight)."""
         origin = self.ctx.request.headers.get("Origin")
-        if origin:
-            cors_config = self.app._get_cors_config(self.ctx.route_handler, path=self.ctx.request.path)
-            if cors_config and cors_config.matches_origin(origin):
-                if response.headers is None:
-                    response.headers = MultiValueHeaders()
+        if not origin:
+            return response
 
-                response.headers["Access-Control-Allow-Origin"] = origin
+        cors_config = self.app._get_cors_config(self.ctx.route_handler, path=self.ctx.request.path)
+        if not cors_config or not cors_config.matches_origin(origin):
+            return response
 
-                if cors_config.expose_headers:
-                    response.headers["Access-Control-Expose-Headers"] = ", ".join(cors_config.expose_headers)
+        if response.headers is None:
+            response.headers = MultiValueHeaders()
 
-                if cors_config.credentials:
-                    response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Origin"] = origin
 
-                # Add Vary: Origin for proper caching
-                vary_header = response.headers.get("Vary", "")
-                if vary_header:
-                    if "Origin" not in vary_header:
-                        response.headers["Vary"] = f"{vary_header}, Origin"
-                else:
-                    response.headers["Vary"] = "Origin"
+        if cors_config.expose_headers:
+            response.headers["Access-Control-Expose-Headers"] = ", ".join(cors_config.expose_headers)
 
-        # Process range requests after response is finalized
-        response = self._process_range_request(response)
+        if cors_config.credentials:
+            response.headers["Access-Control-Allow-Credentials"] = "true"
+
+        # Add Vary: Origin for proper caching
+        vary_header = response.headers.get("Vary", "")
+        if vary_header:
+            if "Origin" not in vary_header:
+                response.headers["Vary"] = f"{vary_header}, Origin"
+        else:
+            response.headers["Vary"] = "Origin"
 
         return response
 

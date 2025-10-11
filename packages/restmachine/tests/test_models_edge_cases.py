@@ -532,7 +532,8 @@ class TestResponseETagMethods:
         response.headers = None
         response.set_etag("test123", weak=False)
 
-        assert response.headers == {"ETag": '"test123"'}
+        assert isinstance(response.headers, MultiValueHeaders)
+        assert response.headers["ETag"] == '"test123"'
 
     def test_set_last_modified(self):
         """Test set_last_modified() formats datetime correctly."""

@@ -438,74 +438,122 @@ class Response:
     range_end: Optional[int] = None
 
     def __post_init__(self):
+        """Initialize Response object after dataclass creation."""
+        explicit_vary = self._initialize_headers()
+        self._handle_path_objects()
+        self._set_conditional_headers()
+        self._set_content_length()
+        self._merge_vary_headers(explicit_vary)
+
+    def _initialize_headers(self) -> Optional[str]:
+        """Initialize headers dict and apply pre-calculated headers.
+
+        Returns:
+            Explicitly-set Vary header value before merging pre-calculated headers.
+        """
         if self.headers is None:
             self.headers = MultiValueHeaders()
         elif not isinstance(self.headers, MultiValueHeaders):
             self.headers = MultiValueHeaders(self.headers)
 
         # Preserve explicitly-set Vary header before applying pre_calculated_headers
-        # Vary headers should be merged, not replaced
         explicit_vary = self.headers.get("Vary") if self.headers else None
 
         # If we have pre-calculated headers, merge them in
         if self.pre_calculated_headers:
             self.headers.update(self.pre_calculated_headers)
 
-        # Handle Path objects - set Content-Type and Content-Length
-        if isinstance(self.body, Path):
-            # Detect Content-Type from file extension if not already set
-            if not self.content_type and "Content-Type" not in self.headers:
-                detected_type, _ = mimetypes.guess_type(str(self.body))
-                if detected_type:
-                    self.headers["Content-Type"] = detected_type
-                    self.content_type = detected_type  # Also update the field
-                else:
-                    # Default to application/octet-stream for unknown types
-                    self.headers["Content-Type"] = "application/octet-stream"
-                    self.content_type = "application/octet-stream"
+        return explicit_vary
 
-            # Set Content-Length from file size
-            if self.body.exists() and self.body.is_file():
-                file_size = self.body.stat().st_size
-                self.headers["Content-Length"] = str(file_size)
+    def _handle_path_objects(self):
+        """Handle Path body - detect content-type and file size."""
+        from typing import cast
+
+        if not isinstance(self.body, Path):
+            return
+
+        # After _initialize_headers(), self.headers is guaranteed to be MultiValueHeaders
+        headers = cast(MultiValueHeaders, self.headers)
+
+        # Detect Content-Type from file extension if not already set
+        if not self.content_type and "Content-Type" not in headers:
+            detected_type, _ = mimetypes.guess_type(str(self.body))
+            if detected_type:
+                headers["Content-Type"] = detected_type
+                self.content_type = detected_type
+            else:
+                # Default to application/octet-stream for unknown types
+                headers["Content-Type"] = "application/octet-stream"
+                self.content_type = "application/octet-stream"
+
+        # Set Content-Length from file size
+        if self.body.exists() and self.body.is_file():
+            file_size = self.body.stat().st_size
+            headers["Content-Length"] = str(file_size)
+
+    def _set_conditional_headers(self):
+        """Set ETag and Last-Modified headers if provided."""
+        from typing import cast
+
+        # After _initialize_headers(), self.headers is guaranteed to be MultiValueHeaders
+        headers = cast(MultiValueHeaders, self.headers)
 
         # Set content type
         if self.content_type:
-            self.headers["Content-Type"] = self.content_type
+            headers["Content-Type"] = self.content_type
 
         # Set ETag header if etag field is provided
-        if self.etag and "ETag" not in self.headers:
-            self.headers["ETag"] = self.etag
+        if self.etag and "ETag" not in headers:
+            headers["ETag"] = self.etag
 
         # Set Last-Modified header if last_modified field is provided
-        if self.last_modified and "Last-Modified" not in self.headers:
-            self.headers["Last-Modified"] = self.last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
+        if self.last_modified and "Last-Modified" not in headers:
+            headers["Last-Modified"] = self.last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
 
-        # Automatically inject Content-Length header (but not for streaming bodies, Path, or 204)
-        if self.status_code != HTTPStatus.NO_CONTENT:
-            if self.body is not None and not isinstance(self.body, (io.IOBase, Path)):
-                # Calculate byte length of body (only for non-streaming bodies)
-                import json
-                if isinstance(self.body, str):
-                    body_bytes = self.body.encode('utf-8')
-                elif isinstance(self.body, (dict, list)):
-                    body_bytes = json.dumps(self.body).encode('utf-8')
-                elif isinstance(self.body, bytes):
-                    body_bytes = self.body
-                else:
-                    body_bytes = str(self.body).encode('utf-8')
+    def _set_content_length(self):
+        """Calculate and set Content-Length based on body type."""
+        from typing import cast
 
-                content_length = len(body_bytes) if body_bytes else 0
-                self.headers["Content-Length"] = str(content_length)
-            elif self.body is None:
-                # No body, set Content-Length to 0
-                self.headers["Content-Length"] = "0"
-            # For streaming bodies (io.IOBase) and Path objects, Content-Length is handled separately
-            # Path: Already set above from file size
-            # io.IOBase: Adapter will need to handle Transfer-Encoding: chunked
+        # After _initialize_headers(), self.headers is guaranteed to be MultiValueHeaders
+        headers = cast(MultiValueHeaders, self.headers)
 
-        # Automatically inject Vary header values
-        # Vary headers should be merged (can have multiple values)
+        # Don't set Content-Length for 204 No Content
+        if self.status_code == HTTPStatus.NO_CONTENT:
+            return
+
+        # Don't set Content-Length for streaming bodies or Path (Path is handled separately)
+        if isinstance(self.body, (io.IOBase, Path)):
+            return
+
+        if self.body is not None:
+            # Calculate byte length of body (only for non-streaming bodies)
+            import json
+            if isinstance(self.body, str):
+                body_bytes = self.body.encode('utf-8')
+            elif isinstance(self.body, (dict, list)):
+                body_bytes = json.dumps(self.body).encode('utf-8')
+            elif isinstance(self.body, bytes):
+                body_bytes = self.body
+            else:
+                body_bytes = str(self.body).encode('utf-8')
+
+            content_length = len(body_bytes) if body_bytes else 0
+            headers["Content-Length"] = str(content_length)
+        else:
+            # No body, set Content-Length to 0
+            headers["Content-Length"] = "0"
+
+    def _merge_vary_headers(self, explicit_vary: Optional[str]):
+        """Merge Vary header values from multiple sources.
+
+        Args:
+            explicit_vary: Explicitly-set Vary header value from handler.
+        """
+        from typing import cast
+
+        # After _initialize_headers(), self.headers is guaranteed to be MultiValueHeaders
+        headers = cast(MultiValueHeaders, self.headers)
+
         vary_values = []
 
         # Start with any explicitly-set Vary values from handler
@@ -526,7 +574,7 @@ class Response:
 
         # Set merged Vary header if we have values
         if vary_values:
-            self.headers["Vary"] = ", ".join(vary_values)
+            headers["Vary"] = ", ".join(vary_values)
 
     def set_etag(self, etag: str, weak: bool = False):
         """Set the ETag header.
@@ -536,7 +584,7 @@ class Response:
             weak: Whether this is a weak ETag (prefixed with W/)
         """
         if self.headers is None:
-            self.headers = {}
+            self.headers = MultiValueHeaders()
 
         if weak:
             self.headers["ETag"] = f'W/"{etag}"'
@@ -552,7 +600,7 @@ class Response:
         """
         # Format as HTTP date: "Mon, 01 Jan 2024 00:00:00 GMT"
         if self.headers is None:
-            self.headers = {}
+            self.headers = MultiValueHeaders()
         self.headers["Last-Modified"] = last_modified.strftime("%a, %d %b %Y %H:%M:%S GMT")
         self.last_modified = last_modified
 
