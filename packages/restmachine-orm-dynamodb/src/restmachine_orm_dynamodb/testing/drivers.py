@@ -6,8 +6,8 @@ This driver integrates with RestMachine ORM's testing framework.
 
 from typing import Type, Optional, Any
 
-from restmachine_orm.testing.drivers import DriverInterface
-from restmachine_orm.testing.dsl import (
+from restmachine_orm_testing import (
+    DriverInterface,
     CreateOperation,
     GetOperation,
     UpdateOperation,

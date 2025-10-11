@@ -1,19 +1,10 @@
 """
 Testing framework for RestMachine ORM.
 
-DEPRECATED: This module has been moved to the restmachine-orm-testing package.
-This re-export is for backward compatibility only. Please update your imports to use:
-
-    from restmachine_orm_testing import OrmDsl, InMemoryDriver, MultiBackendTestBase
-
-Instead of:
-
-    from restmachine_orm.testing import OrmDsl, InMemoryDriver, MultiBackendTestBase
+Provides DSL and drivers for backend-agnostic ORM testing.
 """
 
-# Re-export from the new package for backward compatibility
-from restmachine_orm_testing import (  # noqa: F401
-    # DSL
+from .dsl import (
     ModelOperation,
     OrmDsl,
     CreateOperation,
@@ -23,10 +14,12 @@ from restmachine_orm_testing import (  # noqa: F401
     UpsertOperation,
     QueryOperation,
     OperationResult,
-    # Drivers
+)
+from .drivers import (
     DriverInterface,
     InMemoryDriver,
-    # Test base
+)
+from .multi_backend_base import (
     MultiBackendTestBase,
     multi_backend_test_class,
     skip_backend,

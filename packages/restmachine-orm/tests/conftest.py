@@ -5,7 +5,7 @@ Enables multi-backend testing infrastructure.
 """
 
 import pytest
-from restmachine_orm.testing import MultiBackendTestBase
+from restmachine_orm_testing import MultiBackendTestBase
 
 
 def pytest_generate_tests(metafunc):

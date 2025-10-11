@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 
 if TYPE_CHECKING:
     from restmachine_orm.models.base import Model
-    from restmachine_orm.testing.drivers import DriverInterface
+    from restmachine_orm_testing.drivers import DriverInterface
 
 
 @dataclass

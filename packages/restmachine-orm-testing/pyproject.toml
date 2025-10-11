@@ -3,9 +3,9 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "restmachine-orm-dynamodb"
+name = "restmachine-orm-testing"
 version = "0.1.0"
-description = "DynamoDB backend for RestMachine ORM"
+description = "Testing framework and utilities for RestMachine ORM backends"
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "MIT"}
@@ -25,20 +25,26 @@ classifiers = [
 ]
 dependencies = [
     "restmachine-orm>=0.1.0",
-    "boto3>=1.26.0",
-    "pydantic>=2.0.0",
+    "pytest>=7.0.0",
 ]
 
 [project.optional-dependencies]
-test = [
+dev = [
     "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
-    "moto[dynamodb]>=4.0.0",
-    "restmachine-orm-testing>=0.1.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/anthropics/restmachine-python"
+Documentation = "https://restmachine.readthedocs.io/"
+Repository = "https://github.com/anthropics/restmachine-python"
+
 [tool.hatch.build.targets.wheel]
-packages = ["src/restmachine_orm_dynamodb"]
+packages = ["src/restmachine_orm_testing"]
+artifacts = [
+    "src/restmachine_orm_testing/py.typed",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -48,8 +54,8 @@ python_functions = ["test_*"]
 addopts = "-v --strict-markers"
 
 [tool.coverage.run]
-source = ["src/restmachine_orm_dynamodb"]
-omit = ["*/tests/*", "*/testing/*"]
+source = ["src/restmachine_orm_testing"]
+omit = ["*/tests/*", "*/test_*.py"]
 
 [tool.coverage.report]
 exclude_lines = [
@@ -59,5 +65,6 @@ exclude_lines = [
     "raise NotImplementedError",
     "if __name__ == .__main__.:",
     "if TYPE_CHECKING:",
-    "@abstractmethod",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
 ]

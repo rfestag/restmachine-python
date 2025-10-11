@@ -11,7 +11,7 @@ from typing import Optional, List, Type
 
 from restmachine_orm import Model, Field
 from restmachine_orm.backends.base import DuplicateKeyError, NotFoundError
-from restmachine_orm.testing import MultiBackendTestBase
+from restmachine_orm_testing import MultiBackendTestBase
 
 
 # Test models

@@ -15,10 +15,10 @@ The testing framework consists of 4 layers:
 
 ### 1. DSL (Domain-Specific Language)
 
-Located in `restmachine_orm.testing.dsl`, the DSL provides a high-level, backend-agnostic API for ORM operations:
+Located in `restmachine_orm_testing.dsl`, the DSL provides a high-level, backend-agnostic API for ORM operations:
 
 ```python
-from restmachine_orm.testing import OrmDsl
+from restmachine_orm_testing import OrmDsl
 
 # Create model
 user = orm_client.create_and_verify(
@@ -46,7 +46,7 @@ users = orm_client.query_and_verify_count(User, expected_count=3, age__gte=18)
 
 ### 2. Drivers
 
-Located in `restmachine_orm.testing.drivers`, drivers know how to execute DSL operations against specific backends:
+Located in `restmachine_orm_testing.drivers`, drivers know how to execute DSL operations against specific backends:
 
 - **InMemoryDriver** - Tests against in-memory storage (reference implementation)
 - **DynamoDBDriver** - Tests against DynamoDB (will be in separate package)
@@ -68,10 +68,10 @@ class DriverInterface(ABC):
 
 ### 3. Multi-Backend Test Base
 
-Located in `restmachine_orm.testing.multi_backend_base`, the base class automatically runs tests against all configured backends:
+Located in `restmachine_orm_testing.multi_backend_base`, the base class automatically runs tests against all configured backends:
 
 ```python
-from restmachine_orm.testing import MultiBackendTestBase, multi_backend_test_class
+from restmachine_orm_testing import MultiBackendTestBase, multi_backend_test_class
 
 @multi_backend_test_class()
 class TestUserModel(MultiBackendTestBase):
@@ -98,7 +98,7 @@ class TestUserModel(MultiBackendTestBase):
 ### Basic Test Structure
 
 ```python
-from restmachine_orm.testing import MultiBackendTestBase, multi_backend_test_class
+from restmachine_orm_testing import MultiBackendTestBase, multi_backend_test_class
 from restmachine_orm import Model, Field
 
 # Define your models
@@ -138,7 +138,7 @@ class TestUserOperations(MultiBackendTestBase):
 Use decorators to skip tests for specific backends:
 
 ```python
-from restmachine_orm.testing import skip_backend, only_backends
+from restmachine_orm_testing import skip_backend, only_backends
 
 class TestUserOperations(MultiBackendTestBase):
     @skip_backend('dynamodb', 'This test requires in-memory features')
@@ -196,7 +196,7 @@ These tests run against all enabled backends automatically.
 from typing import List, Type
 from restmachine_orm import Model, Field
 from restmachine_orm.backends.base import DuplicateKeyError
-from restmachine_orm.testing import MultiBackendTestBase, multi_backend_test_class
+from restmachine_orm_testing import MultiBackendTestBase, multi_backend_test_class
 
 
 class User(Model):
@@ -294,7 +294,7 @@ Backend implementations should live in separate packages:
 - `restmachine-orm-opensearch` - OpenSearch backend + OpenSearch driver
 
 Each backend package:
-1. Imports DSL from `restmachine-orm.testing`
+1. Imports DSL from `restmachine-orm-testing`
 2. Provides its own driver implementation
 3. Can monkey-patch `create_driver()` via conftest.py to register itself
 
@@ -303,7 +303,7 @@ Example `conftest.py` in `restmachine-orm-dynamodb`:
 ```python
 # conftest.py in restmachine-orm-dynamodb package
 import pytest
-from restmachine_orm.testing import MultiBackendTestBase
+from restmachine_orm_testing import MultiBackendTestBase
 from restmachine_orm_dynamodb.testing import DynamoDBDriver
 
 # Register DynamoDB driver

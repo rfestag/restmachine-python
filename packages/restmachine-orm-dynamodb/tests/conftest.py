@@ -8,7 +8,7 @@ import pytest
 import boto3
 from moto import mock_aws
 
-from restmachine_orm.testing import MultiBackendTestBase
+from restmachine_orm_testing import MultiBackendTestBase
 from restmachine_orm_dynamodb.testing import DynamoDBDriver
 
 

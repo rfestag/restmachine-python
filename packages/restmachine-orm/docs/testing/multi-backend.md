@@ -33,7 +33,7 @@ The testing framework follows Dave Farley's 4-layer testing architecture:
 ```python
 from typing import List, Type
 from restmachine_orm import Model, Field
-from restmachine_orm.testing import MultiBackendTestBase
+from restmachine_orm_testing import MultiBackendTestBase
 
 class User(Model):
     id: str = Field(primary_key=True)
@@ -66,7 +66,7 @@ When you run this test, it automatically runs against all enabled backends (by d
 ### Basic Structure
 
 ```python
-from restmachine_orm.testing import MultiBackendTestBase
+from restmachine_orm_testing import MultiBackendTestBase
 from typing import List, Type
 
 class TestYourFeature(MultiBackendTestBase):
@@ -98,7 +98,7 @@ class TestUserCRUD(MultiBackendTestBase):
 ### Skip Specific Backends
 
 ```python
-from restmachine_orm.testing import skip_backend, only_backends
+from restmachine_orm_testing import skip_backend, only_backends
 
 class TestFeatures(MultiBackendTestBase):
     @skip_backend('dynamodb')
@@ -225,7 +225,7 @@ from typing import List, Type
 from datetime import datetime
 from restmachine_orm import Model, Field
 from restmachine_orm.backends.base import DuplicateKeyError, NotFoundError
-from restmachine_orm.testing import MultiBackendTestBase
+from restmachine_orm_testing import MultiBackendTestBase
 
 class User(Model):
     id: str = Field(primary_key=True)
@@ -402,8 +402,7 @@ To add support for a new backend:
 
 ```python
 # In your backend package
-from restmachine_orm.testing.drivers import DriverInterface
-from restmachine_orm.testing.dsl import CreateOperation, OperationResult
+from restmachine_orm_testing import DriverInterface, CreateOperation, OperationResult
 
 class MyBackendDriver(DriverInterface):
     def __init__(self, **config):
@@ -436,7 +435,7 @@ In your package's `conftest.py`:
 
 ```python
 import pytest
-from restmachine_orm.testing import MultiBackendTestBase
+from restmachine_orm_testing import MultiBackendTestBase
 from my_backend.testing import MyBackendDriver
 
 # Register driver
