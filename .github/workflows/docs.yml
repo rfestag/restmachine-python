@@ -1,28 +1,23 @@
-name: Documentation
+name: Documentation (Versioned)
 
 on:
   push:
     branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    tags:
+      - 'restmachine-[0-9]*'  # Trigger on version tags like restmachine-1.0.0
   workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
-
-# Allow one concurrent deployment
-concurrency:
-  group: "pages"
-  cancel-in-progress: true
+  contents: write  # Need write permission for gh-pages branch
 
 jobs:
-  build:
+  deploy-docs:
     runs-on: ubuntu-latest
 
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for git describe
 
     - name: Set up Python
       uses: actions/setup-python@v4
@@ -32,26 +27,54 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install mkdocs-material mkdocstrings[python] mkdocs-mermaid2-plugin mkdocs-monorepo-plugin
+        pip install mkdocs-material mkdocstrings[python] mkdocs-mermaid2-plugin mkdocs-monorepo-plugin mike
 
-    - name: Build documentation
-      run: mkdocs build --strict --verbose
+    - name: Configure git
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
 
-    - name: Upload artifact
-      uses: actions/upload-pages-artifact@v3
-      with:
-        path: ./site
+    - name: Determine version and deployment strategy
+      id: version
+      run: |
+        if [[ "${GITHUB_REF}" =~ refs/tags/restmachine-[0-9] ]]; then
+          # Extract version from tag (e.g., restmachine-1.0.0 -> 1.0.0)
+          VERSION=${GITHUB_REF#refs/tags/restmachine-}
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "is_release=true" >> $GITHUB_OUTPUT
+          echo "🏷️  Deploying release version: ${VERSION}"
+        else
+          # Development version from main branch
+          echo "version=dev" >> $GITHUB_OUTPUT
+          echo "is_release=false" >> $GITHUB_OUTPUT
+          echo "🔧 Deploying development version"
+        fi
 
-  deploy:
-    needs: build
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+    - name: Deploy development docs
+      if: steps.version.outputs.is_release == 'false'
+      run: |
+        echo "📚 Deploying dev documentation..."
+        mike deploy --push --update-aliases dev development
+        echo "✅ Dev docs deployed at: https://rfestag.github.io/restmachine-python/dev/"
 
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    - name: Deploy release docs
+      if: steps.version.outputs.is_release == 'true'
+      run: |
+        VERSION=${{ steps.version.outputs.version }}
+        echo "📚 Deploying version ${VERSION} documentation..."
 
-    steps:
-    - name: Deploy to GitHub Pages
-      id: deployment
-      uses: actions/deploy-pages@v4
+        # Deploy this version and update aliases
+        mike deploy --push --update-aliases ${VERSION} latest stable
+
+        # Set as default version (what users see at root URL)
+        mike set-default --push latest
+
+        echo "✅ Release docs deployed:"
+        echo "   - Version: https://rfestag.github.io/restmachine-python/${VERSION}/"
+        echo "   - Latest:  https://rfestag.github.io/restmachine-python/latest/"
+        echo "   - Default: https://rfestag.github.io/restmachine-python/"
+
+    - name: List deployed versions
+      run: |
+        echo "📋 Currently deployed versions:"
+        mike list
