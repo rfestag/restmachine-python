@@ -22,6 +22,7 @@ from .error_models import ErrorResponse
 from .exceptions import ValidationError
 from .models import HTTPMethod, Request, Response, FileResponse
 from .router import Router
+from .cors import CORSConfig
 from .streaming import BytesStreamBuffer, FileStreamWrapper
 from .template_helpers import render
 
@@ -61,6 +62,7 @@ __all__ = [
     "Adapter",
     "ASGIAdapter",
     "create_asgi_app",
+    "CORSConfig",
     "BytesStreamBuffer",
     "FileStreamWrapper",
     "render",

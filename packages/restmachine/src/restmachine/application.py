@@ -13,6 +13,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Literal,
     Optional,
     Tuple,
     Type,
@@ -41,6 +42,7 @@ from .dependencies import (
 from .exceptions import PYDANTIC_AVAILABLE, AcceptsParsingError
 from .models import HTTPMethod, Request, Response
 from .router import Router
+from .cors import CORSConfig
 
 # Set up logger for this module
 logger = logging.getLogger(__name__)
@@ -96,6 +98,9 @@ class RouteHandler:
             name: (param.annotation if param.annotation != inspect.Parameter.empty else None)
             for name, param in self.handler_signature.parameters.items()
         }
+
+        # CORS configuration for this route (overrides router/app-level)
+        self.cors_config: Optional[CORSConfig] = None
 
         # State machine callbacks resolved from handler dependencies
         # These are the ONLY route-specific lookups we maintain
@@ -169,6 +174,9 @@ class RestApplication:
         self._startup_handlers: List[Callable] = []
         self._shutdown_handlers: List[Callable] = []
         self._startup_executed = False  # Guard to prevent double execution
+
+        # CORS configuration (app-level)
+        self._cors_config: Optional[CORSConfig] = None
 
         # Create default root router - all routes go through this
         self._root_router = Router(app=self)
@@ -706,6 +714,91 @@ class RestApplication:
         """Decorator to register an OPTIONS route handler on the root router."""
         return self._root_router.options(path)
 
+    def cors(
+        self,
+        origins: Optional[Union[List[str], str]] = None,
+        methods: Optional[List[str]] = None,
+        allow_headers: Optional[List[str]] = None,
+        expose_headers: Optional[List[str]] = None,
+        credentials: bool = False,
+        max_age: int = 86400,
+        reflect_any_origin: bool = False,
+    ):
+        """Configure CORS for the entire application or as a route decorator.
+
+        Can be used in two ways:
+
+        1. App-level configuration (applies to all routes):
+            ```python
+            app.cors(origins=["https://app.example.com"])
+            ```
+
+        2. Route-level decorator (applies to specific endpoint):
+            ```python
+            @app.get("/api/data")
+            @app.cors(origins=["https://app.example.com"])
+            def get_data():
+                return {"data": "value"}
+            ```
+
+        Args:
+            origins: Allowed origins. Can be a list of URLs or "*" for all origins.
+            methods: HTTP methods to allow. If None, auto-detects from routes.
+            allow_headers: Request headers allowed in actual request.
+            expose_headers: Response headers JavaScript can access.
+            credentials: Whether to allow credentials (cookies, auth headers).
+            max_age: Preflight cache duration in seconds (default 24 hours).
+            reflect_any_origin: Allow reflecting any origin with credentials (for development).
+                              WARNING: Only use in development environments!
+
+        Returns:
+            Decorator function if used as decorator, None if app-level config.
+        """
+        # Normalize origins input
+        if origins is None:
+            # If no origins specified, this is likely being used incorrectly
+            raise ValueError("CORS: origins parameter is required")
+
+        if isinstance(origins, str):
+            normalized_origins: Union[List[str], Literal["*"]] = "*" if origins == "*" else [origins]
+        else:
+            normalized_origins = origins
+
+        # Create CORS config with defaults
+        # Use a temporary config to get defaults
+        defaults_config = CORSConfig(origins="*")
+
+        config = CORSConfig(
+            origins=normalized_origins,
+            methods=methods,
+            allow_headers=allow_headers if allow_headers is not None else defaults_config.allow_headers,
+            expose_headers=expose_headers if expose_headers is not None else defaults_config.expose_headers,
+            credentials=credentials,
+            max_age=max_age,
+            reflect_any_origin=reflect_any_origin,
+        )
+
+        # Validate config
+        config.validate()
+
+        # Check if being used as app-level config or decorator
+        # If there's a current route being registered, apply to that route
+        # Otherwise, store as app-level config
+
+        # Try to use as decorator
+        def decorator(func: Callable):
+            # Mark the function with CORS config so route decorator can pick it up
+            func._restmachine_cors_config = config  # type: ignore
+            return func
+
+        # Store app-level config (but don't overwrite if already set)
+        # This allows cors() to be used both for app-level config and as a route decorator
+        if self._cors_config is None:
+            self._cors_config = config
+
+        # Return decorator function
+        return decorator
+
     def _resolve_dependency(
         self, param_name: str, param_type: Optional[Type], request: Optional[Request], route: Optional[RouteHandler] = None
     ) -> Any:
@@ -1074,6 +1167,37 @@ class RestApplication:
         Uses the root router's trie-based lookup for efficient checking.
         """
         return self._root_router.has_path(path)
+
+    def _get_cors_config(self, route_handler: Optional[RouteHandler] = None, path: Optional[str] = None) -> Optional[CORSConfig]:
+        """Get CORS config with hierarchy: route > router > app.
+
+        Args:
+            route_handler: Current route handler (may have route-specific CORS config)
+            path: Request path (used to find mounted router if route_handler is None)
+
+        Returns:
+            CORSConfig or None if CORS is not configured
+        """
+        from .router import normalize_path
+
+        # Most specific: route-level config
+        if route_handler and route_handler.cors_config:
+            return route_handler.cors_config
+
+        # Middle: router-level config
+        # Check mounted routers by path (regardless of route_handler)
+        if path:
+            for mount_prefix, mounted_router in self._root_router._mounted_routers:
+                normalized_prefix = normalize_path("/", mount_prefix)
+                if path.startswith(normalized_prefix):
+                    if mounted_router._cors_config:
+                        return mounted_router._cors_config
+
+        if self._root_router._cors_config:
+            return self._root_router._cors_config
+
+        # Least specific: app-level config
+        return self._cors_config
 
     def on_startup(self, func: Optional[Callable] = None):
         """Register a startup handler to run when the application starts.

@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **CORS Origin Reflection for Development**: New `reflect_any_origin` parameter for credentials with wildcard origins
+  - Allows `origins="*"` with `credentials=True` by reflecting the request's Origin header
+  - Useful for development environments with multiple frontend origins (localhost ports, emulators)
+  - Bypasses the security restriction preventing wildcard + credentials
+  - Includes validation: requires explicit `reflect_any_origin=True` flag
+  - Comprehensive documentation with security warnings (development-only feature)
+  - Full test coverage with 3 new tests in `TestCORSOriginReflection`
+  - Works with both preflight (OPTIONS) and actual requests
+  - Available on `app.cors()`, `router.cors()`, and route-level `@app.cors()` decorator
 - **ASGI Adapter Support**: Built-in ASGI 3.0 adapter for deployment with any ASGI server
   - New `ASGIAdapter` class for creating ASGI applications
   - `create_asgi_app()` convenience function

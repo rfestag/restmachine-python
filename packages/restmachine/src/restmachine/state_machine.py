@@ -21,6 +21,7 @@ from restmachine.exceptions import PYDANTIC_AVAILABLE, ValidationError, AcceptsP
 if TYPE_CHECKING:
     from restmachine.application import RestApplication, RouteHandler
     from restmachine.content_renderers import ContentRenderer
+    from restmachine.cors import CORSConfig
 
 logger = logging.getLogger(__name__)
 
@@ -112,8 +113,35 @@ class RequestStateMachine:
 
         if route_match is None:
             if self.app._path_has_routes(self.ctx.request.path):
+                # Check for CORS preflight (OPTIONS with Origin header) before returning 405
+                if self.ctx.request.method == HTTPMethod.OPTIONS:
+                    origin = self.ctx.request.headers.get("Origin")
+                    if origin:
+                        # This is a CORS preflight request
+                        # Try to find a route handler for other methods to get route-level CORS config
+                        route_handler = None
+                        for method in HTTPMethod:
+                            if method != HTTPMethod.OPTIONS:
+                                match_result = self.app._root_router.match_route(self.ctx.request.path, method)
+                                if match_result:
+                                    route_handler, _ = match_result
+                                    break
+
+                        # Get CORS config (checking route-level if we found a handler)
+                        cors_config = self.app._get_cors_config(route_handler, path=self.ctx.request.path)
+                        if cors_config and cors_config.matches_origin(origin):
+                            # Set up minimal context for preflight response
+                            self.ctx.request.path_params = {}
+                            return self._create_cors_preflight_response(cors_config, origin)
+
+                # Get allowed methods for this path
+                allowed_methods = self.app._root_router.get_methods_for_path(self.ctx.request.path)
+                allow_header = ", ".join([m.value for m in allowed_methods])
+
                 return self._create_error_response(
-                    HTTPStatus.METHOD_NOT_ALLOWED, "Method Not Allowed"
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    "Method Not Allowed",
+                    headers={"Allow": allow_header}
                 )
 
             callback = self.app._default_callbacks.get("route_not_found")
@@ -136,6 +164,15 @@ class RequestStateMachine:
         for state_name, callback in self.ctx.route_handler.state_callbacks.items():
             wrapper = DependencyWrapper(callback, state_name, callback.__name__)
             self.ctx.dependency_callbacks[state_name] = wrapper
+
+        # Handle CORS preflight (OPTIONS with Origin header)
+        if self.ctx.request.method == HTTPMethod.OPTIONS:
+            origin = self.ctx.request.headers.get("Origin")
+            if origin:
+                # This is a CORS preflight request
+                cors_config = self.app._get_cors_config(self.ctx.route_handler)
+                if cors_config and cors_config.matches_origin(origin):
+                    return self._create_cors_preflight_response(cors_config, origin)
 
         return self.state_service_available
 
@@ -211,11 +248,26 @@ class RequestStateMachine:
                     callback, self.ctx.request, self.ctx.route_handler
                 )
                 if not allowed:
-                    return self._create_error_response(HTTPStatus.METHOD_NOT_ALLOWED, "Method Not Allowed")
+                    # Get allowed methods for this path
+                    allowed_methods = self.app._root_router.get_methods_for_path(self.ctx.request.path)
+                    allow_header = ", ".join([m.value for m in allowed_methods])
+
+                    return self._create_error_response(
+                        HTTPStatus.METHOD_NOT_ALLOWED,
+                        "Method Not Allowed",
+                        headers={"Allow": allow_header}
+                    )
             except Exception as e:
                 self.app._dependency_cache.set("exception", e)
+
+                # Get allowed methods for this path
+                allowed_methods = self.app._root_router.get_methods_for_path(self.ctx.request.path)
+                allow_header = ", ".join([m.value for m in allowed_methods])
+
                 return self._create_error_response(
-                    HTTPStatus.METHOD_NOT_ALLOWED, f"Method check failed: {str(e)}"
+                    HTTPStatus.METHOD_NOT_ALLOWED,
+                    f"Method check failed: {str(e)}",
+                    headers={"Allow": allow_header}
                 )
 
         return self.state_malformed_request
@@ -603,6 +655,44 @@ class RequestStateMachine:
                 **kwargs
             )
 
+    def _create_cors_preflight_response(self, cors_config: 'CORSConfig', origin: str) -> Response:
+        """Create a CORS preflight response (OPTIONS).
+
+        Args:
+            cors_config: CORS configuration to use
+            origin: Origin header from request
+
+        Returns:
+            204 No Content response with CORS headers
+        """
+        # Get allowed methods for this path
+        allowed_methods = cors_config.get_allowed_methods(
+            self.ctx.request.path,
+            self.app._root_router
+        )
+
+        headers = MultiValueHeaders()
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Methods"] = ", ".join(allowed_methods)
+
+        if cors_config.allow_headers:
+            headers["Access-Control-Allow-Headers"] = ", ".join(cors_config.allow_headers)
+
+        if cors_config.max_age:
+            headers["Access-Control-Max-Age"] = str(cors_config.max_age)
+
+        if cors_config.credentials:
+            headers["Access-Control-Allow-Credentials"] = "true"
+
+        # Also add Allow header (RFC 9110 compliance)
+        headers["Allow"] = ", ".join(allowed_methods)
+
+        return Response(
+            status_code=HTTPStatus.NO_CONTENT,
+            body=None,
+            headers=headers
+        )
+
     # ========================================================================
     # HELPER METHODS FOR state_execute_and_render
     # ========================================================================
@@ -764,21 +854,22 @@ class RequestStateMachine:
                 rendered_result.content_type = full_content_type
                 rendered_result.headers = rendered_result.headers or {}
                 rendered_result.headers["Content-Type"] = full_content_type
-            return rendered_result
+            return self._finalize_response_object(rendered_result, headers)
 
         # Renderer returned string/other
-        return Response(
+        response = Response(
             HTTPStatus.OK,
             str(rendered_result),
             content_type=full_content_type,
             pre_calculated_headers=headers,
         )
+        return self._finalize_response_object(response, headers)
 
     def _render_with_global_renderer(self, result: Any, headers: MultiValueHeaders) -> Response:
         """Render using global content renderer."""
         if self.ctx.chosen_renderer:
             rendered_body = self.ctx.chosen_renderer.render(result, self.ctx.request)
-            return Response(
+            response = Response(
                 HTTPStatus.OK,
                 rendered_body,
                 content_type=self.ctx.chosen_renderer.media_type,
@@ -786,12 +877,13 @@ class RequestStateMachine:
             )
         else:
             # Fallback to plain text
-            return Response(
+            response = Response(
                 HTTPStatus.OK,
                 str(result),
                 content_type="text/plain",
                 pre_calculated_headers=headers,
             )
+        return self._finalize_response_object(response, headers)
 
     def _finalize_response_object(self, response: Response, headers: MultiValueHeaders) -> Response:
         """Finalize a Response object with headers and content type."""
@@ -817,6 +909,39 @@ class RequestStateMachine:
             response.pre_calculated_headers = headers
             response.__post_init__()
 
+        # Add Allow header for OPTIONS responses (RFC 9110 Section 10.2.1)
+        if self.ctx.request.method == HTTPMethod.OPTIONS:
+            allowed_methods = self.app._root_router.get_methods_for_path(self.ctx.request.path)
+            allow_header = ", ".join([m.value for m in allowed_methods])
+
+            if response.headers is None:
+                response.headers = MultiValueHeaders()
+            response.headers["Allow"] = allow_header
+
+        # Add CORS headers to actual responses (not preflight)
+        origin = self.ctx.request.headers.get("Origin")
+        if origin:
+            cors_config = self.app._get_cors_config(self.ctx.route_handler, path=self.ctx.request.path)
+            if cors_config and cors_config.matches_origin(origin):
+                if response.headers is None:
+                    response.headers = MultiValueHeaders()
+
+                response.headers["Access-Control-Allow-Origin"] = origin
+
+                if cors_config.expose_headers:
+                    response.headers["Access-Control-Expose-Headers"] = ", ".join(cors_config.expose_headers)
+
+                if cors_config.credentials:
+                    response.headers["Access-Control-Allow-Credentials"] = "true"
+
+                # Add Vary: Origin for proper caching
+                vary_header = response.headers.get("Vary", "")
+                if vary_header:
+                    if "Origin" not in vary_header:
+                        response.headers["Vary"] = f"{vary_header}, Origin"
+                else:
+                    response.headers["Vary"] = "Origin"
+
         # Process range requests after response is finalized
         response = self._process_range_request(response)
 
@@ -840,11 +965,6 @@ class RequestStateMachine:
         """
         from .models import parse_range_header
 
-        # Convert strings to bytes for range processing
-        # (Range requests work on byte boundaries, not character boundaries)
-        if isinstance(response.body, str):
-            response.body = response.body.encode('utf-8')
-
         # Determine if response supports range requests
         supports_ranges = self._supports_ranges(response)
 
@@ -864,6 +984,12 @@ class RequestStateMachine:
         if not range_header:
             # No range requested - return normal response
             return response
+
+        # Convert strings to bytes for range processing
+        # (Range requests work on byte boundaries, not character boundaries)
+        # Only do this conversion when we're actually processing a range request
+        if isinstance(response.body, str):
+            response.body = response.body.encode('utf-8')
 
         # Get total size of content
         total_size = self._get_content_size(response)
@@ -915,6 +1041,10 @@ class RequestStateMachine:
 
         # Bytes support ranges
         if isinstance(response.body, bytes):
+            return True
+
+        # Strings support ranges (will be converted to bytes)
+        if isinstance(response.body, str):
             return True
 
         return False

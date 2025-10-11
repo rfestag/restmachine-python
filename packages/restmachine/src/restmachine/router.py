@@ -1,8 +1,9 @@
 """Router module for organizing routes with mounting support."""
 
-from typing import Callable, List, Optional, Tuple, Dict, Any, TYPE_CHECKING
+from typing import Callable, List, Literal, Optional, Tuple, Dict, Any, Union, TYPE_CHECKING
 from .models import HTTPMethod
 from .dependencies import Dependency, AcceptsWrapper, DependencyScope
+from .cors import CORSConfig
 
 if TYPE_CHECKING:
     from .application import RouteHandler
@@ -220,6 +221,9 @@ class Router:
         self._accepts_dependencies: Dict[str, AcceptsWrapper] = {}
         self._callbacks: Dict[str, Callable] = {}
 
+        # CORS configuration for this router (overrides app-level)
+        self._cors_config: Optional[CORSConfig] = None
+
     def mount(self, prefix: str, router: "Router"):
         """Mount another router with a given prefix.
 
@@ -270,6 +274,7 @@ class Router:
             normalized_route.state_callbacks = route.state_callbacks.copy()
             normalized_route.content_renderers = route.content_renderers.copy()
             normalized_route.validation_wrappers = route.validation_wrappers.copy()
+            normalized_route.cors_config = route.cors_config
             routes.append((normalized_path, normalized_route))
 
         # Add routes from mounted routers
@@ -310,6 +315,12 @@ class Router:
 
         def decorator(func: Callable):
             route = RouteHandler(method, path, func)
+
+            # Check if function has CORS config marker (from @cors decorator)
+            if hasattr(func, '_restmachine_cors_config'):
+                route.cors_config = func._restmachine_cors_config
+                delattr(func, '_restmachine_cors_config')  # Clean up marker
+
             self._routes.append(route)
 
             # Resolve state machine callbacks if app is available
@@ -388,6 +399,87 @@ class Router:
 
         return decorator
 
+    def cors(
+        self,
+        origins: Optional[Union[List[str], str]] = None,
+        methods: Optional[List[str]] = None,
+        allow_headers: Optional[List[str]] = None,
+        expose_headers: Optional[List[str]] = None,
+        credentials: bool = False,
+        max_age: int = 86400,
+        reflect_any_origin: bool = False,
+    ):
+        """Configure CORS for this router or as a route decorator.
+
+        Can be used in two ways:
+
+        1. Router-level configuration (applies to all routes in this router):
+            ```python
+            api_router = Router()
+            api_router.cors(origins=["https://app.example.com"])
+            ```
+
+        2. Route-level decorator (applies to specific endpoint):
+            ```python
+            @api_router.get("/data")
+            @api_router.cors(origins=["https://app.example.com"])
+            def get_data():
+                return {"data": "value"}
+            ```
+
+        Args:
+            origins: Allowed origins. Can be a list of URLs or "*" for all origins.
+            methods: HTTP methods to allow. If None, auto-detects from routes.
+            allow_headers: Request headers allowed in actual request.
+            expose_headers: Response headers JavaScript can access.
+            credentials: Whether to allow credentials (cookies, auth headers).
+            max_age: Preflight cache duration in seconds (default 24 hours).
+            reflect_any_origin: Allow reflecting any origin with credentials (for development).
+                              WARNING: Only use in development environments!
+
+        Returns:
+            Decorator function if used as decorator, None if router-level config.
+        """
+        # Normalize origins input
+        if origins is None:
+            raise ValueError("CORS: origins parameter is required")
+
+        if isinstance(origins, str):
+            normalized_origins: Union[List[str], Literal["*"]] = "*" if origins == "*" else [origins]
+        else:
+            normalized_origins = origins
+
+        # Create CORS config with defaults
+        # Use a temporary config to get defaults
+        defaults_config = CORSConfig(origins="*")
+
+        config = CORSConfig(
+            origins=normalized_origins,
+            methods=methods,
+            allow_headers=allow_headers if allow_headers is not None else defaults_config.allow_headers,
+            expose_headers=expose_headers if expose_headers is not None else defaults_config.expose_headers,
+            credentials=credentials,
+            max_age=max_age,
+            reflect_any_origin=reflect_any_origin,
+        )
+
+        # Validate config
+        config.validate()
+
+        # Try to use as decorator
+        def decorator(func: Callable):
+            # Mark the function with CORS config so route decorator can pick it up
+            func._restmachine_cors_config = config  # type: ignore
+            return func
+
+        # Store router-level config (but don't overwrite if already set)
+        # This allows cors() to be used both for router-level config and as a route decorator
+        if self._cors_config is None:
+            self._cors_config = config
+
+        # Return decorator function
+        return decorator
+
     def match_route(self, path: str, method: HTTPMethod) -> Optional[Tuple[Any, Dict[str, str]]]:
         """Match a route using the trie structure.
 
@@ -412,3 +504,33 @@ class Router:
         """
         segments = [s for s in path.split('/') if s]
         return self._route_tree.has_path(segments)
+
+    def get_methods_for_path(self, path: str) -> List[HTTPMethod]:
+        """Get all HTTP methods that have registered routes at this path.
+
+        Args:
+            path: Request path (e.g., "/users/123")
+
+        Returns:
+            List of HTTPMethod enums that have routes at this path.
+            Always includes OPTIONS if any routes exist.
+        """
+        segments = [s for s in path.split('/') if s]
+        methods: set[HTTPMethod] = set()
+
+        # Check all possible HTTP methods
+        for method in HTTPMethod:
+            # Skip OPTIONS for now, we'll add it at the end if routes exist
+            if method == HTTPMethod.OPTIONS:
+                continue
+
+            result = self._route_tree.match(segments, method)
+            if result:
+                methods.add(method)
+
+        # Always include OPTIONS if any routes exist
+        if methods:
+            methods.add(HTTPMethod.OPTIONS)
+
+        # Return sorted list for consistent ordering
+        return sorted(list(methods), key=lambda m: m.value)
