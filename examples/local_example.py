@@ -53,9 +53,7 @@ def user(path_params, user_database) -> User:
 
 @app.get("/users")
 def list_users(user_database) -> list[User]:
-    print("Getting users")
     users = [User(**u) for u in user_database.values()]
-    print("Blah")
     return users
 
 @app.post("/users")
@@ -100,8 +98,6 @@ def main():
         driver.run(log_level="error", workers=1)
 
 
-
-main()
 if __name__ == "__main__":
     try:
         main()

@@ -1203,15 +1203,39 @@ class RequestStateMachine:
     def _handle_validation_error(self, e: ValidationError, headers: Optional[MultiValueHeaders]) -> Response:
         """Handle ValidationError with proper response."""
         fallback_headers = headers or MultiValueHeaders()
+        # Sanitize error details to ensure JSON serializability
+        error_details = self._sanitize_validation_errors(e.errors(include_url=False))
         response = self._create_error_response(
             HTTPStatus.UNPROCESSABLE_ENTITY,
             "Validation failed",
-            details=e.errors(include_url=False)
+            details=error_details
         )
         if fallback_headers:
             response.pre_calculated_headers = fallback_headers
             response.__post_init__()
         return response
+
+    def _sanitize_validation_errors(self, errors: List[Any]) -> List[Dict[str, Any]]:
+        """Sanitize Pydantic validation errors to ensure JSON serializability.
+
+        Pydantic error dictionaries can contain non-serializable types in the 'ctx' field.
+        This method converts all values to JSON-serializable types.
+        """
+        sanitized: List[Dict[str, Any]] = []
+        for error in errors:
+            sanitized_error: Dict[str, Any] = {}
+            for key, value in error.items():
+                if key == 'ctx' and isinstance(value, dict):
+                    # Sanitize context dictionary
+                    sanitized_error[key] = {k: str(v) for k, v in value.items()}
+                elif isinstance(value, (str, int, float, bool, type(None))):
+                    sanitized_error[key] = value
+                elif isinstance(value, (list, tuple)):
+                    sanitized_error[key] = [str(item) if not isinstance(item, (str, int, float, bool, type(None))) else item for item in value]
+                else:
+                    sanitized_error[key] = str(value)
+            sanitized.append(sanitized_error)
+        return sanitized
 
     def _handle_accepts_parsing_error(self, e: AcceptsParsingError, headers: Optional[MultiValueHeaders]) -> Response:
         """Handle AcceptsParsingError with proper response."""

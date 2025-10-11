@@ -4,9 +4,7 @@ Example demonstrating the new Jinja2 template rendering capabilities.
 This example shows how to use the render() helper function to render
 HTML templates with Rails-like view capabilities.
 
-Note: Run this script from the examples directory:
-    cd examples
-    python template_example.py
+Note: This script can be run from any directory.
 """
 
 import os
@@ -16,6 +14,9 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from restmachine import RestApplication, HTTPMethod, Request, render
+
+# Get the directory where this script is located for template paths
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 # Create the application
@@ -65,7 +66,7 @@ def user_profile_html(get_user_profile):
     user = get_user_profile
     return render(
         template="user_detail.html",
-        package="./views",
+        package=os.path.join(SCRIPT_DIR, "views"),
         user=user
     )
 
@@ -95,7 +96,7 @@ def post_html(get_post):
     data = get_post
     return render(
         template="post_detail.html",
-        package="./views",
+        package=os.path.join(SCRIPT_DIR, "views"),
         post=data["post"],
         author=data["author"]
     )
@@ -119,7 +120,7 @@ def users_list_html(list_users):
     data = list_users
     return render(
         template="list.html",
-        package="./views",
+        package=os.path.join(SCRIPT_DIR, "views"),
         title="Users List",
         header="All Users",
         items=data["users"]

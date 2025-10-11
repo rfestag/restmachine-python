@@ -10,7 +10,8 @@ Key features demonstrated:
 - Session-scoped dependencies for resource reuse across warm invocations
 """
 
-from restmachine import AwsApiGatewayAdapter, RestApplication
+from restmachine import RestApplication
+from restmachine_aws import AwsApiGatewayAdapter
 
 # Create the REST application
 app = RestApplication()
