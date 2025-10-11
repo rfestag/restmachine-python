@@ -80,7 +80,8 @@ app.csp(
 
 @app.get("/page")
 def get_page():
-    return render_template("page.html")
+    from restmachine import render
+    return render(template="page.html", package="templates")
 ```
 
 ### 2. Router-Level
@@ -102,7 +103,8 @@ public_router.csp(
 
 @public_router.get("/home")
 def home():
-    return render_template("home.html")
+    from restmachine import render
+    return render(template="home.html", package="templates")
 
 # Admin pages - strict CSP
 admin_router = Router()
@@ -114,7 +116,8 @@ admin_router.csp(
 
 @admin_router.get("/dashboard")
 def dashboard():
-    return render_template("admin.html")
+    from restmachine import render
+    return render(template="admin.html", package="templates")
 
 app.mount("/", public_router)
 app.mount("/admin", admin_router)

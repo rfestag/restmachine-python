@@ -68,8 +68,9 @@ from restmachine import RestApplication
 app = RestApplication()
 
 @app.get("/users/{user_id}")
-def get_user(user_id: int):
+def get_user(path_params):
     """Return user data in the requested format."""
+    user_id = path_params['user_id']
     return {
         "id": user_id,
         "name": "Alice",
@@ -247,7 +248,8 @@ from restmachine import RestApplication, render
 app = RestApplication()
 
 @app.get("/users/{user_id}")
-def get_user(user_id: int):
+def get_user(path_params):
+    user_id = path_params['user_id']
     return {
         "id": user_id,
         "name": "Alice",
@@ -407,7 +409,7 @@ def render_posts_xml(list_posts):
 @app.resource_exists
 def post(path_params, database):
     """Get post by ID, returns None if not found."""
-    post_id = int(path_params.get('post_id'))
+    post_id = int(path_params['post_id'])
     return database["posts"].get(post_id)
 
 @app.get("/posts/{post_id}")
@@ -443,6 +445,7 @@ def render_post_html(get_post):
 
 ```python
 from restmachine import Request, HTTPMethod
+import json
 
 def test_json_response():
     app = create_blog_app()

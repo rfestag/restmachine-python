@@ -461,6 +461,11 @@ def user_update(json_body) -> UpdateUserRequest:
     """Validates update request, returns 422 on error."""
     return UpdateUserRequest.model_validate(json_body)
 
+# Helper function (placeholder - use bcrypt in production)
+def hash_password(password: str) -> str:
+    """Hash password securely (use bcrypt.hashpw in production)."""
+    return f"hashed_{password}"  # Placeholder only!
+
 # List all users
 @app.get('/users')
 def list_users(query_params, database):

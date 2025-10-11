@@ -74,8 +74,7 @@ Create an ASGI app and run with Hypercorn from the command line:
 
 ```python
 # app.py
-from restmachine import RestApplication
-from restmachine.adapters import create_asgi_app
+from restmachine import RestApplication, ASGIAdapter
 
 app = RestApplication()
 
@@ -84,7 +83,7 @@ def home():
     return {"message": "Hello World"}
 
 # Create ASGI application
-asgi_app = create_asgi_app(app)
+asgi_app = ASGIAdapter(app)
 ```
 
 Run with Hypercorn:
@@ -488,8 +487,7 @@ Production-ready application with HTTP/2:
 # app.py
 import os
 import logging
-from restmachine import RestApplication
-from restmachine.adapters import create_asgi_app
+from restmachine import RestApplication, ASGIAdapter
 
 # Configure logging
 logging.basicConfig(
@@ -529,8 +527,9 @@ def home():
     return {"status": "healthy", "protocol": "HTTP/2"}
 
 @app.get("/api/users/{user_id}")
-async def get_user(user_id: int, database):
+async def get_user(path_params, database):
     """Get user with async database query."""
+    user_id = int(path_params['user_id'])
     async with database.acquire() as conn:
         user = await conn.fetchrow(
             "SELECT * FROM users WHERE id = $1",
@@ -541,26 +540,27 @@ async def get_user(user_id: int, database):
         return dict(user)
 
 # Create ASGI app
-asgi_app = create_asgi_app(app)
+asgi_app = ASGIAdapter(app)
 
 # For running directly
 if __name__ == "__main__":
-    from restmachine.servers import serve_hypercorn
+    import asyncio
+    from hypercorn.config import Config
+    from hypercorn.asyncio import serve
 
     # Get configuration from environment
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8443"))
     workers = int(os.getenv("WORKERS", "4"))
 
-    serve_hypercorn(
-        app,
-        host=host,
-        port=port,
-        http_version="http2",
-        workers=workers,
-        ssl_keyfile=os.getenv("SSL_KEYFILE"),
-        ssl_certfile=os.getenv("SSL_CERTFILE"),
-    )
+    config = Config()
+    config.bind = [f"{host}:{port}"]
+    config.workers = workers
+    if os.getenv("SSL_KEYFILE"):
+        config.keyfile = os.getenv("SSL_KEYFILE")
+        config.certfile = os.getenv("SSL_CERTFILE")
+
+    asyncio.run(serve(asgi_app, config))
 ```
 
 Run in production:

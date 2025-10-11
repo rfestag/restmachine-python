@@ -214,7 +214,7 @@ When running with an ASGI server, lifecycle handlers are integrated with ASGI li
 
 ```python
 # app.py
-from restmachine import RestApplication
+from restmachine import RestApplication, ASGIAdapter
 
 app = RestApplication()
 
@@ -230,7 +230,7 @@ async def shutdown():
 
 # Run with:
 # uvicorn app:asgi_app
-asgi_app = app.as_asgi()
+asgi_app = ASGIAdapter(app)
 ```
 
 ### Hypercorn
@@ -259,8 +259,9 @@ def process(init_resources):
     # Reuses the same resource across warm invocations
     return init_resources.process()
 
-# Lambda handler
-handler = app.as_aws_lambda()
+# Lambda handler - use restmachine-aws package for Lambda support
+# from restmachine_aws import LambdaAdapter
+# handler = LambdaAdapter(app)
 ```
 
 ## Best Practices
@@ -324,6 +325,8 @@ async def async_resources():
 When testing, startup and shutdown handlers are automatically invoked:
 
 ```python
+from restmachine import Request, HTTPMethod
+
 def test_with_lifecycle():
     app = RestApplication()
 
@@ -336,7 +339,8 @@ def test_with_lifecycle():
         return test_db["users"]
 
     # Startup handler runs automatically
-    response = app.test_client().get("/users")
+    request = Request(method=HTTPMethod.GET, path="/users")
+    response = app.execute(request)
     assert response.status_code == 200
 ```
 

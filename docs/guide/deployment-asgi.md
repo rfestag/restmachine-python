@@ -423,6 +423,7 @@ def database():
     """Initialize database connection pool."""
     logger.info("Connecting to database...")
     # Return database connection pool
+    # Note: create_db_pool() is a placeholder - implement based on your database
     return create_db_pool()
 
 @app.on_shutdown

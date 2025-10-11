@@ -294,17 +294,7 @@ Implement role-based authorization:
 ```python
 from typing import List
 
-@app.dependency()
-def require_role(*allowed_roles: str):
-    """Create dependency that requires specific role."""
-    def role_checker(current_user):
-        user_role = current_user.get('role')
-        if user_role not in allowed_roles:
-            raise PermissionError(f"Role '{user_role}' not authorized. Required: {', '.join(allowed_roles)}")
-        return current_user
-    return role_checker
-
-# Use in routes
+# Simple role-based dependencies
 @app.dependency()
 def require_admin(current_user):
     """Require admin role."""
@@ -375,21 +365,27 @@ def current_user_permissions(current_user) -> List[Permission]:
     role = current_user.get('role', 'user')
     return ROLE_PERMISSIONS.get(role, [])
 
-def require_permission(permission: Permission):
-    """Create dependency that checks for specific permission."""
-    @app.dependency()
-    def permission_checker(current_user_permissions: List[Permission]):
-        if permission not in current_user_permissions:
-            raise PermissionError(f"Permission '{permission}' required")
-        return True
-    return permission_checker
+# Permission-checking dependencies (one per permission needed)
+@app.dependency()
+def require_read_users(current_user_permissions: List[Permission]):
+    """Require READ_USERS permission."""
+    if Permission.READ_USERS not in current_user_permissions:
+        raise PermissionError(f"Permission '{Permission.READ_USERS}' required")
+    return True
+
+@app.dependency()
+def require_delete_users(current_user_permissions: List[Permission]):
+    """Require DELETE_USERS permission."""
+    if Permission.DELETE_USERS not in current_user_permissions:
+        raise PermissionError(f"Permission '{Permission.DELETE_USERS}' required")
+    return True
 
 @app.get('/users')
-def list_users(require_permission(Permission.READ_USERS), database):
+def list_users(require_read_users, database):
     return {"users": database["users"]}
 
 @app.delete('/users/{user_id}')
-def delete_user(require_permission(Permission.DELETE_USERS), path_params, database):
+def delete_user(require_delete_users, path_params, database):
     user_id = path_params['user_id']
     # Delete logic
     return {"message": "User deleted"}, 204

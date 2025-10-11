@@ -36,7 +36,7 @@ def echo(json_body):
 You can test your application directly without a server:
 
 ```python
-from restmachine import HTTPMethod
+from restmachine import Request, HTTPMethod
 
 # Test GET
 request = Request(method=HTTPMethod.GET, path='/')

@@ -74,8 +74,7 @@ For maximum flexibility, create an ASGI app and run with Uvicorn directly:
 
 ```python
 # app.py
-from restmachine import RestApplication
-from restmachine.adapters import create_asgi_app
+from restmachine import RestApplication, ASGIAdapter
 
 app = RestApplication()
 
@@ -84,7 +83,7 @@ def home():
     return {"message": "Hello World"}
 
 # Create ASGI application
-asgi_app = create_asgi_app(app)
+asgi_app = ASGIAdapter(app)
 ```
 
 Run with Uvicorn from the command line:
@@ -402,8 +401,7 @@ Here's a complete production-ready example:
 ```python
 # app.py
 import os
-from restmachine import RestApplication
-from restmachine.adapters import create_asgi_app
+from restmachine import RestApplication, ASGIAdapter
 import logging
 
 # Configure logging
@@ -422,6 +420,7 @@ def database():
     """Initialize database connection pool."""
     logger.info("Connecting to database...")
     # Return database connection pool
+    # Note: create_db_pool() is a placeholder - implement based on your database
     return create_db_pool()
 
 @app.on_shutdown
@@ -436,19 +435,20 @@ def home():
     return {"status": "healthy"}
 
 @app.get("/api/users/{user_id}")
-def get_user(user_id: int, database):
+def get_user(path_params, database):
     """Get a user by ID."""
+    user_id = path_params['user_id']
     user = database.get_user(user_id)
     if not user:
         return {"error": "User not found"}, 404
     return user
 
 # Create ASGI app
-asgi_app = create_asgi_app(app)
+asgi_app = ASGIAdapter(app)
 
 # For running directly
 if __name__ == "__main__":
-    from restmachine.servers import serve_uvicorn
+    import uvicorn
 
     # Get configuration from environment
     host = os.getenv("HOST", "0.0.0.0")
@@ -456,8 +456,8 @@ if __name__ == "__main__":
     workers = int(os.getenv("WORKERS", "4"))
     log_level = os.getenv("LOG_LEVEL", "info")
 
-    serve_uvicorn(
-        app,
+    uvicorn.run(
+        asgi_app,
         host=host,
         port=port,
         workers=workers,

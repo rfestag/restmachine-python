@@ -362,8 +362,8 @@ def github_webhook(json_body):
     return {"received": True}
 
 # ASGI app
-from restmachine import create_asgi_app
-asgi_app = create_asgi_app(app)
+from restmachine import ASGIAdapter
+asgi_app = ASGIAdapter(app)
 ```
 
 ## How CORS Works
@@ -505,7 +505,7 @@ curl -X POST http://localhost:8000/api/users \
 ### Automated Testing
 
 ```python
-from restmachine.testing import DirectDriver
+from restmachine import Request, HTTPMethod
 
 def test_cors_preflight():
     """Test CORS preflight request."""
@@ -516,16 +516,16 @@ def test_cors_preflight():
     def create_data(json_body):
         return {"created": True}
 
-    driver = DirectDriver(app)
-
     # Preflight request
-    response = driver.options(
-        "/api/data",
+    request = Request(
+        method=HTTPMethod.OPTIONS,
+        path="/api/data",
         headers={
             "Origin": "https://app.example.com",
             "Access-Control-Request-Method": "POST"
         }
     )
+    response = app.execute(request)
 
     assert response.status_code == 204
     assert response.headers["Access-Control-Allow-Origin"] == "https://app.example.com"
@@ -540,13 +540,13 @@ def test_cors_actual_request():
     def get_data():
         return {"data": "value"}
 
-    driver = DirectDriver(app)
-
     # Actual request
-    response = driver.get(
-        "/api/data",
+    request = Request(
+        method=HTTPMethod.GET,
+        path="/api/data",
         headers={"Origin": "https://app.example.com"}
     )
+    response = app.execute(request)
 
     assert response.status_code == 200
     assert response.headers["Access-Control-Allow-Origin"] == "https://app.example.com"
