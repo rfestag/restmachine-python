@@ -36,12 +36,19 @@ dynamodb = [
 opensearch = [
     "opensearch-py>=2.0.0",
 ]
+# Geospatial support for GeoMixin
+geo = [
+    "shapely>=2.0.0",
+    "pygeohash>=1.2.0",
+]
 # Testing framework is in restmachine-orm-testing package (local)
 # For local development, install with: pip install -e ./packages/restmachine-orm-testing
 testing = []
 all = [
     "restmachine-orm-dynamodb>=0.1.0",
     "opensearch-py>=2.0.0",
+    "shapely>=2.0.0",
+    "pygeohash>=1.2.0",
 ]
 dev = [
     "pytest>=7.0.0",

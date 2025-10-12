@@ -6,7 +6,7 @@ backend-agnostic way.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Optional, Callable, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from restmachine_orm.models.base import Model
@@ -35,6 +35,8 @@ class QueryBuilder(ABC):
         self._order_by: list[str] = []
         self._select_fields: Optional[list[str]] = None
         self._cursor: Optional[Any] = None  # Backend-specific pagination cursor
+        self._result_filters: dict[str, Callable[["Model"], bool]] = {}  # Post-query filters
+        self._disabled_filters: set[str] = set()  # Names of disabled filters
 
     def and_(self, **conditions: Any) -> "QueryBuilder":
         """
@@ -52,8 +54,29 @@ class QueryBuilder(ABC):
             >>> query = User.where(age__gte=18).and_(status="active")
             >>> # Equivalent to: age >= 18 AND status = 'active'
         """
-        if conditions:
-            self._filters.append(("and", conditions))
+        if not conditions:
+            return self
+
+        # Check for custom query operators from mixins
+        from restmachine_orm.query.expressions import parse_field_lookup
+
+        regular_conditions = {}
+        for field_lookup, value in conditions.items():
+            field, operator = parse_field_lookup(field_lookup)
+
+            # Check if this field + operator has a custom handler
+            if hasattr(self.model_class, '_query_operators') and (field, operator) in self.model_class._query_operators:
+                # Call the custom handler
+                handler = self.model_class._query_operators[(field, operator)]
+                handler(self, field, value)
+            else:
+                # Regular condition
+                regular_conditions[field_lookup] = value
+
+        # Add regular conditions to filters
+        if regular_conditions:
+            self._filters.append(("and", regular_conditions))
+
         return self
 
     def or_(self, **conditions: Any) -> "QueryBuilder":
@@ -178,6 +201,75 @@ class QueryBuilder(ABC):
         """
         self._cursor = cursor
         return self
+
+    def add_result_filter(self, name: str, filter_fn: Callable[["Model"], bool]) -> "QueryBuilder":
+        """
+        Add a post-query filter function.
+
+        Result filters are applied to model instances after they are retrieved
+        from the backend. This is useful for mixins to add automatic filtering
+        (e.g., filtering expired items) that may not be expressible in the
+        backend's query language.
+
+        Args:
+            name: Unique name for this filter (so it can be disabled)
+            filter_fn: Function that takes a model instance and returns True to keep it
+
+        Returns:
+            Self for method chaining
+
+        Example:
+            >>> def not_expired(item):
+            ...     return not item.is_expired()
+            >>> query.add_result_filter('expiration', not_expired)
+        """
+        self._result_filters[name] = filter_fn
+        return self
+
+    def disable_filter(self, name: str) -> "QueryBuilder":
+        """
+        Disable a named result filter.
+
+        Useful when you want to explicitly include items that would normally
+        be filtered out (e.g., include expired items).
+
+        Args:
+            name: Name of the filter to disable
+
+        Returns:
+            Self for method chaining
+
+        Example:
+            >>> # Include expired items
+            >>> query.disable_filter('expiration')
+        """
+        self._disabled_filters.add(name)
+        return self
+
+    def _apply_result_filters(self, results: list["Model"]) -> list["Model"]:
+        """
+        Apply result filters to a list of model instances.
+
+        This is called by backend implementations after retrieving results.
+
+        Args:
+            results: List of model instances to filter
+
+        Returns:
+            Filtered list of model instances
+        """
+        filtered = []
+        for item in results:
+            # Apply all non-disabled filters
+            keep = True
+            for filter_name, filter_fn in self._result_filters.items():
+                if filter_name not in self._disabled_filters:
+                    if not filter_fn(item):
+                        keep = False
+                        break
+            if keep:
+                filtered.append(item)
+        return filtered
 
     @abstractmethod
     def all(self) -> list["Model"]:
@@ -346,6 +438,23 @@ class QueryBuilder(ABC):
             ...     print("User exists")
         """
         return self.exists()
+
+    def __getattr__(self, name: str) -> Any:
+        """
+        Dispatch to custom query methods from mixins.
+
+        This allows mixins to add custom query methods like within_bounds().
+        """
+        # Check if this is a custom query method from a mixin
+        if hasattr(self.model_class, '_query_methods') and name in self.model_class._query_methods:
+            method = self.model_class._query_methods[name]
+            # Return a bound method that passes self (query) as first arg
+            def bound_method(*args, **kwargs):
+                return method(self, *args, **kwargs)
+            return bound_method
+
+        # Fall back to default behavior
+        raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
 
 
 class MultipleResultsError(Exception):

@@ -67,6 +67,126 @@ class Model(BaseModel):
     _before_save_callbacks: ClassVar[list[Callable[["Model"], None]]] = []
     _after_save_callbacks: ClassVar[list[Callable[["Model"], None]]] = []
 
+    # Hook lists (populated by __init_subclass__)
+    _before_save_hooks: ClassVar[list[Callable[["Model"], None]]] = []
+    _after_save_hooks: ClassVar[list[Callable[["Model"], None]]] = []
+    _after_load_hooks: ClassVar[list[Callable[["Model"], None]]] = []
+    _query_methods: ClassVar[dict[str, Callable]] = {}
+    _query_operators: ClassVar[dict[tuple[str, str], Callable]] = {}
+    _auto_query_filters: ClassVar[list[Callable]] = []
+    _geo_field_names: ClassVar[list[str]] = []
+
+    def __init_subclass__(cls, **kwargs):
+        """Collect hooks from mixins when model class is defined."""
+        super().__init_subclass__(**kwargs)
+
+        # Reset class variables for this specific subclass
+        cls._before_save_hooks = []
+        cls._after_save_hooks = []
+        cls._after_load_hooks = []
+        cls._query_methods = {}
+        cls._query_operators = {}
+        cls._auto_query_filters = []
+        cls._geo_field_names = []
+
+        # Collect hooks from all bases (mixins) and the current class
+        for base in [cls] + list(cls.__bases__):
+            # Collect hooks from mixin methods
+            for attr_name in dir(base):
+                # Skip special Python attributes (double underscore)
+                if attr_name.startswith('__'):
+                    continue
+                try:
+                    attr = getattr(base, attr_name)
+                    if callable(attr) and getattr(attr, '_is_before_save_hook', False):
+                        if attr not in cls._before_save_hooks:
+                            cls._before_save_hooks.append(attr)
+                    elif callable(attr) and getattr(attr, '_is_after_save_hook', False):
+                        if attr not in cls._after_save_hooks:
+                            cls._after_save_hooks.append(attr)
+                    elif callable(attr) and getattr(attr, '_is_after_load_hook', False):
+                        if attr not in cls._after_load_hooks:
+                            cls._after_load_hooks.append(attr)
+                    elif callable(attr) and getattr(attr, '_is_query_method', False):
+                        method_name = getattr(attr, '_query_method_name', attr.__name__)
+                        cls._query_methods[method_name] = attr
+                    elif callable(attr) and getattr(attr, '_is_query_operator', False):
+                        # Type-based operator
+                        if hasattr(attr, '_operator_type'):
+                            op_type = getattr(attr, '_operator_type')
+                            op_name = getattr(attr, '_operator_name')
+                            # We'll map this to field names after fields are set
+                            if not hasattr(cls, '_type_operators'):
+                                cls._type_operators = {}  # type: ignore[attr-defined]
+                            cls._type_operators[(op_type, op_name)] = attr  # type: ignore[attr-defined]
+                        elif hasattr(attr, '_operator_types'):
+                            for op_type in getattr(attr, '_operator_types'):
+                                op_name = getattr(attr, '_operator_name')
+                                if not hasattr(cls, '_type_operators'):
+                                    cls._type_operators = {}  # type: ignore[attr-defined]
+                                cls._type_operators[(op_type, op_name)] = attr  # type: ignore[attr-defined]
+                except AttributeError:
+                    continue
+
+            # Collect auto query filters (from ExpirationMixin, etc.)
+            if hasattr(base, '_auto_query_filters'):
+                cls._auto_query_filters.extend(base._auto_query_filters)
+
+        # Map type-based operators to field names
+        if hasattr(cls, '_type_operators') and hasattr(cls, 'model_fields'):
+            cls._map_type_operators_to_fields()
+
+    @classmethod
+    def _map_type_operators_to_fields(cls) -> None:
+        """Map type-based operators to actual field names."""
+        from typing import get_args, Union
+        import sys
+
+        # Try importing geo types, but don't fail if they're not installed
+        try:
+            from shapely.geometry import Point, Polygon, MultiPolygon  # type: ignore[import-untyped]
+            geo_types = (Point, Polygon, MultiPolygon)
+        except ImportError:
+            geo_types = ()  # type: ignore[assignment]
+
+        if not hasattr(cls, '_type_operators'):
+            return
+
+        for field_name, field_info in cls.model_fields.items():
+            # Get the actual type (handle Optional, Annotated, etc.)
+            field_type = field_info.annotation
+
+            # Handle Optional[Type] -> Union[Type, None] or Type | None
+            # In Python 3.10+, Type | None creates types.UnionType
+            origin = getattr(field_type, '__origin__', None)
+            if origin is not None:
+                # typing.Union
+                if origin is Union:
+                    args = get_args(field_type)
+                    # Get the non-None type
+                    field_type = args[0] if args and args[0] is not type(None) else args[1] if len(args) > 1 else field_type
+            elif sys.version_info >= (3, 10):
+                # Python 3.10+ union syntax (Type | None)
+                import types
+                if isinstance(field_type, types.UnionType):  # type: ignore[attr-defined]
+                    args = get_args(field_type)
+                    # Get the non-None type
+                    field_type = args[0] if args and args[0] is not type(None) else args[1] if len(args) > 1 else field_type
+
+            # Check if this field type has registered operators
+            for (op_type, op_name), handler in cls._type_operators.items():  # type: ignore[attr-defined]
+                try:
+                    if field_type == op_type or (isinstance(field_type, type) and issubclass(field_type, op_type)):
+                        cls._query_operators[(field_name, op_name)] = handler
+
+                        # Track geo fields
+                        if geo_types and op_type in geo_types:
+                            if field_name not in cls._geo_field_names:
+                                cls._geo_field_names.append(field_name)
+                except TypeError:
+                    # Not a class, skip
+                    continue
+
     @classmethod
     def _get_backend(cls) -> "Backend":
         """
@@ -136,6 +256,10 @@ class Model(BaseModel):
         """
         instance = cls(**kwargs)
 
+        # Call hook-based before_save methods (from mixins)
+        for hook in cls._before_save_hooks:
+            hook(instance)
+
         # Call all registered before_save callbacks
         for callback in cls._before_save_callbacks:
             callback(instance)
@@ -147,10 +271,19 @@ class Model(BaseModel):
         data = instance.model_dump()
 
         # Backend returns the data that was stored
-        backend.upsert(cls, data)
+        result_data = backend.upsert(cls, data)
+
+        # Update instance with any fields set by backend extensions (e.g., timestamps)
+        for key, value in result_data.items():
+            if hasattr(instance, key):
+                setattr(instance, key, value)
 
         # Mark instance as persisted
         instance._is_persisted = True
+
+        # Call hook-based after_save methods (from mixins)
+        for hook in cls._after_save_hooks:
+            hook(instance)
 
         # Call all registered after_save callbacks
         for callback in cls._after_save_callbacks:
@@ -181,6 +314,10 @@ class Model(BaseModel):
             >>> user.name = "Alice Smith"
             >>> user.save()  # Validates and updates
         """
+        # Call hook-based before_save methods (from mixins)
+        for hook in self.__class__._before_save_hooks:
+            hook(self)
+
         # Call all registered before_save callbacks
         for callback in self.__class__._before_save_callbacks:
             callback(self)
@@ -195,13 +332,23 @@ class Model(BaseModel):
 
         if not self._is_persisted:
             # Create new record
-            backend.create(self.__class__, data)
+            result_data = backend.create(self.__class__, data)
             self._is_persisted = True
+            # Update instance with any fields set by backend extensions (e.g., timestamps)
+            for key, value in result_data.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
         else:
             # Update existing record
-            # Instance already has the correct state
-            # Backend just persists what we have
-            backend.update(self.__class__, self)
+            result_data = backend.update(self.__class__, self)
+            # Update instance with any fields modified by backend extensions
+            for key, value in result_data.items():
+                if hasattr(self, key):
+                    setattr(self, key, value)
+
+        # Call hook-based after_save methods (from mixins)
+        for hook in self.__class__._after_save_hooks:
+            hook(self)
 
         # Call all registered after_save callbacks
         for callback in self.__class__._after_save_callbacks:
@@ -244,6 +391,11 @@ class Model(BaseModel):
         if data:
             instance = cls(**data)
             instance._is_persisted = True
+
+            # Call after_load hooks (for geo deserialization, etc.)
+            for hook in cls._after_load_hooks:
+                hook(instance)
+
             return instance
         return None
 
@@ -303,8 +455,17 @@ class Model(BaseModel):
             >>> for user in User.where(age__gte=18):
             ...     print(user.name)
         """
+        # Lazy initialization of query operators (needs to happen after Pydantic sets up model_fields)
+        if hasattr(cls, '_type_operators') and not cls._query_operators:
+            cls._map_type_operators_to_fields()
+
         backend = cls._get_backend()
         query = backend.query(cls)
+
+        # Apply auto query filters (from ExpirationMixin, etc.)
+        for auto_filter in cls._auto_query_filters:
+            query = auto_filter(query)
+
         if conditions:
             query = query.and_(**conditions)
         return query

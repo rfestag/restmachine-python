@@ -47,6 +47,11 @@ class InMemoryBackend(Backend):
         # Storage: {model_class_name: {pk: record_data}}
         self._storage: dict[str, dict[Any, dict[str, Any]]] = {}
 
+    @property
+    def backend_name(self) -> str:
+        """Backend identifier."""
+        return 'memory'
+
     def _get_storage(self, model_class: type["Model"]) -> dict[Any, dict[str, Any]]:
         """Get storage dict for a model class."""
         entity_type = self.adapter.get_entity_type(model_class)
@@ -56,6 +61,9 @@ class InMemoryBackend(Backend):
 
     def create(self, model_class: type["Model"], data: dict[str, Any]) -> dict[str, Any]:
         """Create a new record in memory."""
+        # Ensure extensions are configured
+        self._ensure_configured(model_class)
+
         storage = self._get_storage(model_class)
 
         # Create model instance to get primary key
@@ -67,27 +75,46 @@ class InMemoryBackend(Backend):
             from restmachine_orm.backends.base import DuplicateKeyError
             raise DuplicateKeyError(f"Record with key {pk_value} already exists")
 
-        # Store data
+        # Convert to storage format
         storage_data = self.adapter.model_to_storage(instance)
+
+        # Call extension hooks
+        storage_data = self._call_serialize_hooks(model_class, storage_data)
+        self._call_validate_hooks(model_class, storage_data)
+
+        # Store data
         storage[pk_value] = deepcopy(storage_data)
 
-        # Return model format (not storage format)
-        return self.adapter.storage_to_model(model_class, storage_data)
+        # Return model format (apply deserialize hooks)
+        result_data = self.adapter.storage_to_model(model_class, storage_data)
+        result_data = self._call_deserialize_hooks(model_class, result_data)
+        return result_data
 
     def upsert(self, model_class: type["Model"], data: dict[str, Any]) -> dict[str, Any]:
         """Create or update a record (upsert)."""
+        # Ensure extensions are configured
+        self._ensure_configured(model_class)
+
         storage = self._get_storage(model_class)
 
         # Create model instance to get primary key
         instance = model_class(**data)
         pk_value = self.adapter.get_primary_key_value(instance)
 
-        # Store data (overwrite if exists)
+        # Convert to storage format
         storage_data = self.adapter.model_to_storage(instance)
+
+        # Call extension hooks
+        storage_data = self._call_serialize_hooks(model_class, storage_data)
+        self._call_validate_hooks(model_class, storage_data)
+
+        # Store data (overwrite if exists)
         storage[pk_value] = deepcopy(storage_data)
 
-        # Return model format (not storage format)
-        return self.adapter.storage_to_model(model_class, storage_data)
+        # Return model format (apply deserialize hooks)
+        result_data = self.adapter.storage_to_model(model_class, storage_data)
+        result_data = self._call_deserialize_hooks(model_class, result_data)
+        return result_data
 
     def get(self, model_class: type["Model"], **filters: Any) -> Optional[dict[str, Any]]:
         """Get a single record by primary key."""
@@ -97,6 +124,7 @@ class InMemoryBackend(Backend):
         # For more complex filtering, use query()
         for record in storage.values():
             model_data = self.adapter.storage_to_model(model_class, record)
+            model_data = self._call_deserialize_hooks(model_class, model_data)
             if all(model_data.get(k) == v for k, v in filters.items()):
                 return model_data
 
@@ -116,14 +144,22 @@ class InMemoryBackend(Backend):
         if pk_value not in storage:
             raise NotFoundError(f"Record not found with key: {pk_value}")
 
-        # Update the record
+        # Convert to storage format
         storage_data = self.adapter.model_to_storage(instance)
+
+        # Call extension hooks
+        storage_data = self._call_serialize_hooks(model_class, storage_data)
+        self._call_validate_hooks(model_class, storage_data)
+
+        # Update the record
         storage[pk_value] = deepcopy(storage_data)
 
-        # Return model format (not storage format)
+        # Return model format (apply deserialize hooks)
         # Note: For update, this return value is currently ignored by Model.save()
         # but we return it for consistency and future hooks support
-        return self.adapter.storage_to_model(model_class, storage_data)
+        result_data = self.adapter.storage_to_model(model_class, storage_data)
+        result_data = self._call_deserialize_hooks(model_class, result_data)
+        return result_data
 
     def delete(self, model_class: type["Model"], instance: "Model") -> bool:
         """Delete a record."""
@@ -138,9 +174,12 @@ class InMemoryBackend(Backend):
 
         return False
 
-    def query(self, model_class: type["Model"]) -> "QueryBuilder":
+    def query(self, model_class: type["Model"]) -> QueryBuilder:
         """Create a query builder for this backend."""
-        return InMemoryQueryBuilder(model_class, self)
+        query_builder: QueryBuilder = InMemoryQueryBuilder(model_class, self)
+        # Call extension hooks to modify query behavior
+        query_builder = self._call_modify_query_hooks(model_class, query_builder)
+        return query_builder
 
     def count(self, model_class: type["Model"], **filters: Any) -> int:
         """Count records matching filters."""
@@ -244,6 +283,7 @@ class InMemoryQueryBuilder(QueryBuilder):
         results = []
         for record in storage.values():
             model_data = self.backend.adapter.storage_to_model(self.model_class, record)
+            model_data = self.backend._call_deserialize_hooks(self.model_class, model_data)
 
             # Apply filters with boolean logic
             # and: all conditions must match (AND)
@@ -319,7 +359,15 @@ class InMemoryQueryBuilder(QueryBuilder):
         for data in results:
             instance = self.model_class(**data)
             instance._is_persisted = True
+
+            # Call after_load hooks (for geo deserialization, etc.)
+            for hook in self.model_class._after_load_hooks:
+                hook(instance)
+
             instances.append(instance)
+
+        # Apply result filters (e.g., from mixins)
+        instances = self._apply_result_filters(instances)
 
         return instances
 

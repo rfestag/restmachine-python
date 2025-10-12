@@ -106,6 +106,11 @@ class DynamoDBBackend(Backend):
         self.__dict__['adapter'] = value
 
     @property
+    def backend_name(self) -> str:
+        """Backend identifier."""
+        return 'dynamodb'
+
+    @property
     def dynamodb(self) -> Any:
         """Get or create DynamoDB resource."""
         if self._dynamodb_resource is None:
@@ -175,11 +180,18 @@ class DynamoDBBackend(Backend):
         Raises:
             DuplicateKeyError: If item with same key already exists
         """
+        # Ensure extensions are configured
+        self._ensure_configured(model_class)
+
         # Create instance to generate keys
         instance = model_class(**data)
 
         # Transform to storage format (adds pk, sk, entity_type)
         item = self.adapter.model_to_storage(instance)
+
+        # Call extension hooks
+        item = self._call_serialize_hooks(model_class, item)
+        self._call_validate_hooks(model_class, item)
 
         # Convert to DynamoDB types
         item = self._python_to_dynamodb(item)
@@ -202,7 +214,9 @@ class DynamoDBBackend(Backend):
         item = self._dynamodb_to_python(item)
 
         # Transform back to model format
-        return self.adapter.storage_to_model(model_class, item)
+        result_data = self.adapter.storage_to_model(model_class, item)
+        result_data = self._call_deserialize_hooks(model_class, result_data)
+        return result_data
 
     def upsert(self, model_class: type["Model"], data: dict[str, Any]) -> dict[str, Any]:
         """
@@ -215,11 +229,18 @@ class DynamoDBBackend(Backend):
         Returns:
             Upserted record data
         """
+        # Ensure extensions are configured
+        self._ensure_configured(model_class)
+
         # Create instance to generate keys
         instance = model_class(**data)
 
         # Transform to storage format (adds pk, sk, entity_type)
         item = self.adapter.model_to_storage(instance)
+
+        # Call extension hooks
+        item = self._call_serialize_hooks(model_class, item)
+        self._call_validate_hooks(model_class, item)
 
         # Convert to DynamoDB types
         item = self._python_to_dynamodb(item)
@@ -231,7 +252,9 @@ class DynamoDBBackend(Backend):
         item = self._dynamodb_to_python(item)
 
         # Transform back to model format
-        return self.adapter.storage_to_model(model_class, item)
+        result_data = self.adapter.storage_to_model(model_class, item)
+        result_data = self._call_deserialize_hooks(model_class, result_data)
+        return result_data
 
     def get(self, model_class: type["Model"], **filters: Any) -> Optional[dict[str, Any]]:
         """
@@ -267,7 +290,9 @@ class DynamoDBBackend(Backend):
             response = self.table.get_item(Key=key)
             if "Item" in response:
                 item = self._dynamodb_to_python(response["Item"])
-                return self.adapter.storage_to_model(model_class, item)
+                model_data = self.adapter.storage_to_model(model_class, item)
+                model_data = self._call_deserialize_hooks(model_class, model_data)
+                return model_data
         except ClientError:
             pass
 
@@ -305,6 +330,11 @@ class DynamoDBBackend(Backend):
 
         # Transform to storage format
         item = self.adapter.model_to_storage(instance)
+
+        # Call extension hooks
+        item = self._call_serialize_hooks(model_class, item)
+        self._call_validate_hooks(model_class, item)
+
         item = self._python_to_dynamodb(item)
 
         # Build update expression
@@ -342,7 +372,9 @@ class DynamoDBBackend(Backend):
             )
 
             updated_item = self._dynamodb_to_python(response["Attributes"])
-            return self.adapter.storage_to_model(model_class, updated_item)
+            result_data = self.adapter.storage_to_model(model_class, updated_item)
+            result_data = self._call_deserialize_hooks(model_class, result_data)
+            return result_data
 
         except ClientError as e:
             if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
@@ -390,7 +422,10 @@ class DynamoDBBackend(Backend):
         Returns:
             DynamoDBQueryBuilder instance
         """
-        return DynamoDBQueryBuilder(model_class, self)
+        query_builder: QueryBuilder = DynamoDBQueryBuilder(model_class, self)
+        # Call extension hooks to modify query behavior
+        query_builder = self._call_modify_query_hooks(model_class, query_builder)
+        return query_builder
 
     def count(self, model_class: type["Model"], **filters: Any) -> int:
         """
@@ -463,6 +498,7 @@ class DynamoDBBackend(Backend):
             for item in response["Responses"][self.table_name]:
                 item = self._dynamodb_to_python(item)
                 model_data = self.adapter.storage_to_model(model_class, item)
+                model_data = self._call_deserialize_hooks(model_class, model_data)
                 results.append(model_data)
 
         return results
@@ -485,11 +521,17 @@ class DynamoDBBackend(Backend):
         if not records:
             return []
 
+        # Ensure extensions are configured
+        self._ensure_configured(model_class)
+
         # Convert to DynamoDB format
         items = []
         for data in records:
             instance = model_class(**data)
             item = self.adapter.model_to_storage(instance)
+            # Call extension hooks
+            item = self._call_serialize_hooks(model_class, item)
+            self._call_validate_hooks(model_class, item)
             item = self._python_to_dynamodb(item)
             items.append(item)
 
@@ -503,6 +545,7 @@ class DynamoDBBackend(Backend):
         for item in items:
             item = self._dynamodb_to_python(item)
             model_data = self.adapter.storage_to_model(model_class, item)
+            model_data = self._call_deserialize_hooks(model_class, model_data)
             results.append(model_data)
 
         return results
@@ -640,8 +683,14 @@ class DynamoDBQueryBuilder(QueryBuilder):
         for item in items:
             item = self.backend._dynamodb_to_python(item)
             model_data = self.backend.adapter.storage_to_model(self.model_class, item)
+            model_data = self.backend._call_deserialize_hooks(self.model_class, model_data)
             instance = self.model_class(**model_data)
             instance._is_persisted = True
+
+            # Call after_load hooks (for geo deserialization, etc.)
+            for hook in self.model_class._after_load_hooks:
+                hook(instance)
+
             results.append(instance)
 
         # Apply ordering in Python (for now)
@@ -656,6 +705,9 @@ class DynamoDBQueryBuilder(QueryBuilder):
             results = results[self._offset:]
         if self._limit:
             results = results[:self._limit]
+
+        # Apply result filters (e.g., from mixins)
+        results = self._apply_result_filters(results)
 
         return results
 
@@ -727,8 +779,14 @@ class DynamoDBQueryBuilder(QueryBuilder):
         for item in items:
             item = self.backend._dynamodb_to_python(item)
             model_data = self.backend.adapter.storage_to_model(self.model_class, item)
+            model_data = self.backend._call_deserialize_hooks(self.model_class, model_data)
             instance = self.model_class(**model_data)
             instance._is_persisted = True
+
+            # Call after_load hooks (for geo deserialization, etc.)
+            for hook in self.model_class._after_load_hooks:
+                hook(instance)
+
             results.append(instance)
 
         # Apply ordering in Python (for now)
@@ -742,5 +800,8 @@ class DynamoDBQueryBuilder(QueryBuilder):
         # If offset is used, the cursor won't work correctly
         if self._offset and not self._cursor:
             results = results[self._offset:]
+
+        # Apply result filters (e.g., from mixins)
+        results = self._apply_result_filters(results)
 
         return results, next_cursor
