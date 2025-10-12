@@ -6,7 +6,7 @@ This driver integrates with RestMachine ORM's testing framework.
 
 from typing import Type, Optional, Any
 
-from restmachine_orm_testing import (
+from restmachine_orm_testing import (  # type: ignore[import-not-found]
     DriverInterface,
     CreateOperation,
     GetOperation,

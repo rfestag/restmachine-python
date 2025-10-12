@@ -13,8 +13,6 @@ from decimal import Decimal
 pytest.importorskip("boto3")
 pytest.importorskip("moto")
 
-import boto3
-from moto import mock_aws
 
 from restmachine_orm import Model, Field, partition_key, sort_key
 from restmachine_orm.backends.base import NotFoundError, DuplicateKeyError
@@ -251,7 +249,7 @@ class TestDynamoDBCRUD:
         User.Meta.backend = backend
 
         # Create initial user
-        user1 = User.create(
+        User.create(
             id="user-123",
             email="alice@example.com",
             name="Alice",

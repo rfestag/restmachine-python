@@ -7,6 +7,8 @@ from restmachine_orm.models.decorators import (
     sort_key,
     gsi_partition_key,
     gsi_sort_key,
+    before_save,
+    after_save,
 )
 
 __all__ = [
@@ -16,4 +18,6 @@ __all__ = [
     "sort_key",
     "gsi_partition_key",
     "gsi_sort_key",
+    "before_save",
+    "after_save",
 ]

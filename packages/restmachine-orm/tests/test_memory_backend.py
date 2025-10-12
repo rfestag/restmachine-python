@@ -198,7 +198,7 @@ class TestInMemoryCRUD:
     def test_upsert_overwrites_existing_record(self):
         """Test that upsert overwrites an existing record without error."""
         # Create initial user
-        user1 = User.create(
+        User.create(
             id="user-123",
             email="alice@example.com",
             name="Alice",

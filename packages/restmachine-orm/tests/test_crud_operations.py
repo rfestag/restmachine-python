@@ -5,7 +5,6 @@ This test file demonstrates the multi-backend testing pattern.
 The same tests run against all configured backends.
 """
 
-import pytest
 from datetime import datetime
 from typing import Optional, List, Type
 
@@ -210,7 +209,7 @@ class TestCRUDOperations(MultiBackendTestBase):
         orm_client, backend_name = orm
 
         # Create initial user
-        user1 = orm_client.create_and_verify(
+        orm_client.create_and_verify(
             User,
             id="user-123",
             email="alice@example.com",

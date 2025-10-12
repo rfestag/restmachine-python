@@ -36,20 +36,17 @@ dynamodb = [
 opensearch = [
     "opensearch-py>=2.0.0",
 ]
-# Testing framework has moved to restmachine-orm-testing package
-testing = [
-    "restmachine-orm-testing>=0.1.0",
-]
+# Testing framework is in restmachine-orm-testing package (local)
+# For local development, install with: pip install -e ./packages/restmachine-orm-testing
+testing = []
 all = [
     "restmachine-orm-dynamodb>=0.1.0",
     "opensearch-py>=2.0.0",
-    "restmachine-orm-testing>=0.1.0",
 ]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "pytest-cov>=4.0.0",
-    "restmachine-orm-testing>=0.1.0",
 ]
 
 [project.urls]

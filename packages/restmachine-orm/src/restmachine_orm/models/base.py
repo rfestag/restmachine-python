@@ -4,12 +4,15 @@ Base model class for RestMachine ORM.
 Provides ActiveRecord-style interface using Pydantic for validation.
 """
 
-from typing import Any, Optional, ClassVar, TYPE_CHECKING
+from typing import Any, Optional, ClassVar, Callable, TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict
 
 if TYPE_CHECKING:
     from restmachine_orm.backends.base import Backend
     from restmachine_orm.query.base import QueryBuilder
+
+# Import descriptor classes for ignored_types
+from restmachine_orm.models.decorators import BeforeSaveCallback, AfterSaveCallback
 
 
 class ModelMeta:
@@ -51,6 +54,7 @@ class Model(BaseModel):
         validate_assignment=True,  # Validate on attribute assignment
         arbitrary_types_allowed=True,  # Allow custom types
         from_attributes=True,  # Allow ORM mode
+        ignored_types=(BeforeSaveCallback, AfterSaveCallback),  # Ignore callback descriptors
     )
 
     # Class-level metadata
@@ -58,6 +62,10 @@ class Model(BaseModel):
 
     # Track if this is a new record or loaded from database
     _is_persisted: bool = False
+
+    # Callback lists (populated by descriptors)
+    _before_save_callbacks: ClassVar[list[Callable[["Model"], None]]] = []
+    _after_save_callbacks: ClassVar[list[Callable[["Model"], None]]] = []
 
     @classmethod
     def _get_backend(cls) -> "Backend":
@@ -76,6 +84,7 @@ class Model(BaseModel):
                 f"Set {cls.__name__}.Meta.backend to a Backend instance."
             )
         return cls.Meta.backend
+
 
 
     @classmethod
@@ -108,6 +117,10 @@ class Model(BaseModel):
         If a record with the same key exists, it will be overwritten.
         Unlike create(), this does not raise DuplicateKeyError.
 
+        Callbacks:
+            - Calls all @before_save methods before persisting
+            - Calls all @after_save methods after persisting
+
         Args:
             **kwargs: Field values for the record
 
@@ -121,24 +134,39 @@ class Model(BaseModel):
             >>> user = User.upsert(id="123", email="alice@example.com", name="Alice")
             >>> # If user with id=123 exists, it will be overwritten
         """
-        backend = cls._get_backend()
         instance = cls(**kwargs)
+
+        # Call all registered before_save callbacks
+        for callback in cls._before_save_callbacks:
+            callback(instance)
+
+        # Validate the model before saving
+        instance.model_validate(instance.model_dump())
+
+        backend = cls._get_backend()
         data = instance.model_dump()
 
         # Backend returns the data that was stored
-        result = backend.upsert(cls, data)
+        backend.upsert(cls, data)
 
-        # Create fresh instance from backend response
-        # This ensures we have any backend-generated values
-        persisted_instance = cls(**result)
-        persisted_instance._is_persisted = True
-        return persisted_instance
+        # Mark instance as persisted
+        instance._is_persisted = True
+
+        # Call all registered after_save callbacks
+        for callback in cls._after_save_callbacks:
+            callback(instance)
+
+        return instance
 
     def save(self) -> "Model":
         """
         Validate and save this record to the database.
 
         Creates a new record if not persisted, otherwise updates existing.
+
+        Callbacks:
+            - Calls all @before_save methods before persisting
+            - Calls all @after_save methods after persisting
 
         Returns:
             Self for method chaining
@@ -153,6 +181,10 @@ class Model(BaseModel):
             >>> user.name = "Alice Smith"
             >>> user.save()  # Validates and updates
         """
+        # Call all registered before_save callbacks
+        for callback in self.__class__._before_save_callbacks:
+            callback(self)
+
         # Validate the model before saving
         # Pydantic automatically validates on construction and assignment
         # but we trigger it explicitly here to ensure consistency
@@ -170,6 +202,10 @@ class Model(BaseModel):
             # Instance already has the correct state
             # Backend just persists what we have
             backend.update(self.__class__, self)
+
+        # Call all registered after_save callbacks
+        for callback in self.__class__._after_save_callbacks:
+            callback(self)
 
         return self
 

@@ -4,7 +4,6 @@ Pytest configuration for ORM tests.
 Enables multi-backend testing infrastructure.
 """
 
-import pytest
 from restmachine_orm_testing import MultiBackendTestBase
 
 
