@@ -250,4 +250,4 @@ class InMemoryDriver(DriverInterface):
 
     def setup_backend(self, model_class: Type) -> None:
         """Set up backend for a model class."""
-        model_class.Meta.backend = self.backend
+        model_class.model_backend = self.backend

@@ -138,7 +138,7 @@ print(f"  DynamoDB PK: {todo1.pk()}")
 print(f"  DynamoDB SK: {todo1.sk()}")
 
 # Look at the storage format
-backend = TodoItem.Meta.backend
+backend = TodoItem.model_backend
 adapter = backend.adapter
 storage_format = adapter.model_to_storage(todo1)
 print(f"\n2. DynamoDB storage format:")

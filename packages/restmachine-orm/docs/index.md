@@ -41,10 +41,10 @@ graph TD
 ```python
 from restmachine_orm import Model, Field
 from restmachine_orm.backends import InMemoryBackend, InMemoryAdapter
+from typing import ClassVar
 
 class User(Model):
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
     id: str = Field(primary_key=True)
     email: str = Field(unique=True, index=True)

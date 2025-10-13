@@ -14,13 +14,13 @@ The in-memory backend stores data in Python dictionaries, perfect for developmen
 ```python
 from restmachine_orm import Model, Field
 from restmachine_orm.backends import InMemoryBackend, InMemoryAdapter
+from typing import ClassVar
 
 # Create backend
 backend = InMemoryBackend(InMemoryAdapter())
 
 class User(Model):
-    class Meta:
-        backend = backend
+    model_backend: ClassVar = backend
 
     id: str = Field(primary_key=True)
     email: str
@@ -39,12 +39,10 @@ user = User.create(id="user-1", email="alice@example.com", name="Alice")
 shared_backend = InMemoryBackend(InMemoryAdapter())
 
 class User(Model):
-    class Meta:
-        backend = shared_backend
+    model_backend: ClassVar = shared_backend
 
 class TodoItem(Model):
-    class Meta:
-        backend = shared_backend
+    model_backend: ClassVar = shared_backend
 
 # Both use same backend
 user = User.create(id="user-1", name="Alice")
@@ -56,12 +54,10 @@ todo = TodoItem.create(id="todo-1", title="Task")
 ```python
 # Each model has own storage
 class User(Model):
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
 class TodoItem(Model):
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
 # Completely independent storage
 ```
@@ -99,8 +95,7 @@ def backend():
 @pytest.fixture
 def user_model(backend):
     class User(Model):
-        class Meta:
-            backend = backend
+        model_backend: ClassVar = backend
 
         id: str = Field(primary_key=True)
         name: str

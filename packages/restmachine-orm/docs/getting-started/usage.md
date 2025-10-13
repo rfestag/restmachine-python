@@ -8,12 +8,11 @@ Models are defined by inheriting from `Model` and using Pydantic fields:
 
 ```python
 from datetime import datetime
-from typing import Optional
+from typing import ClassVar, Optional
 from restmachine_orm import Model, Field
 
 class User(Model):
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
     id: str = Field(primary_key=True)
     email: str = Field(unique=True, index=True)
@@ -39,8 +38,7 @@ Models inherit Pydantic's validation:
 
 ```python
 class Product(Model):
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
     sku: str = Field(primary_key=True, pattern=r'^[A-Z]{3}\d{6}$')
     name: str = Field(min_length=1, max_length=200)
@@ -224,15 +222,13 @@ RestMachine ORM doesn't have built-in relationship management, but you can imple
 
 ```python
 class Author(Model):
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
     id: str = Field(primary_key=True)
     name: str
 
 class Book(Model):
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
     id: str = Field(primary_key=True)
     title: str

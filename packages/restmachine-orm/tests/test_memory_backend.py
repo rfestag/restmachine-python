@@ -6,7 +6,7 @@ Tests the in-memory storage backend used for testing and examples.
 
 import pytest
 from datetime import datetime
-from typing import Optional
+from typing import ClassVar, Optional
 
 from restmachine_orm import Model, Field
 from restmachine_orm.backends import InMemoryBackend, InMemoryAdapter
@@ -20,8 +20,7 @@ shared_backend = InMemoryBackend(InMemoryAdapter())
 class User(Model):
     """Simple user model for testing."""
 
-    class Meta:
-        backend = shared_backend
+    model_backend: ClassVar = shared_backend
 
     id: str = Field(primary_key=True)
     email: str = Field(unique=True)
@@ -34,8 +33,7 @@ class User(Model):
 class TodoItem(Model):
     """Todo item for testing."""
 
-    class Meta:
-        backend = shared_backend
+    model_backend: ClassVar = shared_backend
 
     user_id: str
     todo_id: str = Field(primary_key=True)
@@ -48,11 +46,11 @@ class TodoItem(Model):
 @pytest.fixture(autouse=True)
 def clear_storage():
     """Clear storage before each test."""
-    User.Meta.backend.clear()
-    TodoItem.Meta.backend.clear()
+    User.model_backend.clear()
+    TodoItem.model_backend.clear()
     yield
-    User.Meta.backend.clear()
-    TodoItem.Meta.backend.clear()
+    User.model_backend.clear()
+    TodoItem.model_backend.clear()
 
 
 class TestInMemoryBackendSetup:
@@ -416,7 +414,7 @@ class TestInMemoryEdgeCases:
         TodoItem.create(user_id="alice", todo_id="todo-1", title="Test")
 
         # Clear only users
-        User.Meta.backend.clear(User)
+        User.model_backend.clear(User)
 
         assert len(User.all()) == 0
         assert len(TodoItem.all()) == 1
@@ -427,7 +425,7 @@ class TestInMemoryEdgeCases:
         TodoItem.create(user_id="alice", todo_id="todo-1", title="Test")
 
         # Clear all
-        User.Meta.backend.clear()
+        User.model_backend.clear()
 
         assert len(User.all()) == 0
         assert len(TodoItem.all()) == 0
@@ -458,14 +456,14 @@ class TestInMemoryEdgeCases:
         User.create(id="user-3", email="carol@example.com", name="Carol", age=35)
 
         # Count all
-        assert User.Meta.backend.count(User) == 3
+        assert User.model_backend.count(User) == 3
 
         # Count with filter
-        assert User.Meta.backend.count(User, age=30) == 1
+        assert User.model_backend.count(User, age=30) == 1
 
     def test_exists_with_filters(self):
         """Test exists with filters."""
         User.create(id="user-1", email="alice@example.com", name="Alice", age=30)
 
-        assert User.Meta.backend.exists(User, age=30)
-        assert not User.Meta.backend.exists(User, age=25)
+        assert User.model_backend.exists(User, age=30)
+        assert not User.model_backend.exists(User, age=25)

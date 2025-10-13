@@ -7,14 +7,14 @@ This guide will walk you through creating your first RestMachine ORM models and 
 Let's create a simple User model:
 
 ```python
+from typing import ClassVar
 from restmachine_orm import Model, Field
 from restmachine_orm.backends import InMemoryBackend, InMemoryAdapter
 
 class User(Model):
     """A simple user model."""
 
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
     id: str = Field(primary_key=True)
     email: str = Field(unique=True, index=True)
@@ -25,7 +25,7 @@ class User(Model):
 Key points:
 - Models inherit from `Model`
 - Use Pydantic's `Field` for metadata
-- Configure backend in `Meta` class
+- Configure backend using `model_backend` ClassVar
 - At least one field must be marked `primary_key=True`
 
 ## Create Records
@@ -94,11 +94,11 @@ Here's a complete working example:
 ```python
 from restmachine_orm import Model, Field
 from restmachine_orm.backends import InMemoryBackend, InMemoryAdapter
+from typing import ClassVar
 
 # Define model
 class TodoItem(Model):
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
     id: str = Field(primary_key=True)
     title: str = Field(min_length=1, max_length=200)

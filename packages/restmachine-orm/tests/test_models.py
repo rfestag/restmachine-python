@@ -6,7 +6,7 @@ These tests demonstrate the API and verify core functionality.
 
 import pytest
 from datetime import datetime
-from typing import Optional
+from typing import ClassVar, Optional
 
 from restmachine_orm import Model, Field, partition_key, sort_key
 from restmachine_orm.backends import InMemoryBackend, InMemoryAdapter
@@ -16,8 +16,7 @@ from restmachine_orm.backends import InMemoryBackend, InMemoryAdapter
 class User(Model):
     """Simple user model with primary key."""
 
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
     id: str = Field(primary_key=True)
     email: str = Field(unique=True, index=True)
@@ -30,8 +29,7 @@ class User(Model):
 class TodoItem(Model):
     """Todo item with composite DynamoDB keys."""
 
-    class Meta:
-        backend = InMemoryBackend(InMemoryAdapter())
+    model_backend: ClassVar = InMemoryBackend(InMemoryAdapter())
 
     user_id: str
     todo_id: str

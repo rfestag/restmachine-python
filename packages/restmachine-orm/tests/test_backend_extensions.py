@@ -6,7 +6,7 @@ This test file demonstrates the extension pattern for mixins.
 
 import pytest
 from datetime import datetime
-from typing import Optional, Type, ClassVar
+from typing import ClassVar, Optional, Type, ClassVar
 
 from restmachine_orm import Model, Field
 from restmachine_orm.backends import InMemoryBackend, InMemoryAdapter
@@ -126,8 +126,7 @@ class TestExtensionDiscovery:
         """Test discovering a single extension from a mixin."""
 
         class TestModel(SimpleMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             name: str
@@ -144,8 +143,7 @@ class TestExtensionDiscovery:
         """Test discovering universal extensions."""
 
         class TestModel(UniversalMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
 
@@ -160,8 +158,7 @@ class TestExtensionDiscovery:
         """Test discovering multiple extensions from multiple mixins."""
 
         class TestModel(SimpleMixin, UniversalMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
 
@@ -177,8 +174,7 @@ class TestExtensionDiscovery:
         """Test that extensions are cached per model class."""
 
         class TestModel(SimpleMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
 
@@ -199,8 +195,7 @@ class TestExtensionHooks:
         """Test that serialize hook is called during create."""
 
         class TestModel(SimpleMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             name: str
@@ -219,8 +214,7 @@ class TestExtensionHooks:
         """Test that deserialize hook is called during get."""
 
         class TestModel(SimpleMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             name: str
@@ -243,8 +237,7 @@ class TestExtensionHooks:
         """Test that configure_backend is called only once per model."""
 
         class TestModel(SimpleMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
 
@@ -266,8 +259,7 @@ class TestExtensionHooks:
         """Test that modify_query hook is called when creating queries."""
 
         class TestModel(SimpleMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
 
@@ -292,8 +284,7 @@ class TestExtensionComposition:
         """Test that all extensions' serialize hooks are called."""
 
         class TestModel(SimpleMixin, UniversalMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
 
@@ -322,8 +313,7 @@ class TestExtensionComposition:
             })
 
         class TestModel(OrderMixin1, OrderMixin2, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
 
@@ -370,8 +360,7 @@ class TestExtensionDataTransformation:
                     return query_builder
 
         class TestModel(TransformMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             name: str
@@ -419,8 +408,7 @@ class TestBackendSpecificExtensions:
                     return query_builder
 
         class TestModel(DynamoDBMixin, Model):
-            class Meta:
-                backend = shared_backend  # memory backend
+            model_backend: ClassVar = shared_backend  # memory backend
 
             id: str = Field(primary_key=True)
 
@@ -432,8 +420,7 @@ class TestBackendSpecificExtensions:
         """Test that universal extensions (*) work on any backend."""
 
         class TestModel(UniversalMixin, Model):
-            class Meta:
-                backend = shared_backend  # memory backend
+            model_backend: ClassVar = shared_backend  # memory backend
 
             id: str = Field(primary_key=True)
 

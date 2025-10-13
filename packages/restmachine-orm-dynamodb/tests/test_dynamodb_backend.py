@@ -100,7 +100,7 @@ class TestDynamoDBCRUD:
 
     def test_create_user(self, backend):
         """Test creating a user record."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         user = User.create(
             id="user-123",
@@ -122,7 +122,7 @@ class TestDynamoDBCRUD:
 
     def test_create_todo(self, backend):
         """Test creating a todo item."""
-        TodoItem.Meta.backend = backend
+        TodoItem.model_backend = backend
 
         todo = TodoItem.create(
             user_id="alice",
@@ -140,7 +140,7 @@ class TestDynamoDBCRUD:
 
     def test_create_duplicate_raises_error(self, backend):
         """Test that creating duplicate raises DuplicateKeyError."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         User.create(id="user-123", email="alice@example.com", name="Alice")
 
@@ -149,7 +149,7 @@ class TestDynamoDBCRUD:
 
     def test_get_user(self, backend):
         """Test retrieving a user by ID."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create user
         User.create(id="user-123", email="alice@example.com", name="Alice", age=30)
@@ -164,14 +164,14 @@ class TestDynamoDBCRUD:
 
     def test_get_nonexistent_returns_none(self, backend):
         """Test that getting nonexistent record returns None."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         user = User.get(id="nonexistent")
         assert user is None
 
     def test_update_user(self, backend):
         """Test updating a user record."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create user
         user = User.create(id="user-123", email="alice@example.com", name="Alice", age=30)
@@ -192,7 +192,7 @@ class TestDynamoDBCRUD:
 
     def test_update_nonexistent_raises_error(self, backend):
         """Test that updating nonexistent record raises NotFoundError."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         user = User(id="nonexistent", email="test@example.com", name="Test")
         user._is_persisted = True  # Trick it into thinking it exists
@@ -202,7 +202,7 @@ class TestDynamoDBCRUD:
 
     def test_delete_user(self, backend):
         """Test deleting a user record."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create user
         user = User.create(id="user-123", email="alice@example.com", name="Alice")
@@ -215,14 +215,14 @@ class TestDynamoDBCRUD:
 
     def test_delete_nonexistent_returns_false(self, backend):
         """Test that deleting nonexistent record returns False."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         user = User(id="nonexistent", email="test@example.com", name="Test")
         assert user.delete() is False
 
     def test_upsert_creates_new_record(self, backend):
         """Test that upsert creates a new record when it doesn't exist."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Upsert a new user
         user = User.upsert(
@@ -246,7 +246,7 @@ class TestDynamoDBCRUD:
 
     def test_upsert_overwrites_existing_record(self, backend):
         """Test that upsert overwrites an existing record without error."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create initial user
         User.create(
@@ -279,7 +279,7 @@ class TestDynamoDBCRUD:
 
     def test_upsert_no_duplicate_error(self, backend):
         """Test that upsert does not raise DuplicateKeyError."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create user
         User.create(id="user-123", email="alice@example.com", name="Alice")
@@ -291,7 +291,7 @@ class TestDynamoDBCRUD:
 
     def test_upsert_todo_item(self, backend):
         """Test upserting a todo item with composite keys."""
-        TodoItem.Meta.backend = backend
+        TodoItem.model_backend = backend
 
         # Use fixed timestamp so sort key is the same
         fixed_timestamp = datetime(2025, 1, 15, 10, 30, 0)
@@ -334,7 +334,7 @@ class TestDynamoDBQuery:
 
     def test_all_users(self, backend):
         """Test retrieving all users."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create multiple users
         User.create(id="user-1", email="alice@example.com", name="Alice", age=30)
@@ -351,7 +351,7 @@ class TestDynamoDBQuery:
 
     def test_filter_by_age(self, backend):
         """Test filtering users by age."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create users with different ages
         User.create(id="user-1", email="alice@example.com", name="Alice", age=30)
@@ -367,7 +367,7 @@ class TestDynamoDBQuery:
 
     def test_filter_todos_by_completion(self, backend):
         """Test filtering todos by completion status."""
-        TodoItem.Meta.backend = backend
+        TodoItem.model_backend = backend
 
         # Create todos
         TodoItem.create(
@@ -392,7 +392,7 @@ class TestDynamoDBQuery:
 
     def test_exclude_filter(self, backend):
         """Test excluding records."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         User.create(id="user-1", email="alice@example.com", name="Alice", age=30)
         User.create(id="user-2", email="bob@example.com", name="Bob", age=25)
@@ -405,7 +405,7 @@ class TestDynamoDBQuery:
 
     def test_query_first(self, backend):
         """Test getting first result."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         User.create(id="user-1", email="alice@example.com", name="Alice", age=30)
         User.create(id="user-2", email="bob@example.com", name="Bob", age=25)
@@ -417,14 +417,14 @@ class TestDynamoDBQuery:
 
     def test_query_first_empty_returns_none(self, backend):
         """Test that first() on empty query returns None."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         user = User.where().first()
         assert user is None
 
     def test_query_last(self, backend):
         """Test getting last result."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create users with different ages (so we can order by age)
         User.create(id="user-1", email="alice@example.com", name="Alice", age=30)
@@ -443,14 +443,14 @@ class TestDynamoDBQuery:
 
     def test_query_last_empty_returns_none(self, backend):
         """Test that last() on empty query returns None."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         user = User.where().last()
         assert user is None
 
     def test_query_count(self, backend):
         """Test counting records."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         User.create(id="user-1", email="alice@example.com", name="Alice")
         User.create(id="user-2", email="bob@example.com", name="Bob")
@@ -460,7 +460,7 @@ class TestDynamoDBQuery:
 
     def test_query_exists(self, backend):
         """Test checking if records exist."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         assert not User.where(email="alice@example.com").exists()
 
@@ -475,7 +475,7 @@ class TestDynamoDBBatchOperations:
 
     def test_batch_create(self, backend):
         """Test batch creating records."""
-        TodoItem.Meta.backend = backend
+        TodoItem.model_backend = backend
 
         records = [
             {
@@ -496,7 +496,7 @@ class TestDynamoDBBatchOperations:
 
     def test_batch_get(self, backend):
         """Test batch getting records."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create users
         for i in range(5):
@@ -517,7 +517,7 @@ class TestDynamoDBBatchOperations:
 
     def test_batch_get_empty_returns_empty(self, backend):
         """Test that batch_get with empty keys returns empty list."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         results = backend.batch_get(User, [])
         assert results == []
@@ -528,7 +528,7 @@ class TestDynamoDBTypeConversion:
 
     def test_float_to_decimal_conversion(self, backend):
         """Test that floats are converted to Decimal for DynamoDB."""
-        TodoItem.Meta.backend = backend
+        TodoItem.model_backend = backend
 
         # Create a todo with priority (int)
         todo = TodoItem.create(
@@ -546,7 +546,7 @@ class TestDynamoDBTypeConversion:
 
     def test_decimal_to_python_conversion(self, backend):
         """Test that Decimal values are converted back to Python types."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create user
         User.create(id="user-123", email="alice@example.com", name="Alice", age=30)
@@ -564,7 +564,7 @@ class TestDynamoDBEdgeCases:
 
     def test_create_with_special_characters(self, backend):
         """Test creating records with special characters."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         user = User.create(
             id="user-123",
@@ -582,7 +582,7 @@ class TestDynamoDBEdgeCases:
 
     def test_query_with_multiple_filters(self, backend):
         """Test query with multiple filter conditions."""
-        TodoItem.Meta.backend = backend
+        TodoItem.model_backend = backend
 
         # Create todos
         for i in range(5):
@@ -606,7 +606,7 @@ class TestDynamoDBEdgeCases:
 
     def test_empty_string_field(self, backend):
         """Test handling empty strings."""
-        TodoItem.Meta.backend = backend
+        TodoItem.model_backend = backend
 
         # DynamoDB doesn't allow empty strings, but our validation should catch this
         with pytest.raises(Exception):  # Pydantic ValidationError
@@ -622,7 +622,7 @@ class TestDynamoDBPagination:
 
     def test_paginate_with_limit(self, backend):
         """Test pagination with limit."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create multiple users
         for i in range(10):
@@ -644,7 +644,7 @@ class TestDynamoDBPagination:
 
     def test_paginate_last_page(self, backend):
         """Test that last page returns None cursor."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         # Create 5 users
         for i in range(5):
@@ -663,7 +663,7 @@ class TestDynamoDBPagination:
 
     def test_paginate_empty_results(self, backend):
         """Test pagination with no results."""
-        User.Meta.backend = backend
+        User.model_backend = backend
 
         results, cursor = User.where(age__gte=100).limit(10).paginate()
         assert len(results) == 0
@@ -671,7 +671,7 @@ class TestDynamoDBPagination:
 
     def test_paginate_all_results(self, backend):
         """Test fetching all results via pagination."""
-        TodoItem.Meta.backend = backend
+        TodoItem.model_backend = backend
 
         # Create 15 todos
         for i in range(15):

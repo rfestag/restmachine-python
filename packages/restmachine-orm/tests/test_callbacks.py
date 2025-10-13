@@ -6,7 +6,7 @@ This test file demonstrates the callback system for models.
 
 import pytest
 from datetime import datetime
-from typing import Optional
+from typing import ClassVar, Optional
 
 from restmachine_orm import Model, Field, before_save, after_save
 from restmachine_orm.backends import InMemoryBackend, InMemoryAdapter
@@ -19,8 +19,7 @@ shared_backend = InMemoryBackend(InMemoryAdapter())
 class UserWithCallbacks(Model):
     """User model with before_save and after_save callbacks."""
 
-    class Meta:
-        backend = shared_backend
+    model_backend: ClassVar = shared_backend
 
     id: str = Field(primary_key=True)
     email: str
@@ -52,8 +51,7 @@ class UserWithCallbacks(Model):
 class UserWithMultipleCallbacks(Model):
     """User model with multiple callbacks of each type."""
 
-    class Meta:
-        backend = shared_backend
+    model_backend: ClassVar = shared_backend
 
     id: str = Field(primary_key=True)
     name: str
@@ -102,8 +100,7 @@ class EmailLog:
 class UserWithSideEffects(Model):
     """User model with side effects in after_save."""
 
-    class Meta:
-        backend = shared_backend
+    model_backend: ClassVar = shared_backend
 
     id: str = Field(primary_key=True)
     email: str

@@ -19,6 +19,7 @@ pip install restmachine-orm[dynamodb]
 ```python
 from restmachine_orm import Model, Field, partition_key, sort_key
 from restmachine_orm_dynamodb import DynamoDBBackend, DynamoDBAdapter
+from typing import ClassVar
 
 # Configure backend
 backend = DynamoDBBackend(
@@ -27,8 +28,7 @@ backend = DynamoDBBackend(
 )
 
 class User(Model):
-    class Meta:
-        backend = backend
+    model_backend: ClassVar = backend
 
     id: str = Field(primary_key=True)
     email: str
@@ -53,10 +53,10 @@ DynamoDB uses composite keys (partition key + sort key). Define them with decora
 ```python
 from datetime import datetime
 from restmachine_orm import partition_key, sort_key
+from typing import ClassVar
 
 class TodoItem(Model):
-    class Meta:
-        backend = backend
+    model_backend: ClassVar = backend
 
     user_id: str
     todo_id: str
@@ -114,8 +114,7 @@ Store multiple entity types in one table:
 
 ```python
 class User(Model):
-    class Meta:
-        backend = backend
+    model_backend: ClassVar = backend
 
     id: str = Field(primary_key=True)
     email: str
@@ -131,8 +130,7 @@ class User(Model):
 
 
 class Order(Model):
-    class Meta:
-        backend = backend
+    model_backend: ClassVar = backend
 
     user_id: str
     order_id: str
@@ -175,8 +173,7 @@ DynamoDB uses Decimal for numbers. The backend handles conversion:
 
 ```python
 class Product(Model):
-    class Meta:
-        backend = backend
+    model_backend: ClassVar = backend
 
     sku: str = Field(primary_key=True)
     price: float  # Stored as Decimal, returned as float
@@ -212,10 +209,10 @@ Support for GSIs coming soon. Current workaround:
 
 ```python
 from restmachine_orm import gsi_partition_key, gsi_sort_key
+from typing import ClassVar
 
 class User(Model):
-    class Meta:
-        backend = backend
+    model_backend: ClassVar = backend
 
     id: str = Field(primary_key=True)
     email: str
@@ -319,8 +316,7 @@ def dynamodb_backend():
 
 def test_user_crud(dynamodb_backend):
     class User(Model):
-        class Meta:
-            backend = dynamodb_backend
+        model_backend: ClassVar = dynamodb_backend
 
         id: str = Field(primary_key=True)
         name: str

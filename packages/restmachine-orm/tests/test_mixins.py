@@ -6,7 +6,7 @@ Tests TimestampMixin, ExpirationMixin, and other provided mixins.
 
 import pytest
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import ClassVar, Optional
 from time import sleep
 
 from restmachine_orm import Model, Field
@@ -37,8 +37,7 @@ class TestTimestampMixin:
         from restmachine_orm.mixins import TimestampMixin
 
         class User(TimestampMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             name: str
@@ -56,8 +55,7 @@ class TestTimestampMixin:
         from restmachine_orm.mixins import TimestampMixin
 
         class User(TimestampMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             name: str
@@ -72,8 +70,7 @@ class TestTimestampMixin:
         from restmachine_orm.mixins import TimestampMixin
 
         class User(TimestampMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             name: str
@@ -96,8 +93,7 @@ class TestTimestampMixin:
         from restmachine_orm.mixins import TimestampMixin
 
         class User(TimestampMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             name: str
@@ -119,8 +115,7 @@ class TestTimestampMixin:
         from restmachine_orm.mixins import TimestampMixin
 
         class User(TimestampMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             name: str
@@ -142,8 +137,7 @@ class TestExpirationMixin:
         from restmachine_orm.mixins import ExpirationMixin
 
         class CacheItem(ExpirationMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             data: str
@@ -158,8 +152,7 @@ class TestExpirationMixin:
         from restmachine_orm.mixins import ExpirationMixin
 
         class CacheItem(ExpirationMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             data: str
@@ -175,8 +168,7 @@ class TestExpirationMixin:
         from restmachine_orm.mixins import ExpirationMixin
 
         class CacheItem(ExpirationMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             data: str
@@ -192,8 +184,7 @@ class TestExpirationMixin:
         from restmachine_orm.mixins import ExpirationMixin
 
         class CacheItem(ExpirationMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             data: str
@@ -230,8 +221,7 @@ class TestExpirationMixin:
         from restmachine_orm.mixins import ExpirationMixin
 
         class CacheItem(ExpirationMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             data: str
@@ -259,8 +249,7 @@ class TestMixinComposition:
         from restmachine_orm.mixins import TimestampMixin, ExpirationMixin
 
         class Session(TimestampMixin, ExpirationMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             session_id: str = Field(primary_key=True)
             user_id: str
@@ -283,8 +272,7 @@ class TestMixinComposition:
         from restmachine_orm.mixins import TimestampMixin, ExpirationMixin
 
         class CachedUser(TimestampMixin, ExpirationMixin, Model):
-            class Meta:
-                backend = shared_backend
+            model_backend: ClassVar = shared_backend
 
             id: str = Field(primary_key=True)
             name: str

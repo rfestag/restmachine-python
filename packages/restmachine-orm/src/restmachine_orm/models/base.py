@@ -15,18 +15,6 @@ if TYPE_CHECKING:
 from restmachine_orm.models.decorators import BeforeSaveCallback, AfterSaveCallback
 
 
-class ModelMeta:
-    """
-    Metadata container for Model configuration.
-
-    Defined as an inner class in Model subclasses to configure
-    backend and other model-level settings.
-    """
-    backend: Optional["Backend"] = None
-    table_name: Optional[str] = None
-    index_name: Optional[str] = None
-
-
 class Model(BaseModel):
     """
     Base model class for RestMachine ORM.
@@ -37,8 +25,7 @@ class Model(BaseModel):
 
     Example:
         >>> class User(Model):
-        ...     class Meta:
-        ...         backend = DynamoDBBackend(table_name="users")
+        ...     model_backend: ClassVar[Backend] = InMemoryBackend()
         ...
         ...     id: str = Field(primary_key=True)
         ...     email: str = Field(unique=True)
@@ -47,6 +34,11 @@ class Model(BaseModel):
         >>> user = User.create(id="123", email="alice@example.com", name="Alice")
         >>> user.name = "Alice Smith"
         >>> user.save()
+
+        Alternative syntax using class parameter:
+        >>> class User(Model, model_backend=InMemoryBackend()):
+        ...     id: str = Field(primary_key=True)
+        ...     name: str
     """
 
     # Pydantic configuration
@@ -57,8 +49,8 @@ class Model(BaseModel):
         ignored_types=(BeforeSaveCallback, AfterSaveCallback),  # Ignore callback descriptors
     )
 
-    # Class-level metadata
-    Meta: ClassVar[type[ModelMeta]] = ModelMeta
+    # Backend configuration
+    model_backend: ClassVar[Optional["Backend"]] = None
 
     # Track if this is a new record or loaded from database
     _is_persisted: bool = False
@@ -76,9 +68,19 @@ class Model(BaseModel):
     _auto_query_filters: ClassVar[list[Callable]] = []
     _geo_field_names: ClassVar[list[str]] = []
 
-    def __init_subclass__(cls, **kwargs):
-        """Collect hooks from mixins when model class is defined."""
+    def __init_subclass__(cls, model_backend: Optional["Backend"] = None, **kwargs: Any):
+        """
+        Collect hooks from mixins when model class is defined.
+
+        Args:
+            model_backend: Optional backend to use for this model (alternative to ClassVar)
+            **kwargs: Additional arguments passed to parent
+        """
         super().__init_subclass__(**kwargs)
+
+        # Support class parameter pattern: class User(Model, model_backend=InMemoryBackend())
+        if model_backend is not None:
+            cls.model_backend = model_backend
 
         # Reset class variables for this specific subclass
         cls._before_save_hooks = []
@@ -198,12 +200,13 @@ class Model(BaseModel):
         Raises:
             RuntimeError: If no backend is configured
         """
-        if not hasattr(cls.Meta, "backend") or cls.Meta.backend is None:
-            raise RuntimeError(
-                f"No backend configured for {cls.__name__}. "
-                f"Set {cls.__name__}.Meta.backend to a Backend instance."
-            )
-        return cls.Meta.backend
+        if cls.model_backend is not None:
+            return cls.model_backend
+
+        raise RuntimeError(
+            f"No backend configured for {cls.__name__}. "
+            f"Set {cls.__name__}.model_backend = YourBackend() or pass model_backend=YourBackend() to class definition."
+        )
 
 
 

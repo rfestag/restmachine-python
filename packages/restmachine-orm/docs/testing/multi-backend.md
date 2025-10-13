@@ -426,7 +426,7 @@ class MyBackendDriver(DriverInterface):
         return "mybackend"
 
     def setup_backend(self, model_class):
-        model_class.Meta.backend = self.backend
+        model_class.model_backend = self.backend
 ```
 
 ### 2. Register Driver
