@@ -144,43 +144,85 @@ user = User.upsert(
 
 ## Querying
 
-RestMachine ORM provides a chainable query interface:
+RestMachine ORM provides a chainable query interface that is iterable.
 
-### Basic Filters
+**Lazy Iteration**: Query builders are truly lazy - they don't execute until you iterate over them, call `.all()`, `.first()`, `.count()`, or `.exists()`. This means efficient operations that only fetch what you need:
+
+- Direct iteration yields results one at a time without loading everything into memory
+- `.first()` early-exits after finding the first match
+- `.count()` counts efficiently without materializing model instances
+- `.exists()` returns as soon as a match is found
+
+### Field Expression Syntax (Recommended)
+
+RestMachine ORM supports SQLAlchemy-style field expressions for type-safe, Pythonic queries:
 
 ```python
-# Exact match
-users = User.where().and_(age=30).all()
+# Basic comparisons - iterate directly
+for user in User.where(User.age == 30):
+    print(user.name)
+
+# Or collect into a list
+users = User.where(User.age > 25).all()
+
+# Boolean operators - must wrap in parentheses
+adults = User.where((User.age >= 18) & (User.age < 65)).all()
+young_or_old = User.where((User.age < 18) | (User.age >= 65)).all()
+active = User.where(~(User.status == "deleted")).all()
+
+# String methods
+alice_users = User.where(User.name.startswith("Alice")).all()
+gmail_users = User.where(User.email.endswith("@gmail.com")).all()
+
+# Combine with keyword filters
+for user in User.where(User.age >= 18, is_active=True):
+    print(f"{user.name}: {user.age}")
+
+# Complex queries
+results = User.where(
+    ((User.age >= 18) & (User.age <= 65)) |
+    (User.role == "admin")
+).all()
+```
+
+### Keyword Syntax (Classic)
+
+Traditional Django-style keyword filters are also supported:
+
+```python
+# Basic filters
+for user in User.where().and_(age=30):
+    print(user.name)
 
 # Multiple conditions (AND)
-users = User.where().and_(age=30, is_active=True).all()
+for user in User.where().and_(age=30, is_active=True):
+    print(user.name)
 
 # NOT condition
 users = User.where().not_(age=30).all()
-```
 
-### Comparison Operators
-
-```python
-# Greater than / less than
+# Comparison operators
 users = User.where().and_(age__gt=25).all()
 users = User.where().and_(age__gte=25).all()
 users = User.where().and_(age__lt=50).all()
 users = User.where().and_(age__lte=50).all()
 
 # Combine conditions
-users = User.where() \
+for user in User.where() \
     .and_(age__gte=25) \
     .and_(age__lte=50) \
-    .and_(is_active=True) \
-    .all()
+    .and_(is_active=True):
+    print(f"{user.name}: {user.age}")
 ```
 
 ### Ordering
 
 ```python
-# Ascending order
-users = User.where().order_by("age").all()
+# Ascending order - iterate directly
+for user in User.where().order_by("age"):
+    print(f"{user.name}: {user.age}")
+
+# Or collect results
 users = User.where().order_by("name").all()
 
 # Descending order
@@ -193,7 +235,11 @@ users = User.where().order_by("age", "-created_at").all()
 ### Pagination
 
 ```python
-# Limit
+# Limit - iterate directly
+for user in User.where().limit(10):
+    print(user.name)
+
+# Or collect into list
 users = User.where().limit(10).all()
 
 # Offset

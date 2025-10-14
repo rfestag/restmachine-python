@@ -5,11 +5,12 @@ An ActiveRecord-style ORM/ODM framework for Python with support for multiple bac
 ## Features
 
 - **ActiveRecord Pattern** - Define models with schema and get full CRUD operations
-- **Multiple Backends** - DynamoDB, OpenSearch, and composite backends
+- **Multiple Backends** - DynamoDB, in-memory, and extensible backend system
 - **Pydantic Integration** - Built-in validation compatible with RestMachine
-- **Composite Keys** - Decorator-based partition and sort key generation
-- **Query Builder** - Fluent interface for building complex queries
-- **Graph Database Support** - Composite backend using OpenSearch for discovery and DynamoDB hexastore for traversal
+- **Field Expression Queries** - SQLAlchemy-style syntax: `User.where(User.age > 25)`
+- **Lazy Query Execution** - Efficient iteration without loading all results
+- **Type Safety** - Full type hints and IDE support
+- **Mixins & Extensions** - Timestamps, soft deletes, geospatial, and custom behaviors
 
 ## Installation
 
@@ -32,29 +33,38 @@ pip install restmachine-orm[all]
 ### Basic Model Definition
 
 ```python
+from typing import ClassVar
 from restmachine_orm import Model, Field
-from restmachine_orm.backends.dynamodb import DynamoDBBackend
+from restmachine_orm.backends.memory import InMemoryBackend
 
 class User(Model):
-    """User model stored in DynamoDB."""
+    """User model with in-memory backend."""
 
-    class Meta:
-        backend = DynamoDBBackend(table_name="users")
+    model_backend: ClassVar = InMemoryBackend()
 
     # Fields
     id: str = Field(primary_key=True)
-    email: str = Field(unique=True, index=True)
+    email: str = Field(unique=True)
     name: str = Field(max_length=100)
     age: int = Field(ge=0, le=150, default=0)
-    created_at: datetime = Field(auto_now_add=True)
-    updated_at: datetime = Field(auto_now=True)
 
 # Create
-user = User.create(id="user-123", email="alice@example.com", name="Alice")
+user = User.create(id="user-123", email="alice@example.com", name="Alice", age=30)
 
 # Read
 user = User.get(id="user-123")
-users = User.query().filter(age__gte=18).all()
+
+# Query with field expressions (recommended)
+adults = User.where(User.age >= 18).all()
+young_adults = User.where((User.age >= 18) & (User.age < 30)).all()
+alice_users = User.where(User.name.startswith("Alice")).all()
+
+# Query with keyword syntax (also supported)
+users = User.where(age__gte=18).all()
+
+# Iterate efficiently without loading all results
+for user in User.where(User.age >= 18):
+    print(f"{user.name}: {user.age}")
 
 # Update
 user.name = "Alice Smith"

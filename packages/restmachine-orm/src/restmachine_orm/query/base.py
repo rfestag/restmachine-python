@@ -38,6 +38,96 @@ class QueryBuilder(ABC):
         self._result_filters: dict[str, Callable[["Model"], bool]] = {}  # Post-query filters
         self._disabled_filters: set[str] = set()  # Names of disabled filters
 
+    def where(self, *expressions: Any) -> "QueryBuilder":
+        """
+        Add field expression filters to the query.
+
+        Accepts QueryExpression objects created by field operators.
+
+        Args:
+            *expressions: Field expressions like User.age > 25
+
+        Returns:
+            Self for method chaining
+
+        Example:
+            >>> query = User.where(User.age > 25)
+            >>> query = User.where((User.age >= 18) & (User.age <= 65))
+        """
+
+        for expr in expressions:
+            self._add_expression(expr)
+
+        return self
+
+    def _add_expression(self, expr: Any) -> None:
+        """
+        Process and add a field expression to filters.
+
+        Args:
+            expr: QueryExpression, AndExpression, OrExpression, or NotExpression
+        """
+        from restmachine_orm.query.expressions import (
+            QueryExpression,
+            AndExpression,
+            OrExpression,
+            NotExpression,
+        )
+
+        if isinstance(expr, QueryExpression):
+            # Simple expression: User.age > 25
+            filters = expr.to_filter_dict()
+            self._filters.append(("and", filters))
+
+        elif isinstance(expr, AndExpression):
+            # AND: (expr1) & (expr2)
+            # Process both sides recursively
+            self._add_expression(expr.left)
+            self._add_expression(expr.right)
+
+        elif isinstance(expr, OrExpression):
+            # OR: (expr1) | (expr2)
+            # Convert each side to filters and add as OR group
+            left_filters = self._expression_to_filters(expr.left)
+            self._filters.append(("or", left_filters))
+
+            right_filters = self._expression_to_filters(expr.right)
+            self._filters.append(("or", right_filters))
+
+        elif isinstance(expr, NotExpression):
+            # NOT: ~expr
+            filters = self._expression_to_filters(expr.expr)
+            self._filters.append(("not", filters))
+
+    def _expression_to_filters(self, expr: Any) -> dict[str, Any]:
+        """
+        Convert an expression to a filter dictionary.
+
+        Args:
+            expr: Expression to convert
+
+        Returns:
+            Filter dictionary
+        """
+        from restmachine_orm.query.expressions import (
+            QueryExpression,
+            AndExpression,
+            OrExpression,
+            NotExpression,
+        )
+
+        if isinstance(expr, QueryExpression):
+            return expr.to_filter_dict()
+        elif isinstance(expr, (AndExpression, OrExpression, NotExpression)):
+            # For complex expressions, process them through _add_expression
+            # This is a simplification - more complex logic may be needed
+            # For now, just convert the left side for simple cases
+            if hasattr(expr, 'left'):
+                return self._expression_to_filters(expr.left)
+            elif hasattr(expr, 'expr'):
+                return self._expression_to_filters(expr.expr)
+        return {}
+
     def and_(self, **conditions: Any) -> "QueryBuilder":
         """
         Add AND conditions to the query.

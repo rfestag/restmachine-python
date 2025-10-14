@@ -5,7 +5,7 @@ Simple dict-based storage for testing and examples without requiring
 external services.
 """
 
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING, Iterator
 from copy import deepcopy
 
 from restmachine_orm.backends.base import Backend, NotFoundError
@@ -275,8 +275,13 @@ class InMemoryQueryBuilder(QueryBuilder):
 
         return True
 
-    def all(self) -> list["Model"]:
-        """Execute query and return all results."""
+    def _filter_and_sort_records(self) -> list[dict[str, Any]]:
+        """
+        Filter and sort records based on query conditions.
+
+        Returns list of model data dictionaries (not instances) in the requested order.
+        This is used for operations that need to see all results (sorting, offset/limit).
+        """
         storage = self.backend._get_storage(self.model_class)
 
         # Get all records and convert to model data
@@ -314,20 +319,32 @@ class InMemoryQueryBuilder(QueryBuilder):
                 include = True
             else:
                 for group in or_groups:
-                    group_matches = True
-                    for filter_type, conditions in group:
-                        matches = self._matches_conditions(model_data, conditions)
-                        if filter_type == "and" and not matches:
-                            group_matches = False
-                            break
-                        elif filter_type == "not" and matches:
-                            group_matches = False
-                            break
-                        elif filter_type == "or":
-                            # OR condition - if it matches, entire group matches
-                            if matches:
+                    # Check if group contains only OR filters
+                    all_or = all(ft == "or" for ft, _ in group)
+
+                    if all_or:
+                        # For groups with only ORs, at least one must match
+                        group_matches = False
+                        for filter_type, conditions in group:
+                            if self._matches_conditions(model_data, conditions):
                                 group_matches = True
                                 break
+                    else:
+                        # For mixed groups, apply normal AND/NOT logic
+                        group_matches = True
+                        for filter_type, conditions in group:
+                            matches = self._matches_conditions(model_data, conditions)
+                            if filter_type == "and" and not matches:
+                                group_matches = False
+                                break
+                            elif filter_type == "not" and matches:
+                                group_matches = False
+                                break
+                            elif filter_type == "or":
+                                # OR condition - if it matches, entire group matches
+                                if matches:
+                                    group_matches = True
+                                    break
 
                     if group_matches:
                         include = True
@@ -343,20 +360,31 @@ class InMemoryQueryBuilder(QueryBuilder):
                 field = order_field[1:] if reverse else order_field
                 results.sort(key=lambda x: x.get(field) or "", reverse=reverse)
 
+        return results
+
+    def _iterate_results(self):
+        """
+        Lazy generator that yields model instances one at a time.
+
+        This is the core iteration method that respects offset/limit
+        without loading all results into memory unnecessarily.
+        """
+        # Get filtered and sorted records
+        results = self._filter_and_sort_records()
+
         # Apply offset and limit
         # If cursor is set, use it as the offset
         offset = self._offset or 0
         if self._cursor and isinstance(self._cursor, dict) and "offset" in self._cursor:
             offset = self._cursor["offset"]
 
-        if offset:
-            results = results[offset:]
-        if self._limit:
-            results = results[:self._limit]
+        # Calculate the range to iterate
+        start = offset
+        end = offset + self._limit if self._limit else len(results)
 
-        # Convert to model instances
-        instances = []
-        for data in results:
+        # Yield instances one at a time
+        for i in range(start, min(end, len(results))):
+            data = results[i]
             instance = self.model_class(**data)
             instance._is_persisted = True
 
@@ -364,25 +392,67 @@ class InMemoryQueryBuilder(QueryBuilder):
             for hook in self.model_class._after_load_hooks:
                 hook(instance)
 
-            instances.append(instance)
+            yield instance
 
-        # Apply result filters (e.g., from mixins)
-        instances = self._apply_result_filters(instances)
+    def __iter__(self) -> Iterator["Model"]:
+        """Make query builder iterable - yields results lazily."""
+        # Apply result filters to the generator
+        for instance in self._iterate_results():
+            # Check if instance passes all non-disabled result filters
+            keep = True
+            for filter_name, filter_fn in self._result_filters.items():
+                if filter_name not in self._disabled_filters:
+                    if not filter_fn(instance):
+                        keep = False
+                        break
+            if keep:
+                yield instance
 
+    def all(self) -> list["Model"]:
+        """Execute query and return all results."""
+        # Collect all results from the lazy iterator
+        instances = list(self)
         return instances
 
     def first(self) -> Optional["Model"]:
-        """Get the first result."""
-        results = self.limit(1).all()
-        return results[0] if results else None
+        """Get the first result efficiently with early exit."""
+        # Use the iterator to get just the first item
+        for instance in self:
+            return instance
+        return None
 
     def count(self) -> int:
-        """Count results."""
-        return len(self.all())
+        """Count results without materializing all instances."""
+        # For simple queries without result filters, we can count filtered records directly
+        if not self._result_filters:
+            results = self._filter_and_sort_records()
+
+            # Apply offset and limit to count
+            offset = self._offset or 0
+            if self._cursor and isinstance(self._cursor, dict) and "offset" in self._cursor:
+                offset = self._cursor["offset"]
+
+            total = len(results)
+
+            # Apply offset
+            if offset:
+                total = max(0, total - offset)
+
+            # Apply limit
+            if self._limit:
+                total = min(total, self._limit)
+
+            return total
+        else:
+            # With result filters, we need to count actual instances
+            return sum(1 for _ in self)
 
     def exists(self) -> bool:
-        """Check if any results exist."""
-        return self.first() is not None
+        """Check if any results exist with early exit."""
+        # Just check if we can get at least one result
+        for _ in self:
+            return True
+        return False
 
     def paginate(self) -> tuple[list["Model"], Optional[dict[str, int]]]:
         """

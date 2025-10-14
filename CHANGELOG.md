@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **RestMachine ORM Field Expression Queries**: SQLAlchemy-style field-based query expressions
+  - Direct field access for queries: `User.where(User.age > 25)` instead of `User.where().and_(age__gte=25)`
+  - Boolean operators: `&` (AND), `|` (OR), `~` (NOT) for combining expressions
+  - String methods: `.startswith()`, `.endswith()`, `.contains()`, `.in_()`
+  - Type-safe queries with full IDE autocomplete support
+  - Geospatial query methods: `.distance_lte()`, `.within()`, `.intersects()`, `.geo_contains()`, `.bbox()`
+  - Automatic geo field detection based on Shapely types (Point, Polygon, MultiPolygon)
+  - Custom `QueryableModelMetaclass` extending Pydantic's `ModelMetaclass`
+  - New `QueryField` class with operator overloading (`__eq__`, `__gt__`, etc.)
+  - `BooleanExpression` base class for DRY expression composition
+  - Full backward compatibility with existing keyword-based query syntax
+  - Comprehensive test coverage with all 105 existing tests passing
+  - Documentation updated with field expression examples
 - **CORS Origin Reflection for Development**: New `reflect_any_origin` parameter for credentials with wildcard origins
   - Allows `origins="*"` with `credentials=True` by reflecting the request's Origin header
   - Useful for development environments with multiple frontend origins (localhost ports, emulators)
@@ -253,6 +266,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - See `docs/MIGRATION_TO_PYPROJECT.md` for details
 
 ### Fixed
+- **RestMachine ORM OR Query Evaluation**: Fixed bug in InMemory backend where OR filters matched all records
+  - Corrected logic for groups containing only OR filters to require at least one match
+  - Added special handling for all-OR groups vs mixed AND/OR groups
+  - All query tests passing with correct OR behavior
 - **Multi-Value Headers**: Fixed HTTP spec violation where duplicate headers only kept last value
   - Previous dict-based implementation only retained last value for duplicate header names
   - Now properly supports headers that can appear multiple times per RFC 7230

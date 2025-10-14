@@ -6,6 +6,7 @@ Provides ActiveRecord-style interface using Pydantic for validation.
 
 from typing import Any, Optional, ClassVar, Callable, TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict
+from pydantic._internal._model_construction import ModelMetaclass
 
 if TYPE_CHECKING:
     from restmachine_orm.backends.base import Backend
@@ -15,7 +16,47 @@ if TYPE_CHECKING:
 from restmachine_orm.models.decorators import BeforeSaveCallback, AfterSaveCallback
 
 
-class Model(BaseModel):
+class QueryableModelMetaclass(ModelMetaclass):
+    """
+    Extends Pydantic's metaclass to enable field-based query expressions.
+
+    Makes User.age return a QueryField for building queries, enabling syntax like:
+        User.where(User.age > 25)
+        User.where((User.age >= 18) & (User.age <= 65))
+    """
+
+    def __getattribute__(cls, name: str):
+        """
+        Intercept class-level attribute access.
+
+        For field names, return QueryField for query building.
+        For everything else, return normal attribute.
+        """
+        # Don't intercept special attributes, private attributes, or known methods
+        if (name.startswith('_') or
+            name.startswith('model_') or
+            name in ('where', 'create', 'get', 'all', 'find_by', 'upsert', 'delete',
+                     'save', 'model_dump', 'model_validate', 'model_fields',
+                     'model_config', 'model_json_schema', 'model_computed_fields')):
+            return super().__getattribute__(name)
+
+        # Check if this is a model field
+        try:
+            model_fields = super().__getattribute__('model_fields')
+            if name in model_fields:
+                # Import here to avoid circular imports
+                from restmachine_orm.query.fields import QueryField
+                from typing import cast
+                # cls is the Model class, not the metaclass instance
+                return QueryField(cast(type["Model"], cls), name)
+        except AttributeError:
+            pass
+
+        # Default to normal attribute access
+        return super().__getattribute__(name)
+
+
+class Model(BaseModel, metaclass=QueryableModelMetaclass):
     """
     Base model class for RestMachine ORM.
 
@@ -428,34 +469,39 @@ class Model(BaseModel):
         return cls.where(**conditions).first()
 
     @classmethod
-    def where(cls, **conditions: Any) -> "QueryBuilder":
+    def where(cls, *expressions: Any, **conditions: Any) -> "QueryBuilder":
         """
         Create a lazy query builder for finding records.
 
         Returns a QueryBuilder that doesn't execute until results are accessed
         (via .all(), .first(), .last(), iteration, etc.)
 
-        All conditions passed as kwargs are ANDed together.
+        Supports both field expressions and keyword arguments.
 
         Args:
-            **conditions: Initial filter conditions (all ANDed together)
+            *expressions: Field expressions like User.age > 25
+            **conditions: Keyword filter conditions (all ANDed together)
 
         Returns:
             QueryBuilder instance for chaining
 
         Examples:
-            >>> # Find all active users (conditions ANDed)
+            >>> # Field expressions (new style)
+            >>> users = User.where(User.age > 25).all()
+            >>> users = User.where((User.age >= 18) & (User.age <= 65)).all()
+            >>> users = User.where((User.role == "admin") | (User.role == "moderator")).all()
+
+            >>> # Keyword conditions (classic style)
             >>> users = User.where(status="active", age__gte=18).all()
+
+            >>> # Mixed
+            >>> users = User.where(User.age > 25, is_active=True).all()
 
             >>> # Chain conditions
             >>> users = User.where(age__gte=18).and_(status="active").limit(10).all()
 
-            >>> # Boolean operators
-            >>> query = User.where(role="admin").or_(role="moderator")
-            >>> admins_and_mods = query.all()
-
             >>> # Iterate over results (lazy)
-            >>> for user in User.where(age__gte=18):
+            >>> for user in User.where(User.age >= 18):
             ...     print(user.name)
         """
         # Lazy initialization of query operators (needs to happen after Pydantic sets up model_fields)
@@ -469,8 +515,14 @@ class Model(BaseModel):
         for auto_filter in cls._auto_query_filters:
             query = auto_filter(query)
 
+        # Apply expressions
+        if expressions:
+            query = query.where(*expressions)
+
+        # Apply keyword conditions
         if conditions:
             query = query.and_(**conditions)
+
         return query
 
     @classmethod
