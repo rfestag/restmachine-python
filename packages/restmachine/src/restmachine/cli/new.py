@@ -32,7 +32,7 @@ def new_command(name: str, minimal: bool, directory: Optional[str]):
     Creates a default directory structure with:
     - models/         - ORM models
     - schemas/        - Pydantic validation schemas
-    - controllers/    - Route handlers
+    - routes/         - Route handlers
     - config/         - Hierarchical configuration
     - tests/          - Test suite
     - app.py          - Application definition
@@ -75,11 +75,13 @@ def _create_directory_structure(project_dir: Path, name: str, minimal: bool):
     directories = [
         "models",
         "schemas",
-        "controllers",
+        "routes",
         "config",
         "config/local",
         "db",
         "db/fixtures",
+        "db/fixtures/local",
+        "db/fixtures/local/development",
         "tests",
         "tests/unit",
         "tests/unit/models",
@@ -92,6 +94,10 @@ def _create_directory_structure(project_dir: Path, name: str, minimal: bool):
 
     for directory in directories:
         (project_dir / directory).mkdir(parents=True, exist_ok=True)
+
+    # Create .gitkeep files for empty fixture directories
+    (project_dir / "db" / "fixtures" / ".gitkeep").write_text("")
+    (project_dir / "db" / "fixtures" / "local" / "development" / ".gitkeep").write_text("")
 
 
 def _render_templates(project_dir: Path, name: str, minimal: bool):
@@ -133,9 +139,9 @@ def _render_templates(project_dir: Path, name: str, minimal: bool):
         # Schemas
         ("schemas/__init__.py.j2", "schemas/__init__.py"),
 
-        # Controllers
-        ("controllers/__init__.py.j2", "controllers/__init__.py"),
-        ("controllers/health.py.j2", "controllers/health.py"),
+        # Routes
+        ("routes/__init__.py.j2", "routes/__init__.py"),
+        ("routes/health.py.j2", "routes/health.py"),
 
         # Lib
         ("lib/__init__.py.j2", "lib/__init__.py"),

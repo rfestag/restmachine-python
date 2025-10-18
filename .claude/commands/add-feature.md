@@ -40,7 +40,24 @@ First, activate the virtual environment:
 - Do not commit or add any files to the commit automatically. The developer is responsible for reviewing before committing.
 - If you add a new file that belongs in the repo, run `git add -N filename` to add it in an unstaged state (intent to add), so that a git diff shows the new file.
 
-## 5. Run Full Test Suite
+## 5. Run Type Checking
+
+**Before running the full test suite**, verify your new code has no type errors:
+
+```bash
+mypy packages/{package_name}/src/{package_name}/**/*.py --config-file=pyproject.toml
+```
+
+Common type issues to avoid:
+- Use `Tuple` instead of `tuple` for Python 3.9 compatibility (import from `typing`)
+- Use `List` instead of `list` for Python 3.9 compatibility (import from `typing`)
+- Add `# type: ignore[import-untyped]` for third-party imports without type stubs
+- Add `# type: ignore[no-untyped-def]` for functions with dynamic parameters
+- Ensure all function return types are annotated
+
+**Fix all type errors before proceeding.**
+
+## 6. Run Full Test Suite
 
 Ensure all tests pass and code meets quality standards:
 
@@ -56,7 +73,7 @@ This runs:
 
 **Do not proceed until tox passes completely.**
 
-## 6. Update Documentation
+## 7. Update Documentation
 
 ### Package-Specific Documentation
 
@@ -84,7 +101,7 @@ For features involving multiple packages or integration, update:
 - Common use cases
 - Related features/concepts
 
-## 7. Update CHANGELOG.md
+## 8. Update CHANGELOG.md
 
 Add entry to `CHANGELOG.md` under `## [Unreleased]` section:
 
@@ -134,19 +151,20 @@ Add under `### Removed`:
 - Code cleanup/refactoring (without behavior changes)
 - Documentation fixes
 
-## 8. Final Verification
+## 9. Final Verification
 
 Before completing:
 
 - [ ] All tests pass (`tox` succeeds)
+- [ ] Type checking passes (no mypy errors in new code)
 - [ ] Tests were written BEFORE implementation
 - [ ] Documentation updated (package-specific and/or top-level)
 - [ ] CHANGELOG.md updated (if applicable)
 - [ ] Code follows project conventions
-- [ ] Type hints added
+- [ ] Type hints added (using `Tuple`, `List` from `typing` for Python 3.9)
 - [ ] No unintended files created (check git status)
 
-## 9. Summary
+## 10. Summary
 
 Provide a summary of:
 - What was implemented

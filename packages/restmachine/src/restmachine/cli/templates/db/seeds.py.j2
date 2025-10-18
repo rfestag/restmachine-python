@@ -1,37 +1,133 @@
 """
 Database seeding for {{ project_name }}.
 
-Run this script to populate the database with initial or test data.
+This script uses the RestMachine FixtureLoader to load fixtures from
+the db/fixtures/ directory hierarchy.
+
+For most use cases, you should use the CLI command instead:
+    restmachine seed                    # Use defaults
+    restmachine seed --environment production
+    restmachine seed --dry-run         # Preview what would be loaded
+
+This file is provided as an alternative for custom seeding logic or
+programmatic use.
 
 Usage:
     python db/seeds.py
 """
 
+from pathlib import Path
+from restmachine.cli.fixtures import FixtureLoader
+
 
 def seed():
     """
-    Seed the database with initial data.
+    Seed the database using hierarchical fixtures.
 
-    Add your seeding logic here, for example:
-    - Create admin users
-    - Add reference data
-    - Generate test data for development
+    Loads fixture files from db/fixtures/ based on the environment and
+    config path. Fixtures are loaded hierarchically and merged, with
+    deeper levels overriding shallower ones for records with the same
+    _fixture_id.
+
+    Fixture file format (YAML):
+        model: User
+        upsert_key: email           # Optional: field(s) for get-or-create
+        records:
+          - _fixture_id: admin      # Optional: for cross-level deduplication
+            email: admin@example.com
+            name: Admin User
+            role: admin
+
+    Directory structure:
+        db/fixtures/
+            users.yaml              # Global fixtures (always loaded)
+            local/
+              development/
+                dev-users.yaml      # Development-specific fixtures
+              production/
+                prod-users.yaml     # Production-specific fixtures
     """
-    print("Seeding database...")
+    print("Loading fixtures...")
 
-    # Example:
-    # from models import User
-    # from config.settings import settings
-    #
-    # # Create admin user
-    # admin = User(
-    #     id="admin-001",
-    #     email="admin@example.com",
-    #     name="Admin User"
-    # )
-    # admin.save()
+    # Get project paths
+    project_dir = Path(__file__).parent.parent
+    fixtures_dir = project_dir / "db" / "fixtures"
+    hierarchy_file = project_dir / "config" / "hierarchy.yaml"
 
-    print("✓ Database seeded successfully")
+    # Load fixtures
+    loader = FixtureLoader(
+        fixtures_dir=fixtures_dir,
+        hierarchy_file=hierarchy_file if hierarchy_file.exists() else None
+    )
+
+    fixtures = loader.load()
+
+    if not fixtures:
+        print("No fixtures found")
+        return
+
+    # Import models
+    import sys
+    sys.path.insert(0, str(project_dir))
+    import models
+
+    # Save each fixture
+    total_created = 0
+    total_updated = 0
+
+    for fixture in fixtures:
+        created, updated = _save_fixture(fixture, models)
+        total_created += created
+        total_updated += updated
+
+    print(f"✓ Database seeded successfully!")
+    print(f"  Created: {total_created} records")
+    print(f"  Updated: {total_updated} records")
+
+
+def _save_fixture(fixture, models_module):
+    """Save records for a single fixture."""
+    try:
+        model_class = getattr(models_module, fixture.model)
+    except AttributeError:
+        print(f"Warning: Model '{fixture.model}' not found")
+        return (0, 0)
+
+    created = 0
+    updated = 0
+
+    for record in fixture.records:
+        if fixture.upsert_key:
+            # Use upsert_key for get-or-create
+            if isinstance(fixture.upsert_key, list):
+                lookup = {k: record[k] for k in fixture.upsert_key}
+            else:
+                lookup = {fixture.upsert_key: record[fixture.upsert_key]}
+
+            # Try to find existing
+            query = model_class.query()
+            for key, value in lookup.items():
+                query = query.filter(**{key: value})
+
+            existing = query.first()
+
+            if existing:
+                # Update
+                for key, value in record.items():
+                    setattr(existing, key, value)
+                existing.save()
+                updated += 1
+            else:
+                # Create
+                model_class(**record).save()
+                created += 1
+        else:
+            # No upsert key, just create
+            model_class(**record).save()
+            created += 1
+
+    print(f"  {fixture.model}: {created} created, {updated} updated")
+    return (created, updated)
 
 
 if __name__ == "__main__":

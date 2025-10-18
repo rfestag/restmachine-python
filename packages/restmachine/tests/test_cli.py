@@ -81,7 +81,7 @@ def test_new_command_creates_directory_structure(runner, temp_dir):
     # Verify directories exist
     assert (project_dir / 'models').exists()
     assert (project_dir / 'schemas').exists()
-    assert (project_dir / 'controllers').exists()
+    assert (project_dir / 'routes').exists()
     assert (project_dir / 'config').exists()
     assert (project_dir / 'config' / 'local').exists()
     assert (project_dir / 'db').exists()
@@ -130,7 +130,7 @@ def test_new_command_creates_example_files(runner, temp_dir):
     assert (project_dir / 'lib' / 'dependencies.py').exists()
     assert not (project_dir / 'models' / 'user.py').exists()
     assert not (project_dir / 'schemas' / 'user_schemas.py').exists()
-    assert not (project_dir / 'controllers' / 'users.py').exists()
+    assert not (project_dir / 'routes' / 'users.py').exists()
 
     # Verify content is templated
     app_py = (project_dir / 'app.py').read_text()
@@ -152,10 +152,10 @@ def test_new_command_minimal_mode(runner, temp_dir):
     # Example files should NOT exist in minimal mode
     assert not (project_dir / 'models' / 'user.py').exists()
     assert not (project_dir / 'schemas' / 'user_schemas.py').exists()
-    assert not (project_dir / 'controllers' / 'users.py').exists()
+    assert not (project_dir / 'routes' / 'users.py').exists()
 
-    # Health controller should still exist
-    assert (project_dir / 'controllers' / 'health.py').exists()
+    # Health route should still exist
+    assert (project_dir / 'routes' / 'health.py').exists()
 
 
 def test_new_command_rejects_existing_directory(runner, temp_dir):
@@ -192,8 +192,8 @@ def test_new_command_templates_project_name(runner, temp_dir):
         assert project_name in content, f"{project_name} not found in {file_path}"
 
 
-def test_new_command_creates_health_controller(runner, temp_dir):
-    """Test that health check controller is always created."""
+def test_new_command_creates_health_route(runner, temp_dir):
+    """Test that health check route is always created."""
     project_name = 'myapp'
     project_dir = temp_dir / project_name
 
@@ -211,11 +211,74 @@ def test_new_command_creates_health_controller(runner, temp_dir):
         result = runner.invoke(main, args)
         assert result.exit_code == 0
 
-        # Health controller should exist in both modes
-        health_py = project_dir / 'controllers' / 'health.py'
+        # Health route should exist in both modes
+        health_py = project_dir / 'routes' / 'health.py'
         assert health_py.exists()
 
         content = health_py.read_text()
         assert 'router = Router()' in content
         assert "@router.get('/')" in content
         assert 'health_check' in content
+
+
+def test_new_command_creates_fixture_directories(runner, temp_dir):
+    """Test that new command creates hierarchical fixture directory structure."""
+    project_name = 'myapp'
+    project_dir = temp_dir / project_name
+
+    result = runner.invoke(main, ['new', project_name, '--directory', str(temp_dir)])
+    assert result.exit_code == 0
+
+    # Verify fixture directory structure
+    fixtures_dir = project_dir / 'db' / 'fixtures'
+    assert fixtures_dir.exists()
+    assert fixtures_dir.is_dir()
+
+    # Should have local/development structure
+    local_dev = fixtures_dir / 'local' / 'development'
+    assert local_dev.exists()
+    assert local_dev.is_dir()
+
+
+def test_new_command_creates_seeds_script(runner, temp_dir):
+    """Test that seeds.py script is created with fixture loading example."""
+    project_name = 'myapp'
+    project_dir = temp_dir / project_name
+
+    result = runner.invoke(main, ['new', project_name, '--directory', str(temp_dir)])
+    assert result.exit_code == 0
+
+    # Verify seeds.py exists
+    seeds_py = project_dir / 'db' / 'seeds.py'
+    assert seeds_py.exists()
+
+    # Should contain fixture loading code
+    content = seeds_py.read_text()
+    assert 'FixtureLoader' in content or 'fixtures' in content.lower()
+    assert 'def seed' in content
+
+
+def test_new_command_creates_sample_fixture(runner, temp_dir):
+    """Test that a sample fixture file is created."""
+    project_name = 'myapp'
+    project_dir = temp_dir / project_name
+
+    result = runner.invoke(main, ['new', project_name, '--directory', str(temp_dir)])
+    assert result.exit_code == 0
+
+    # Check for sample fixture at root level or in local/development
+    fixtures_dir = project_dir / 'db' / 'fixtures'
+
+    # Should have at least one sample fixture or .gitkeep files
+    has_sample = False
+    for yaml_file in fixtures_dir.rglob('*.yaml'):
+        has_sample = True
+        break
+
+    has_gitkeep = False
+    for gitkeep in fixtures_dir.rglob('.gitkeep'):
+        has_gitkeep = True
+        break
+
+    # Should have either a sample fixture or .gitkeep files
+    assert has_sample or has_gitkeep

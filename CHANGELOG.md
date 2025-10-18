@@ -8,6 +8,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Hierarchical Fixture Seeding**: Database seeding with environment-aware fixture loading
+  - New `restmachine seed` command for loading fixtures into database
+  - Hierarchical fixture loading following same pattern as configuration system
+  - YAML-based fixture format with `model`, `upsert_key`, and `records` fields
+  - `_fixture_id` for cross-level record deduplication (deeper levels override shallower)
+  - Additive file loading: all applicable fixtures merged based on path + environment
+  - Support for `upsert_key` (single or composite) for idempotent seeding
+  - CLI options: `--environment`, `--path`, `--dry-run`, `--project-dir`
+  - **New in Phase 2**: `--fixture` flag for selective loading of specific fixture files
+  - **New in Phase 2**: `--clear` flag to truncate tables before seeding
+  - **New in Phase 2**: `--verbose` flag for detailed loading information
+  - Respects `RESTMACHINE_CONFIG_PATH` and `RESTMACHINE_ENVIRONMENT` variables
+  - Dry-run mode shows fixture hierarchy and record counts without persisting
+  - FixtureLoader utility class for programmatic fixture loading with optional filtering
+  - `restmachine new` creates hierarchical `db/fixtures/` directory structure
+  - Updated `db/seeds.py` template with FixtureLoader integration
+  - Directory structure: `db/fixtures/{path}/{environment}/*.yaml`
 - **Project Scaffolding CLI**: New `restmachine new` command for creating projects
   - Create new RestMachine projects with clean, organized structure: `restmachine new myapp`
   - Generates complete project with models/, controllers/, schemas/, config/, lib/, tests/ directories
