@@ -18,7 +18,7 @@ def render(
     """
     Render a template using Jinja2.
 
-    This function provides Rails-like view rendering capabilities with support
+    This function provides convenient view rendering capabilities with support
     for both file-based templates and inline template strings.
 
     Args:

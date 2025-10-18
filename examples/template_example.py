@@ -2,7 +2,7 @@
 Example demonstrating the new Jinja2 template rendering capabilities.
 
 This example shows how to use the render() helper function to render
-HTML templates with Rails-like view capabilities.
+HTML templates with convenient view capabilities.
 
 Note: This script can be run from any directory.
 """

@@ -79,6 +79,9 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short -m 'not performance'"
 markers = [
     "performance: Performance benchmark tests (deselect with '-m \"not performance\"')",
+    "driver_direct: Tests using direct driver (RestMachineDriver)",
+    "driver_asgi: Tests using ASGI driver",
+    "driver_mock: Tests using mock driver",
 ]
 
 [tool.pytest.benchmark]

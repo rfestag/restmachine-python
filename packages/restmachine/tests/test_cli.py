@@ -27,7 +27,7 @@ def test_cli_help(runner):
     result = runner.invoke(main, ['--help'])
     assert result.exit_code == 0
     assert 'RestMachine' in result.output
-    assert 'Rails-like CLI' in result.output
+    assert 'CLI for REST applications' in result.output
 
 
 def test_cli_version(runner):

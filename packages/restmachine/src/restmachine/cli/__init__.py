@@ -14,7 +14,7 @@ from restmachine.cli.new import new_command
 @click.group()
 @click.version_option()
 def main():
-    """RestMachine - Rails-like CLI for REST applications."""
+    """RestMachine - CLI for REST applications."""
     pass
 
 

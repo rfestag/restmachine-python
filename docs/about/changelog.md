@@ -8,6 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Project Scaffolding CLI**: New `restmachine new` command for creating projects
+  - Create new RestMachine projects with clean, organized structure: `restmachine new myapp`
+  - Generates complete project with models/, controllers/, schemas/, config/, lib/, tests/ directories
+  - `--minimal` flag for creating bare-bones projects without examples
+  - `--directory` option to specify custom project location
+  - Automatic setup of hierarchical configuration system
+  - Pre-configured Docker, Lambda, and ASGI deployment files
+  - Health check endpoint included by default
+  - Ready-to-use pytest configuration and test fixtures
+- **Hierarchical Configuration System**: OmegaConf-based configuration management
+  - Walk directory hierarchies to load and merge YAML configuration files
+  - Environment-specific overlays: `config.yaml` (defaults) + `[environment].yaml` (overrides)
+  - Support for complex paths like `aws/account-id/region/` for multi-environment deployments
+  - Environment variables: `RESTMACHINE_CONFIG_PATH` and `RESTMACHINE_ENVIRONMENT`
+  - OmegaConf interpolation support (e.g., `${database.host}`)
+  - Dot-notation access: `settings.get("database.host")` or `settings.database.host`
+  - Automatic merging from least to most specific configuration levels
+  - `hierarchy.yaml` file for setting default paths and environments
+  - New `HierarchicalSettings` class exported from `restmachine.config`
+- **Router Dependency Transfer**: Enhanced Router pattern with automatic dependency propagation
+  - Router-level dependencies, validators, and callbacks automatically transferred to app on mount
+  - Define routes with `Router()` before mounting to application
+  - Mount routers with base paths: `app.mount('/users', users_router)`
+  - Routes defined relative to mount point: `@router.get('/')` becomes `/users/`
+  - Supports validation dependencies (`@router.validates`), custom dependencies (`@router.dependency`), and content-type parsers (`@router.accepts`)
+  - Callbacks defined on routers properly transferred to application
+  - Enables true modular route organization without circular imports
+- **Project Scaffolding Templates**: Jinja2-based code generation
+  - 25+ templates for controllers, models, schemas, config, tests, and deployment files
+  - Generated code follows best practices and RestMachine conventions
+  - Templates support both minimal and full project modes
+  - Clean separation of concerns with `lib/dependencies.py` for dependency definitions
+  - Router pattern used throughout generated code
+  - Example health check controller showing proper Router usage
+  - Test templates using RestMachine's testing DSL (`RestApiDsl`, `RestMachineDriver`)
 - **CORS Origin Reflection for Development**: New `reflect_any_origin` parameter for credentials with wildcard origins
   - Allows `origins="*"` with `credentials=True` by reflecting the request's Origin header
   - Useful for development environments with multiple frontend origins (localhost ports, emulators)

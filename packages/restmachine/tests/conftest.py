@@ -110,8 +110,12 @@ def pytest_collection_modifyitems(config, items):
             if len(parts) > 1:
                 param_part = parts[-1].rstrip(']')
                 if param_part.startswith('driver-'):
-                    driver_name = param_part.replace('driver-', '')
-                    # Convert driver name to marker name (e.g., "aws_lambda" -> "driver_aws_lambda")
+                    # Extract only the driver name, not any additional parameters
+                    # e.g., "driver-direct-/cacheable" -> "direct"
+                    driver_full = param_part.replace('driver-', '', 1)
+                    # Split on common parameter separators and take first part
+                    driver_name = driver_full.split('-')[0].split('_')[0]
+                    # Convert driver name to marker name (e.g., "direct" -> "driver_direct")
                     # Replace hyphens with underscores for marker names
                     marker_name = f"driver_{driver_name.replace('-', '_')}"
                     item.add_marker(getattr(pytest.mark, marker_name))
