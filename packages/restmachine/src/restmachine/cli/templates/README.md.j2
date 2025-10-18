@@ -1,0 +1,116 @@
+# {{ project_name }}
+
+A RESTful API application built with RestMachine.
+
+## Getting Started
+
+### Prerequisites
+
+- Python 3.9 or higher
+- pip
+
+### Installation
+
+1. Create and activate a virtual environment:
+
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
+
+2. Install dependencies:
+
+```bash
+pip install -e .
+```
+
+3. Copy the example environment file and configure:
+
+```bash
+cp .env.example .env
+# Edit .env with your configuration
+```
+
+### Running Locally
+
+Start the development server:
+
+```bash
+python main.py
+```
+
+The API will be available at http://localhost:8000
+
+### Configuration
+
+This project uses RestMachine's hierarchical configuration system. Configuration files are located in the `config/` directory.
+
+- `config/hierarchy.yaml` - Defines the configuration hierarchy and defaults
+- `config/local/development.yaml` - Local development settings (complete config)
+
+To use different configurations, set environment variables:
+
+```bash
+export RESTMACHINE_CONFIG_PATH=local
+export RESTMACHINE_ENVIRONMENT=development
+python main.py
+```
+
+### Running Tests
+
+```bash
+pip install -e ".[dev]"
+pytest
+```
+
+### Deployment
+
+#### Docker
+
+Build and run with Docker:
+
+```bash
+docker build -t {{ project_name }} .
+docker run -p 8000:8000 {{ project_name }}
+```
+
+Or use Docker Compose:
+
+```bash
+docker-compose up
+```
+
+#### AWS Lambda
+
+1. Install AWS dependencies:
+
+```bash
+pip install -e ".[aws]"
+```
+
+2. Deploy using your preferred method:
+   - AWS SAM
+   - Serverless Framework
+   - AWS CDK
+
+The Lambda handler is defined in `lambda_function.py`.
+
+## Project Structure
+
+```
+{{ project_name }}/
+├── models/          # ORM models
+├── schemas/         # Pydantic validation schemas
+├── controllers/     # Route handlers
+├── config/          # Configuration files
+├── db/              # Database seeds and fixtures
+├── tests/           # Test suite
+├── lib/             # Utilities and helpers
+├── app.py           # Application definition
+├── main.py          # Development server
+└── lambda_function.py  # AWS Lambda handler
+```
+
+## License
+
+MIT

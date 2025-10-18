@@ -1,0 +1,30 @@
+# Local development configuration for {{ project_name }}
+
+app:
+  name: {{ project_name }}
+  environment: development
+  debug: true
+  log_level: DEBUG
+
+server:
+  host: 127.0.0.1
+  port: 8000
+  workers: 1
+
+database:
+  backend: memory
+  table_name: {{ project_name }}-dev-table
+
+security:
+  # Use environment variable for secret key in production
+  secret_key: ${oc.env:SECRET_KEY,dev-secret-key-not-for-production}
+  cors_enabled: true
+  cors_origins:
+    - http://localhost:3000
+    - http://localhost:8000
+    - http://127.0.0.1:3000
+    - http://127.0.0.1:8000
+
+features:
+  rate_limiting: false
+  caching: false

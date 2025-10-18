@@ -1,0 +1,19 @@
+"""
+{{ project_name }} application.
+
+This module creates and configures the RestMachine application instance.
+"""
+
+from restmachine import RestApplication
+
+# Create application instance
+app = RestApplication()
+
+# Register application dependencies
+# Example: from lib.dependencies import database
+# app.dependency()(database)
+
+# Import and mount routers
+from controllers.health import router as health_router
+
+app.mount('/health', health_router)

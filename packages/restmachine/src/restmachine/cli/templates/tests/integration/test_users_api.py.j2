@@ -1,0 +1,88 @@
+"""
+Integration tests for User API endpoints.
+"""
+
+import pytest
+
+
+def test_health_check(client):
+    """Test health check endpoint."""
+    response = client.get_resource('/health')
+    data = client.expect_successful_retrieval(response)
+    assert data['status'] == 'ok'
+    assert data['service'] == '{{ project_name }}'
+
+
+def test_list_users_empty(client):
+    """Test listing users when database is empty."""
+    response = client.get_resource('/users')
+    data = client.expect_successful_retrieval(response)
+    assert data == []
+
+
+def test_create_user(client):
+    """Test creating a new user."""
+    user_data = {
+        'email': 'test@example.com',
+        'name': 'Test User'
+    }
+    response = client.create_resource('/users', user_data)
+    data = client.expect_successful_creation(response)
+
+    assert 'id' in data
+    assert data['email'] == 'test@example.com'
+    assert data['name'] == 'Test User'
+
+
+def test_get_user(client):
+    """Test getting a specific user."""
+    # Create a user first
+    user_data = {'email': 'get@example.com', 'name': 'Get User'}
+    create_response = client.create_resource('/users', user_data)
+    user_id = client.expect_successful_creation(create_response)['id']
+
+    # Get the user
+    response = client.get_resource(f'/users/{user_id}')
+    data = client.expect_successful_retrieval(response)
+
+    assert data['id'] == user_id
+    assert data['email'] == 'get@example.com'
+    assert data['name'] == 'Get User'
+
+
+def test_get_user_not_found(client):
+    """Test getting a non-existent user."""
+    response = client.get_resource('/users/nonexistent-id')
+    client.expect_not_found(response)
+
+
+def test_update_user(client):
+    """Test updating a user."""
+    # Create a user first
+    user_data = {'email': 'update@example.com', 'name': 'Original Name'}
+    create_response = client.create_resource('/users', user_data)
+    user_id = client.expect_successful_creation(create_response)['id']
+
+    # Update the user
+    update_data = {'name': 'Updated Name'}
+    response = client.update_resource(f'/users/{user_id}', update_data)
+    data = client.expect_successful_retrieval(response)
+
+    assert data['name'] == 'Updated Name'
+    assert data['email'] == 'update@example.com'
+
+
+def test_delete_user(client):
+    """Test deleting a user."""
+    # Create a user first
+    user_data = {'email': 'delete@example.com', 'name': 'Delete User'}
+    create_response = client.create_resource('/users', user_data)
+    user_id = client.expect_successful_creation(create_response)['id']
+
+    # Delete the user
+    response = client.delete_resource(f'/users/{user_id}')
+    client.expect_no_content(response)
+
+    # Verify user is deleted
+    get_response = client.get_resource(f'/users/{user_id}')
+    client.expect_not_found(get_response)

@@ -29,6 +29,8 @@ classifiers = [
 dependencies = [
     "jinja2>=3.0.0",
     "anyio>=3.0.0",  # Required for async/sync bridge in startup_sync/shutdown_sync
+    "omegaconf>=2.3.0",  # For hierarchical configuration
+    "click>=8.0.0",  # For CLI commands
 ]
 
 [project.optional-dependencies]
@@ -54,6 +56,9 @@ dev = [
     "genbadge[coverage]>=1.1.0",
     "radon>=6.0.0",
 ]
+
+[project.scripts]
+restmachine = "restmachine.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/rfestag/restmachine-python"

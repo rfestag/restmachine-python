@@ -1,0 +1,32 @@
+# Configuration hierarchy for {{ project_name }}
+#
+# The settings loader walks down a directory path, loading config.yaml (defaults)
+# and [environment].yaml (environment-specific) at each level, merging in order.
+#
+# Environment variables:
+#   RESTMACHINE_CONFIG_PATH - Directory path to walk (e.g., "aws/123456789012/us-east-1")
+#   RESTMACHINE_ENVIRONMENT - Environment name (e.g., "production", "staging", "development")
+#
+# Examples:
+#
+#   Simple local development:
+#     Path: local (default)
+#     Environment: development (default)
+#     Loads: config/local/development.yaml
+#
+#   AWS multi-region production:
+#     Path: aws/123456789012/us-east-1
+#     Environment: production
+#     Loads (in order, merging):
+#       - config/aws/config.yaml (if exists)
+#       - config/aws/production.yaml (if exists)
+#       - config/aws/123456789012/config.yaml (if exists)
+#       - config/aws/123456789012/production.yaml (if exists)
+#       - config/aws/123456789012/us-east-1/config.yaml (if exists)
+#       - config/aws/123456789012/us-east-1/production.yaml (final)
+
+# Default path when RESTMACHINE_CONFIG_PATH is not set
+default_path: local
+
+# Default environment when RESTMACHINE_ENVIRONMENT is not set
+default_environment: development

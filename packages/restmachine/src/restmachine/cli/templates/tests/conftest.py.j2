@@ -1,0 +1,20 @@
+"""
+Pytest configuration and fixtures for {{ project_name }}.
+"""
+
+import pytest
+from app import app as _app
+
+
+@pytest.fixture
+def app():
+    """Get application instance for testing."""
+    return _app
+
+
+@pytest.fixture
+def client(app):
+    """Create test client."""
+    from restmachine.testing import RestMachineDriver, RestApiDsl
+    driver = RestMachineDriver(app)
+    return RestApiDsl(driver)

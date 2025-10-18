@@ -1,0 +1,32 @@
+"""
+AWS Lambda handler for {{ project_name }}.
+
+This module provides the Lambda handler function for API Gateway,
+ALB, and Lambda Function URL events.
+
+The adapter is instantiated at module level (cold start) for better
+performance - it's only created once per Lambda container.
+"""
+
+from restmachine_aws import AwsApiGatewayAdapter
+from app import app
+
+# Instantiate adapter during cold start (module import)
+# This happens once per Lambda container, not on every request
+adapter = AwsApiGatewayAdapter(app)
+
+
+def lambda_handler(event, context):
+    """
+    AWS Lambda entry point.
+
+    Handles API Gateway (REST and HTTP), ALB, and Lambda Function URL events.
+
+    Args:
+        event: The Lambda event (API Gateway request)
+        context: The Lambda context
+
+    Returns:
+        dict: API Gateway response format
+    """
+    return adapter(event, context)

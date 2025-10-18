@@ -248,6 +248,23 @@ class Router:
         if router.app is None and self.app is not None:
             router.app = self.app
 
+            # Transfer router's local dependencies to the app
+            for dep_name, dependency in router._dependencies.items():
+                self.app._dependencies[dep_name] = dependency
+
+            # Transfer validation dependencies
+            for dep_name, validation_wrapper in router._validation_dependencies.items():
+                self.app._validation_dependencies[dep_name] = validation_wrapper
+
+            # Transfer accepts dependencies
+            for content_type, accepts_wrapper in router._accepts_dependencies.items():
+                self.app._accepts_dependencies[content_type] = accepts_wrapper
+
+            # Transfer callbacks
+            for callback_name, callback in router._callbacks.items():
+                if callback_name not in self.app._callbacks:
+                    self.app._callbacks[callback_name] = callback
+
         self._mounted_routers.append((prefix, router))
 
         # Add all mounted routes to the tree immediately

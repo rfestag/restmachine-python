@@ -1,0 +1,25 @@
+"""
+{{ project_name }} configuration settings.
+
+Uses RestMachine's hierarchical configuration system with OmegaConf.
+Configuration is loaded from YAML files based on the hierarchy path and environment.
+
+Environment variables:
+    RESTMACHINE_CONFIG_PATH: Path through hierarchy (e.g., "aws/123456789012/us-east-1")
+    RESTMACHINE_ENVIRONMENT: Environment name (e.g., "production", "staging", "development")
+
+Example:
+    from config.settings import settings
+
+    db_host = settings.get("database.host")
+    debug = settings.app.debug
+"""
+
+from pathlib import Path
+from restmachine.config import HierarchicalSettings
+
+# Get the config directory (where this file is located)
+CONFIG_DIR = Path(__file__).parent
+
+# Create global settings instance
+settings = HierarchicalSettings(config_dir=CONFIG_DIR)
