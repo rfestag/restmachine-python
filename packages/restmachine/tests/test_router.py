@@ -317,3 +317,395 @@ class TestNestedMounting:
         response = app.execute(request)
         assert response.status_code == 200
         assert "comments" in response.body
+
+
+class TestWildcardRouting:
+    """Test wildcard routing with ** and *name patterns."""
+
+    def test_double_star_wildcard_basic(self):
+        """Test ** wildcard captures remaining path segments."""
+        app = RestApplication()
+
+        @app.get("/files/**")
+        def get_file(path):
+            return {"path": path}
+
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/files/docs/guide/intro.md",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+        assert "docs/guide/intro.md" in response.body
+
+    def test_named_wildcard_basic(self):
+        """Test *name wildcard with custom parameter name."""
+        app = RestApplication()
+
+        @app.get("/static/*filepath")
+        def serve_static(filepath):
+            return {"file": filepath}
+
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/static/css/style.css",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+        assert "css/style.css" in response.body
+
+    def test_wildcard_empty_path(self):
+        """Test wildcard matching empty remaining path."""
+        app = RestApplication()
+
+        @app.get("/api/**")
+        def catch_all(path):
+            return {"remaining": path}
+
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/api/",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+        # Empty path should return empty string
+        import json
+        data = json.loads(response.body)
+        assert data["remaining"] == ""
+
+    def test_wildcard_must_be_last_segment(self):
+        """Test that wildcard must be the last segment in route."""
+        import pytest
+        app = RestApplication()
+
+        # This should raise ValueError because wildcard is not last
+        with pytest.raises(ValueError, match="must be the last segment"):
+            @app.get("/files/**/other")
+            def invalid_route(path):
+                return {"path": path}
+
+    def test_wildcard_matches_nested_paths(self):
+        """Test wildcard matches deeply nested paths."""
+        app = RestApplication()
+
+        @app.get("/download/**")
+        def download(path):
+            return {"download": path}
+
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/download/2024/01/15/archive.zip",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+        assert "2024/01/15/archive.zip" in response.body
+
+
+class TestRouteMatchingEdgeCases:
+    """Test edge cases in route matching logic."""
+
+    def test_route_priority_static_over_param(self):
+        """Test that static routes take priority over param routes."""
+        app = RestApplication()
+
+        @app.get("/users/me")
+        def get_current_user():
+            return {"user": "current"}
+
+        @app.get("/users/{id}")
+        def get_user(id):
+            return {"user": id}
+
+        # Static route should match first
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/users/me",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+        assert "current" in response.body
+
+    def test_route_priority_param_over_wildcard(self):
+        """Test that param routes take priority over wildcard routes."""
+        app = RestApplication()
+
+        @app.get("/api/{resource}")
+        def get_resource(resource):
+            return {"resource": resource}
+
+        @app.get("/api/**")
+        def catch_all(path):
+            return {"wildcard": path}
+
+        # Param route should match first
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/api/users",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+        assert "users" in response.body
+        assert "wildcard" not in response.body
+
+    def test_has_path_with_handlers(self):
+        """Test path existence check with handlers."""
+        from restmachine.router import RouteNode
+
+        node = RouteNode()
+        node.handlers[HTTPMethod.GET] = lambda: {"ok": True}
+
+        # Should return True when handlers exist
+        assert node.has_path([]) is True
+
+    def test_has_path_with_wildcard_empty(self):
+        """Test path existence check with wildcard for empty path."""
+        from restmachine.router import RouteNode
+
+        node = RouteNode()
+        child = RouteNode()
+        child.handlers[HTTPMethod.GET] = lambda: {"ok": True}
+        node.wildcard_child = ("path", child)
+
+        # Should match wildcard even with empty path
+        assert node.has_path([]) is True
+
+    def test_has_path_static_match(self):
+        """Test path existence with static child."""
+        from restmachine.router import RouteNode
+
+        node = RouteNode()
+        child = RouteNode()
+        child.handlers[HTTPMethod.GET] = lambda: {"ok": True}
+        node.static_children["users"] = child
+
+        # Should find path through static children
+        assert node.has_path(["users"]) is True
+
+    def test_has_path_param_match(self):
+        """Test path existence with param child."""
+        from restmachine.router import RouteNode
+
+        node = RouteNode()
+        child = RouteNode()
+        child.handlers[HTTPMethod.GET] = lambda: {"ok": True}
+        node.param_child = ("id", child)
+
+        # Should find path through param child
+        assert node.has_path(["123"]) is True
+
+    def test_has_path_wildcard_match(self):
+        """Test path existence with wildcard child."""
+        from restmachine.router import RouteNode
+
+        node = RouteNode()
+        child = RouteNode()
+        child.handlers[HTTPMethod.GET] = lambda: {"ok": True}
+        node.wildcard_child = ("path", child)
+
+        # Should find path through wildcard
+        assert node.has_path(["any", "path", "here"]) is True
+
+
+class TestRouterPrefixHandling:
+    """Test router prefix normalization edge cases."""
+
+    def test_mount_with_empty_prefix(self):
+        """Test mounting router with empty/root prefix."""
+        app = RestApplication()
+        router = Router()
+
+        @router.get("/test")
+        def handler():
+            return {"ok": True}
+
+        # Mount at root
+        app.mount("", router)
+
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/test",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+
+    def test_mount_with_slash_only_prefix(self):
+        """Test mounting router with '/' prefix."""
+        app = RestApplication()
+        router = Router()
+
+        @router.get("/test")
+        def handler():
+            return {"ok": True}
+
+        # Mount at /
+        app.mount("/", router)
+
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/test",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+
+    def test_route_with_trailing_slash(self):
+        """Test routes with trailing slashes."""
+        app = RestApplication()
+
+        @app.get("/users/")
+        def handler():
+            return {"ok": True}
+
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/users/",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+
+
+class TestStandaloneRouterDecorators:
+    """Test Router decorators on standalone routers (before mounting)."""
+
+    def test_router_dependency_decorator(self):
+        """Test @router.dependency() on standalone router."""
+        router = Router()
+
+        @router.dependency
+        def custom_dep():
+            return {"data": "from_router"}
+
+        @router.get("/test")
+        def handler(custom_dep):
+            return custom_dep
+
+        # Router should store dependency locally before mounting
+        assert "custom_dep" in router._dependencies
+
+        # Now mount and test
+        app = RestApplication()
+        app.mount("/api", router)
+
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/api/test",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+        assert "from_router" in response.body
+
+    def test_router_dependency_with_name(self):
+        """Test @router.dependency(name=...) on standalone router."""
+        router = Router()
+
+        @router.dependency(name="my_service")
+        def service_factory():
+            return {"service": "data"}
+
+        @router.get("/test")
+        def handler(my_service):
+            return my_service
+
+        # Should use custom name
+        assert "my_service" in router._dependencies
+
+        app = RestApplication()
+        app.mount("/api", router)
+
+        request = Request(
+            method=HTTPMethod.GET,
+            path="/api/test",
+            headers={},
+            body=None
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+
+    def test_router_validates_decorator(self):
+        """Test @router.validates() on standalone router."""
+        try:
+            from pydantic import BaseModel
+            PYDANTIC_AVAILABLE = True
+
+            class TestModel(BaseModel):
+                value: int
+
+        except ImportError:
+            PYDANTIC_AVAILABLE = False
+            return
+
+        if not PYDANTIC_AVAILABLE:
+            return
+
+        router = Router()
+
+        @router.validates
+        def validate_data(json_body) -> TestModel:
+            return TestModel.model_validate(json_body)
+
+        @router.post("/test")
+        def handler(validate_data):
+            return {"validated": validate_data.value}
+
+        # Router should store validation dependency locally
+        assert "validate_data" in router._validation_dependencies
+
+        app = RestApplication()
+        app.mount("/api", router)
+
+        from io import BytesIO
+        request = Request(
+            method=HTTPMethod.POST,
+            path="/api/test",
+            headers={"content-type": "application/json"},
+            body=BytesIO(b'{"value": 42}')
+        )
+
+        response = app.execute(request)
+        assert response.status_code == 200
+
+    def test_router_accepts_decorator(self):
+        """Test @router.accepts() on standalone router."""
+        router = Router()
+
+        @router.accepts("application/x-custom")
+        def parse_custom(body_stream):
+            return {"custom": body_stream.read().decode('utf-8')}
+
+        # Router should store accepts dependency locally before mounting
+        assert "application/x-custom" in router._accepts_dependencies
+        assert "parse_custom" in router._dependencies
+
+        # Verify decorator returns the original function
+        assert parse_custom is not None
+        assert callable(parse_custom)

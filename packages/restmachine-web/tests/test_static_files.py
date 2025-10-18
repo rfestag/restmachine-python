@@ -484,3 +484,47 @@ class TestStaticFilesCustomIndexNotFound(MultiDriverTestBase):
         response = api_client.execute(request)
 
         assert response.status_code == 404
+
+
+class TestStaticFilesPathResolutionErrors:
+    """Test path resolution error handling."""
+
+    def test_path_resolution_os_error(self, tmp_path):
+        """Test handling OSError during path resolution."""
+        from unittest.mock import patch
+        from pathlib import Path as PathType
+
+        # Create a router with a valid directory
+        router = StaticRouter(serve=str(tmp_path))
+
+        # Patch Path.resolve to raise OSError
+        original_resolve = PathType.resolve
+        def mock_resolve(self, *args, **kwargs):
+            # Only raise for paths under tmp_path, not for tmp_path itself
+            if str(tmp_path) in str(self) and str(self) != str(tmp_path):
+                raise OSError("Path resolution failed")
+            return original_resolve(self, *args, **kwargs)
+
+        with patch.object(PathType, 'resolve', mock_resolve):
+            response = router._serve_file_from_local("test.txt")
+            assert response.status_code == 404
+
+    def test_path_resolution_runtime_error(self, tmp_path):
+        """Test handling RuntimeError during path resolution (e.g., symlink loops)."""
+        from unittest.mock import patch
+        from pathlib import Path as PathType
+
+        # Create a router with a valid directory
+        router = StaticRouter(serve=str(tmp_path))
+
+        # Patch Path.resolve to raise RuntimeError
+        original_resolve = PathType.resolve
+        def mock_resolve(self, *args, **kwargs):
+            # Only raise for paths under tmp_path, not for tmp_path itself
+            if str(tmp_path) in str(self) and str(self) != str(tmp_path):
+                raise RuntimeError("Too many levels of symbolic links")
+            return original_resolve(self, *args, **kwargs)
+
+        with patch.object(PathType, 'resolve', mock_resolve):
+            response = router._serve_file_from_local("test.txt")
+            assert response.status_code == 404

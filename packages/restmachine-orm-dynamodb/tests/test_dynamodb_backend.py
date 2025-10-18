@@ -706,3 +706,192 @@ class TestDynamoDBPagination:
         assert len(all_results) == 15
         # Should have needed multiple pages
         assert page_count >= 4
+
+
+class TestDynamoDBAdapterEdgeCases:
+    """Test adapter edge cases and fallback behaviors."""
+
+    def test_model_without_partition_key_decorator_uses_primary_key(self, backend):
+        """Test model without @partition_key falls back to primary_key field."""
+
+        class Product(Model):
+            """Product without @partition_key decorator."""
+            product_id: str = Field(primary_key=True)
+            name: str
+            category: str
+            price: float = 0.0
+
+        Product.model_backend = backend
+
+        # Create product - should use primary_key field for partition key
+        product = Product.create(
+            product_id="prod-123",
+            name="Widget",
+            category="gadgets",
+            price=29.99
+        )
+
+        # Verify partition key was generated from primary_key
+        item_data = backend.adapter.model_to_storage(product)
+        assert "pk" in item_data
+        assert item_data["pk"] == "Product#prod-123"
+
+    def test_model_without_sort_key_decorator_uses_default(self, backend):
+        """Test model without @sort_key uses default sort key."""
+
+        class SimpleModel(Model):
+            """Model with only partition key."""
+            id: str = Field(primary_key=True)
+            value: str
+
+            @partition_key
+            def pk(self) -> str:
+                return f"SIMPLE#{self.id}"
+
+        SimpleModel.model_backend = backend
+
+        # Create instance
+        instance = SimpleModel.create(id="test-1", value="data")
+
+        # Verify default sort key was used
+        item_data = backend.adapter.model_to_storage(instance)
+        assert item_data["sk"] == "METADATA"
+
+    def test_adapter_with_include_type_in_sk(self, backend):
+        """Test adapter with include_type_in_sk option."""
+        # Create adapter with include_type_in_sk
+        adapter = DynamoDBAdapter(include_type_in_sk=True)
+
+        class TypedModel(Model):
+            """Model to test type-in-sk."""
+            id: str = Field(primary_key=True)
+            data: str
+
+        # Test adapter directly without creating DB record
+        instance = TypedModel(id="typed-1", data="test")
+
+        # Verify sort key includes type
+        item_data = adapter.model_to_storage(instance)
+        assert item_data["sk"] == "TypedModel#METADATA"
+
+    def test_get_primary_key_value_method(self, backend):
+        """Test get_primary_key_value returns correct composite key."""
+        User.model_backend = backend
+
+        user = User(id="alice", email="alice@example.com", name="Alice")
+
+        # Get primary key value
+        key = backend.adapter.get_primary_key_value(user)
+
+        assert "pk" in key
+        assert "sk" in key
+        assert key["pk"] == "USER#alice"
+        assert key["sk"] == "PROFILE"
+
+    def test_get_primary_key_value_without_decorators(self, backend):
+        """Test get_primary_key_value for model without key decorators."""
+
+        class BasicModel(Model):
+            """Basic model without decorators."""
+            id: str = Field(primary_key=True)
+            name: str
+
+        BasicModel.model_backend = backend
+
+        instance = BasicModel(id="basic-1", name="Basic")
+
+        # Get primary key - should use fallback
+        key = backend.adapter.get_primary_key_value(instance)
+
+        assert key["pk"] == "BasicModel#basic-1"
+        assert key["sk"] == "METADATA"
+
+    def test_storage_to_model_removes_gsi_attributes(self, backend):
+        """Test that storage_to_model removes GSI attributes."""
+        from restmachine_orm.models.decorators import gsi_partition_key
+
+        class ModelWithGSI(Model):
+            """Model with GSI keys."""
+            id: str = Field(primary_key=True)
+            email: str
+            status: str
+
+            @partition_key
+            def pk(self) -> str:
+                return f"ITEM#{self.id}"
+
+            @gsi_partition_key("by_email")
+            def gsi_pk_email(self) -> str:
+                return f"EMAIL#{self.email}"
+
+        ModelWithGSI.model_backend = backend
+
+        instance = ModelWithGSI(id="test-1", email="test@example.com", status="active")
+
+        # Convert to storage (adds GSI keys)
+        storage_data = backend.adapter.model_to_storage(instance)
+        assert "gsi_pk_by_email" in storage_data
+
+        # Convert back to model (should remove GSI keys)
+        model_data = backend.adapter.storage_to_model(ModelWithGSI, storage_data)
+
+        # GSI keys should be removed
+        assert "gsi_pk_by_email" not in model_data
+        # Regular fields should remain
+        assert "email" in model_data
+        assert model_data["email"] == "test@example.com"
+
+    def test_model_with_gsi_partition_and_sort_keys(self, backend):
+        """Test model with both GSI partition and sort keys."""
+        from restmachine_orm.models.decorators import gsi_partition_key, gsi_sort_key
+
+        class Order(Model):
+            """Order with GSI for querying by customer."""
+            order_id: str = Field(primary_key=True)
+            customer_id: str
+            order_date: str
+            total: float = 0.0
+
+            @partition_key
+            def pk(self) -> str:
+                return f"ORDER#{self.order_id}"
+
+            @gsi_partition_key("by_customer")
+            def gsi_pk_customer(self) -> str:
+                return f"CUSTOMER#{self.customer_id}"
+
+            @gsi_sort_key("by_customer")
+            def gsi_sk_customer(self) -> str:
+                return f"DATE#{self.order_date}"
+
+        Order.model_backend = backend
+
+        order = Order.create(
+            order_id="order-1",
+            customer_id="cust-123",
+            order_date="2025-01-15",
+            total=99.99
+        )
+
+        # Verify GSI keys are included
+        item_data = backend.adapter.model_to_storage(order)
+        assert "gsi_pk_by_customer" in item_data
+        assert item_data["gsi_pk_by_customer"] == "CUSTOMER#cust-123"
+        assert "gsi_sk_by_customer" in item_data
+        assert item_data["gsi_sk_by_customer"] == "DATE#2025-01-15"
+
+    def test_model_without_primary_key_raises_error(self, backend):
+        """Test that model without primary_key or partition_key raises error."""
+
+        class InvalidModel(Model):
+            """Model with no primary key."""
+            name: str
+            value: int
+
+        InvalidModel.model_backend = backend
+
+        instance = InvalidModel(name="test", value=42)
+
+        # Should raise ValueError
+        with pytest.raises(ValueError, match="No partition key method or primary key field"):
+            backend.adapter.model_to_storage(instance)

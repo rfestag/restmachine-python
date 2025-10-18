@@ -536,12 +536,20 @@ class ASGIAdapter:
             body_stream_temp.write(chunk)
         more_body = message.get("more_body", False)
 
-        # If no more body, close the stream now
-        if not more_body:
-            body_stream_temp.close_writing()
+        # Check if we have content BEFORE close_writing() (which resets position to 0)
+        has_content = body_stream_temp.tell() > 0
+
+        # Reset position for reading
+        if has_content:
+            # If more body chunks are coming, seek to start so app can read first chunk
+            # If no more body, close_writing() will do this
+            if more_body:
+                body_stream_temp.seek(0)
+            else:
+                body_stream_temp.close_writing()
 
         # If there's no content, set body to None instead of empty stream
-        body_stream: Optional[BytesStreamBuffer] = None if body_stream_temp.tell() == 0 else body_stream_temp
+        body_stream: Optional[BytesStreamBuffer] = body_stream_temp if has_content else None
 
         # Extract TLS information (ASGI TLS extension)
         # Check if connection is using TLS (https)
