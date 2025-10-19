@@ -4,8 +4,10 @@ Tests for scaffold generator using the testing DSL.
 This demonstrates the cleaner test style using the RestMachine testing DSL.
 """
 
+import os
 import pytest
 from restmachine_orm import Model
+from click.testing import CliRunner
 
 
 class TestGenerateScaffoldWithDSL:
@@ -95,6 +97,21 @@ class TestGenerateScaffoldWithDSL:
         # Other files should still exist
         assert result.model_file.exists()
         assert result.routes_file.exists()
+
+    def test_scaffold_fails_outside_project(self, tmp_path):
+        """Test that scaffold command fails when not in a RestMachine project."""
+        from restmachine.cli import main
+
+        # Use empty directory without RestMachine structure
+        runner = CliRunner()
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(tmp_path)
+            result = runner.invoke(main, ["generate", "scaffold", "Product"])
+            assert result.exit_code != 0
+            assert "Not in a RestMachine project" in result.output
+        finally:
+            os.chdir(old_cwd)
 
     def test_scaffold_handles_camelcase_input(self, restmachine_app):
         """Test scaffold with CamelCase input."""
