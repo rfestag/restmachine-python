@@ -119,3 +119,33 @@ def pytest_collection_modifyitems(config, items):
                     # Replace hyphens with underscores for marker names
                     marker_name = f"driver_{driver_name.replace('-', '_')}"
                     item.add_marker(getattr(pytest.mark, marker_name))
+
+
+# CLI Testing DSL Fixtures
+@pytest.fixture
+def restmachine_app(tmp_path):
+    """Create a test RestMachine application with testing DSL.
+
+    Provides a RestMachineApp instance with helper methods for:
+    - Generating scaffolds and models
+    - Importing modules
+    - Making assertions
+    - Automatic cleanup
+
+    Example:
+        def test_scaffold(restmachine_app):
+            restmachine_app.add_scaffold('Product', ['name:str', 'price:float']) \\
+                .assert_success()
+
+            Product = restmachine_app.import_model('Product')
+            assert Product.__name__ == 'Product'
+    """
+    from tests.testing_dsl import RestMachineApp
+
+    app = RestMachineApp(tmp_path)
+    app.create()
+
+    yield app
+
+    # Automatic cleanup
+    app.cleanup()
