@@ -31,6 +31,7 @@ dependencies = [
     "anyio>=3.0.0",  # Required for async/sync bridge in startup_sync/shutdown_sync
     "omegaconf>=2.3.0",  # For hierarchical configuration
     "click>=8.0.0",  # For CLI commands
+    "inflection>=0.5.0",  # For Rails-style pluralization and string transformations
 ]
 
 [project.optional-dependencies]

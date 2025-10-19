@@ -132,7 +132,8 @@ class HierarchicalSettings:
 
         if hierarchy_file.exists():
             hierarchy = OmegaConf.load(hierarchy_file)
-            return str(hierarchy.get("default_path", "local"))
+            if isinstance(hierarchy, DictConfig):
+                return str(hierarchy.get("default_path", "local"))
 
         return "local"
 
@@ -142,7 +143,8 @@ class HierarchicalSettings:
 
         if hierarchy_file.exists():
             hierarchy = OmegaConf.load(hierarchy_file)
-            return str(hierarchy.get("default_environment", "development"))
+            if isinstance(hierarchy, DictConfig):
+                return str(hierarchy.get("default_environment", "development"))
 
         return "development"
 
@@ -200,5 +202,9 @@ class HierarchicalSettings:
 
         # Resolve all interpolations (${var}, ${oc.env:VAR}, etc.)
         OmegaConf.resolve(config)
+
+        # Ensure we return a DictConfig
+        if not isinstance(config, DictConfig):
+            config = OmegaConf.create({})
 
         return config

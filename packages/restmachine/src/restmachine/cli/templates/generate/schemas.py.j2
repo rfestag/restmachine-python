@@ -1,0 +1,50 @@
+"""
+{{ resource_name }} validation schemas for {{ project_name }}.
+"""
+
+from pydantic import BaseModel, Field
+
+
+class {{ resource_name }}Create(BaseModel):
+    """Schema for creating a {{ resource_singular }}."""
+    # TODO: Add creation fields
+    # Example:
+    # name: str = Field(min_length=1, max_length=100)
+    # description: str | None = None
+    # price: float = Field(gt=0)
+    pass
+
+
+class {{ resource_name }}Update(BaseModel):
+    """Schema for updating a {{ resource_singular }}."""
+    # TODO: Add update fields (typically Optional versions of create fields)
+    # Example:
+    # name: str | None = Field(None, min_length=1, max_length=100)
+    # description: str | None = None
+    # price: float | None = Field(None, gt=0)
+    pass
+
+
+class {{ resource_name }}Response(BaseModel):
+    """Schema for single {{ resource_singular }} responses (GET, CREATE, UPDATE)."""
+    id: str
+    # TODO: Add all model fields that should be returned
+    # Example:
+    # name: str
+    # description: str | None
+    # price: float
+    # created_at: str | None
+    # updated_at: str | None
+
+
+class {{ resource_name }}ListResponse(BaseModel):
+    """Schema for paginated list of {{ resource_plural }} (LIST)."""
+    items: list[{{ resource_name }}Response]
+    next_cursor: str | None = Field(
+        None,
+        description="Cursor for fetching the next page of results"
+    )
+    has_more: bool = Field(
+        default=False,
+        description="Whether more results are available"
+    )

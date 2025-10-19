@@ -1,0 +1,24 @@
+"""
+{{ resource_name }} model for {{ project_name }}.
+"""
+
+from typing import ClassVar
+from restmachine_orm import Model, Field
+from models import backend
+
+
+class {{ resource_name }}(Model):
+    """
+    {{ resource_name }} model.
+
+    TODO: Add your fields here. Example:
+        name: str
+        description: str | None = None
+        price: float
+        created_at: str | None = None
+    """
+
+    model_backend: ClassVar = backend
+
+    id: str = Field(primary_key=True)
+    # TODO: Add additional fields

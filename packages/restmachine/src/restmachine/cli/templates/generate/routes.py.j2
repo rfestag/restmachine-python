@@ -1,0 +1,121 @@
+"""
+{{ resource_name }} endpoints for {{ project_name }}.
+
+Provides CRUD endpoints for {{ resource_plural }}.
+"""
+{% set lb = '{' %}
+{% set rb = '}' %}
+import uuid
+from restmachine import Router
+from models.{{ resource_snake }} import {{ resource_name }}
+from schemas.{{ resource_snake }}_schemas import (
+    {{ resource_name }}Create,
+    {{ resource_name }}Update,
+    {{ resource_name }}Response,
+    {{ resource_name }}ListResponse
+)
+
+router = Router()
+
+
+# Resource loader - load {{ resource_singular }} from path parameters
+@router.dependency
+def {{ resource_singular }}(database, path_params):
+    """Load {{ resource_singular }} from path parameters.
+
+    Returns None if {{ resource_singular }} not found.
+    """
+    {{ resource_singular }}_id = path_params.get('{{ resource_singular }}_id')
+    if not {{ resource_singular }}_id:
+        return None
+
+    return database.query({{ resource_name }}).get(id={{ resource_singular }}_id)
+
+
+# Validation dependencies
+@router.validates
+def validate_{{ resource_singular }}_create(json_body) -> {{ resource_name }}Create:
+    """Validate {{ resource_singular }} creation request."""
+    return {{ resource_name }}Create.model_validate(json_body)
+
+
+@router.validates
+def validate_{{ resource_singular }}_update(json_body) -> {{ resource_name }}Update:
+    """Validate {{ resource_singular }} update request."""
+    return {{ resource_name }}Update.model_validate(json_body)
+
+
+# Resource exists check for single-resource endpoints
+@router.resource_exists('{{ resource_singular }}')
+def {{ resource_singular }}_exists({{ resource_singular }}):
+    """Check if {{ resource_singular }} exists (used by GET, PUT, DELETE)."""
+    return {{ resource_singular }} is not None
+
+
+# Routes (relative to mount point)
+@router.get('/')
+def list_{{ resource_plural }}(database, query_params):
+    """List all {{ resource_plural }} with cursor-based pagination."""
+    # Get pagination parameters
+    limit = int(query_params.get('limit', 50))
+    cursor = query_params.get('cursor')
+
+    # Query with pagination
+    query = database.query({{ resource_name }})
+    if cursor:
+        query = query.cursor(cursor)
+
+    # Get results with pagination cursor
+    {{ resource_plural }}, next_cursor = query.limit(limit).paginate()
+
+    # Build response
+    items = [{{ resource_name }}Response.model_validate(r.model_dump()).model_dump()
+             for r in {{ resource_plural }}]
+
+    return {{ resource_name }}ListResponse(
+        items=items,
+        next_cursor=next_cursor.get('offset') if next_cursor else None,
+        has_more=next_cursor is not None
+    ).model_dump()
+
+
+@router.get('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
+def get_{{ resource_singular }}({{ resource_singular }}):
+    """Get a specific {{ resource_singular }}."""
+    return {{ resource_name }}Response.model_validate({{ resource_singular }}.model_dump()).model_dump()
+
+
+@router.post('/')
+def create_{{ resource_singular }}(database, validate_{{ resource_singular }}_create: {{ resource_name }}Create):
+    """Create a new {{ resource_singular }}."""
+    # TODO: Update with actual field mappings from validate_{{ resource_singular }}_create
+    {{ resource_singular }} = {{ resource_name }}(
+        id=str(uuid.uuid4()),
+        # TODO: Map fields from validate_{{ resource_singular }}_create
+        # Example:
+        # name=validate_{{ resource_singular }}_create.name,
+        # description=validate_{{ resource_singular }}_create.description,
+    )
+    {{ resource_singular }}.save()
+    return {{ resource_name }}Response.model_validate({{ resource_singular }}.model_dump()).model_dump(), 201
+
+
+@router.put('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
+def update_{{ resource_singular }}({{ resource_singular }}, validate_{{ resource_singular }}_update: {{ resource_name }}Update):
+    """Update a {{ resource_singular }}."""
+    # TODO: Update with actual field mappings from validate_{{ resource_singular }}_update
+    # Example:
+    # if validate_{{ resource_singular }}_update.name:
+    #     {{ resource_singular }}.name = validate_{{ resource_singular }}_update.name
+    # if validate_{{ resource_singular }}_update.description:
+    #     {{ resource_singular }}.description = validate_{{ resource_singular }}_update.description
+
+    {{ resource_singular }}.save()
+    return {{ resource_name }}Response.model_validate({{ resource_singular }}.model_dump()).model_dump()
+
+
+@router.delete('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
+def delete_{{ resource_singular }}({{ resource_singular }}):
+    """Delete a {{ resource_singular }}."""
+    {{ resource_singular }}.delete()
+    return None, 204
