@@ -71,6 +71,9 @@ where = ["src", "tests"]
 include = ["restmachine*", "tests*"]
 exclude = []
 
+[tool.setuptools.package-data]
+restmachine = ["cli/templates/**/*.j2", "cli/templates/**/*.yaml", "cli/templates/**/*.yml", "cli/templates/**/*.md", "cli/templates/**/*.toml"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
