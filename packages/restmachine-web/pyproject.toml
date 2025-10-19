@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "restmachine>=0.1.0",
+    "restmachine",
 ]
 
 [project.optional-dependencies]
