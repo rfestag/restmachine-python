@@ -3,6 +3,7 @@
 """
 
 from pydantic import BaseModel, Field
+from models.{{ resource_snake }} import {{ resource_name }}
 
 
 class Create{{ resource_name }}Request(BaseModel):
@@ -25,21 +26,9 @@ class Update{{ resource_name }}Request(BaseModel):
     pass
 
 
-class {{ resource_name }}Response(BaseModel):
-    """Schema for single {{ resource_singular }} responses."""
-    id: str
-    # TODO: Add all model fields that should be returned in responses
-    # Example:
-    # name: str
-    # description: str | None = None
-    # price: float
-    # created_at: datetime
-    # updated_at: datetime
-
-
 class List{{ resource_name_plural }}Response(BaseModel):
     """Schema for paginated list of {{ resource_plural }} (LIST)."""
-    items: list[{{ resource_name }}Response]
+    items: list[{{ resource_name }}]
     cursor: str | None = Field(
         None,
         description="Cursor for fetching the next page of results"

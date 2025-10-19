@@ -19,7 +19,7 @@ router = Router()
 # Resource loader and GET endpoint - load {{ resource_singular }} from path parameters
 @router.resource_exists
 @router.get('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
-def {{ resource_singular }}(path_params):
+def {{ resource_singular }}(path_params) -> {{ resource_name }}:
     """Load and return {{ resource_singular }}.
 
     This function serves dual purposes:
@@ -83,7 +83,7 @@ def update_{{ resource_singular }}({{ resource_singular }}: {{ resource_name }},
 
 
 @router.delete('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
-def delete_{{ resource_singular }}({{ resource_singular }}):
+def delete_{{ resource_singular }}({{ resource_singular }}) -> None:
     """Delete a {{ resource_singular }}."""
     {{ resource_singular }}.delete()
-    return None, 204
+    return None

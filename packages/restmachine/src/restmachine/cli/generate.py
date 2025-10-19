@@ -7,9 +7,51 @@ Usage:
 """
 
 from pathlib import Path
+from typing import Dict, Any
 import click
 import inflection
 from jinja2 import Environment, PackageLoader, select_autoescape
+
+
+# Type mapping for field generation
+FIELD_TYPE_MAP: Dict[str, Dict[str, Any]] = {
+    "str": {
+        "python_type": "str",
+        "field_def": "{name}: str",
+        "needs_import": None,
+        "fixture_example": "example_{name}",
+    },
+    "int": {
+        "python_type": "int",
+        "field_def": "{name}: int",
+        "needs_import": None,
+        "fixture_example": "42",
+    },
+    "float": {
+        "python_type": "float",
+        "field_def": "{name}: float",
+        "needs_import": None,
+        "fixture_example": "3.14",
+    },
+    "bool": {
+        "python_type": "bool",
+        "field_def": "{name}: bool",
+        "needs_import": None,
+        "fixture_example": "true",
+    },
+    "datetime": {
+        "python_type": "datetime",
+        "field_def": "{name}: datetime",
+        "needs_import": "datetime",
+        "fixture_example": "2024-01-01T12:00:00Z",
+    },
+    "uuid": {
+        "python_type": "str",
+        "field_def": "{name}: str = Field(primary_key=True, default_factory=lambda: str(uuid.uuid4()))",
+        "needs_import": "uuid",
+        "fixture_example": "550e8400-e29b-41d4-a716-446655440000",
+    },
+}
 
 
 @click.group()
@@ -20,6 +62,120 @@ def generate():
 
 @generate.command()
 @click.argument("name")
+@click.argument("fields", nargs=-1)
+@click.option(
+    "--skip-fixtures",
+    is_flag=True,
+    help="Skip fixture generation"
+)
+def model(name: str, fields: tuple[str, ...], skip_fixtures: bool):
+    """
+    Generate a model with specified fields.
+
+    Fields should be specified as name:type pairs.
+
+    Supported types:
+    - str, int, float, bool, datetime
+    - uuid (auto-generates UUID if not provided)
+
+    Examples:
+        restmachine generate model User name:str email:str age:int
+        restmachine generate model Product id:uuid name:str price:float is_active:bool
+    """
+    # Validate we're in a RestMachine project
+    if not _is_restmachine_project():
+        click.echo(
+            click.style("Error: Not in a RestMachine project directory", fg="red"),
+            err=True
+        )
+        click.echo("Run this command from your project root (where app.py exists)", err=True)
+        raise click.Abort()
+
+    # Generate name variations
+    resource_name = inflection.camelize(name)
+    resource_snake = inflection.underscore(name)
+
+    # Parse fields
+    parsed_fields = []
+    needs_uuid_import = False
+    needs_datetime_import = False
+
+    for field_spec in fields:
+        if ":" not in field_spec:
+            click.echo(
+                click.style(f"Error: Invalid field specification '{field_spec}'. Use format 'name:type'", fg="red"),
+                err=True
+            )
+            raise click.Abort()
+
+        field_name, field_type = field_spec.split(":", 1)
+
+        # Validate field type
+        if field_type not in FIELD_TYPE_MAP:
+            valid_types = list(FIELD_TYPE_MAP.keys())
+            click.echo(
+                click.style(f"Error: Unsupported type '{field_type}'. Supported types: {', '.join(valid_types)}", fg="red"),
+                err=True
+            )
+            raise click.Abort()
+
+        # Get type mapping info
+        type_info = FIELD_TYPE_MAP[field_type]
+
+        # Track which imports we need
+        if type_info["needs_import"] == "uuid":
+            needs_uuid_import = True
+        elif type_info["needs_import"] == "datetime":
+            needs_datetime_import = True
+
+        # Build field with all info from mapping
+        parsed_fields.append({
+            "name": field_name,
+            "type": field_type,
+            "python_type": type_info["python_type"],
+            "field_def": type_info["field_def"].format(name=field_name),
+            "fixture_example": type_info["fixture_example"].format(name=field_name) if "{name}" in type_info["fixture_example"] else type_info["fixture_example"],
+        })
+
+    click.echo(f"Generating model {resource_name} with {len(parsed_fields)} field(s)...")
+
+    # Prepare context
+    context = {
+        "resource_name": resource_name,
+        "resource_snake": resource_snake,
+        "project_name": _get_project_name(),
+        "fields": parsed_fields,
+        "needs_uuid_import": needs_uuid_import,
+        "needs_datetime_import": needs_datetime_import,
+    }
+
+    # Generate model file
+    model_file = _generate_model_only(context)
+    click.echo(click.style(f"  ✓ Created {model_file}", fg="green"))
+
+    # Generate fixture (if not skipped)
+    if not skip_fixtures:
+        fixture_file = _generate_model_fixture(context)
+        click.echo(click.style(f"  ✓ Created {fixture_file}", fg="green"))
+
+    # Update models/__init__.py
+    _update_models_init(resource_name, resource_snake)
+    click.echo(click.style("  ✓ Updated models/__init__.py", fg="green"))
+
+    click.echo()
+    click.echo(click.style("✓ Model generated successfully!", fg="green", bold=True))
+    click.echo()
+    click.echo("Next steps:")
+    click.echo(f"  1. Review the generated model in models/{resource_snake}.py")
+    click.echo("  2. Add any additional fields or methods as needed")
+    if not skip_fixtures:
+        click.echo(f"  3. Customize fixture data in db/fixtures/{resource_snake}.yaml")
+    click.echo()
+
+
+@generate.command()
+@click.argument("name")
+@click.argument("fields", nargs=-1)
 @click.option(
     "--skip-tests",
     is_flag=True,
@@ -30,15 +186,21 @@ def generate():
     is_flag=True,
     help="Skip fixture generation"
 )
-def scaffold(name: str, skip_tests: bool, skip_fixtures: bool):
+def scaffold(name: str, fields: tuple[str, ...], skip_tests: bool, skip_fixtures: bool):
     """
     Generate a complete CRUD resource scaffold.
 
     Creates model, schemas, routes, fixture template, and tests for a resource.
+    Optionally specify fields as name:type pairs.
+
+    Supported types:
+    - str, int, float, bool, datetime
+    - uuid (auto-generates UUID if not provided)
 
     Examples:
         restmachine generate scaffold Product
-        restmachine generate scaffold BlogPost --skip-tests
+        restmachine generate scaffold Product name:str price:float stock:int
+        restmachine generate scaffold BlogPost title:str content:str published_at:datetime --skip-tests
     """
     # Validate we're in a RestMachine project
     if not _is_restmachine_project():
@@ -58,7 +220,68 @@ def scaffold(name: str, skip_tests: bool, skip_fixtures: bool):
 
     click.echo(f"Generating scaffold for {resource_name}...")
 
-    # Prepare context
+    # Parse fields (or use default id:uuid if no fields specified)
+    parsed_fields = []
+    needs_uuid_import = True  # Always need UUID for id field
+    needs_datetime_import = False
+
+    # Always add id:uuid as first field
+    uuid_type_info = FIELD_TYPE_MAP["uuid"]
+    parsed_fields.append({
+        "name": "id",
+        "type": "uuid",
+        "python_type": uuid_type_info["python_type"],
+        "field_def": uuid_type_info["field_def"].format(name="id"),
+        "fixture_example": uuid_type_info["fixture_example"],
+    })
+
+    # Parse additional fields if provided
+    for field_spec in fields:
+        if ":" not in field_spec:
+            click.echo(
+                click.style(f"Error: Invalid field specification '{field_spec}'. Use format 'name:type'", fg="red"),
+                err=True
+            )
+            raise click.Abort()
+
+        field_name, field_type = field_spec.split(":", 1)
+
+        # Validate field type
+        if field_type not in FIELD_TYPE_MAP:
+            valid_types = list(FIELD_TYPE_MAP.keys())
+            click.echo(
+                click.style(f"Error: Unsupported type '{field_type}'. Supported types: {', '.join(valid_types)}", fg="red"),
+                err=True
+            )
+            raise click.Abort()
+
+        # Get type mapping info
+        type_info = FIELD_TYPE_MAP[field_type]
+
+        # Track which imports we need
+        if type_info["needs_import"] == "datetime":
+            needs_datetime_import = True
+
+        # Build field with all info from mapping
+        parsed_fields.append({
+            "name": field_name,
+            "type": field_type,
+            "python_type": type_info["python_type"],
+            "field_def": type_info["field_def"].format(name=field_name),
+            "fixture_example": type_info["fixture_example"].format(name=field_name) if "{name}" in type_info["fixture_example"] else type_info["fixture_example"],
+        })
+
+    # Prepare context for model
+    model_context = {
+        "resource_name": resource_name,
+        "resource_snake": resource_snake,
+        "project_name": _get_project_name(),
+        "fields": parsed_fields,
+        "needs_uuid_import": needs_uuid_import,
+        "needs_datetime_import": needs_datetime_import,
+    }
+
+    # Prepare context for other components
     context = {
         "resource_name": resource_name,
         "resource_snake": resource_snake,
@@ -71,8 +294,8 @@ def scaffold(name: str, skip_tests: bool, skip_fixtures: bool):
     # Generate files
     generated_files = []
 
-    # 1. Model
-    model_file = _generate_model(context)
+    # 1. Model (using model generator for consistency)
+    model_file = _generate_model_only(model_context)
     generated_files.append(model_file)
 
     # 2. Schemas
@@ -133,23 +356,6 @@ def _is_restmachine_project() -> bool:
 def _get_project_name() -> str:
     """Get project name from current directory."""
     return Path.cwd().name
-
-
-def _generate_model(context: dict) -> str:
-    """Generate model file."""
-    env = Environment(
-        loader=PackageLoader("restmachine.cli", "templates"),
-        autoescape=select_autoescape(),
-        keep_trailing_newline=True,
-    )
-
-    template = env.get_template("generate/model.py.j2")
-    content = template.render(context)
-
-    output_path = Path(f"models/{context['resource_snake']}.py")
-    output_path.write_text(content)
-
-    return str(output_path)
 
 
 def _generate_schemas(context: dict) -> str:
@@ -275,8 +481,8 @@ def _update_schemas_init(resource_name: str, resource_snake: str, resource_name_
     content = init_file.read_text()
 
     # Add imports if not already present
-    # Using new naming convention: Create{Resource}Request, Update{Resource}Request, {Resource}Response, List{Resources}Response
-    import_line = f"from schemas.{resource_snake}_schemas import Create{resource_name}Request, Update{resource_name}Request, {resource_name}Response, List{resource_name_plural}Response"
+    # Using new naming convention: Create{Resource}Request, Update{Resource}Request, List{Resources}Response
+    import_line = f"from schemas.{resource_snake}_schemas import Create{resource_name}Request, Update{resource_name}Request, List{resource_name_plural}Response"
 
     if import_line not in content:
         # Append to end
@@ -335,3 +541,37 @@ def _auto_mount_router(context: dict):
 
     lines.insert(insert_index, mount_line)
     app_file.write_text('\n'.join(lines))
+
+
+def _generate_model_only(context: dict) -> str:
+    """Generate model file with specified fields."""
+    env = Environment(
+        loader=PackageLoader("restmachine.cli", "templates"),
+        autoescape=select_autoescape(),
+        keep_trailing_newline=True,
+    )
+
+    template = env.get_template("generate/model_with_fields.py.j2")
+    content = template.render(context)
+
+    output_path = Path(f"models/{context['resource_snake']}.py")
+    output_path.write_text(content)
+
+    return str(output_path)
+
+
+def _generate_model_fixture(context: dict) -> str:
+    """Generate fixture file with example data for fields."""
+    env = Environment(
+        loader=PackageLoader("restmachine.cli", "templates"),
+        autoescape=select_autoescape(),
+        keep_trailing_newline=True,
+    )
+
+    template = env.get_template("generate/model_fixture.yaml.j2")
+    content = template.render(context)
+
+    output_path = Path(f"db/fixtures/{context['resource_snake']}.yaml")
+    output_path.write_text(content)
+
+    return str(output_path)

@@ -1,0 +1,21 @@
+"""
+{{ resource_name }} model for {{ project_name }}.
+"""
+{% if needs_uuid_import %}
+import uuid
+{% endif %}
+{% if needs_datetime_import %}
+from datetime import datetime
+{% endif %}
+from typing import ClassVar
+from restmachine_orm import Model, Field
+from models import backend
+
+
+class {{ resource_name }}(Model):
+    """{{ resource_name }} model."""
+
+    model_backend: ClassVar = backend
+{%- for field in fields %}
+    {{ field.field_def }}
+{%- endfor %}

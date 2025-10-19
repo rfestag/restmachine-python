@@ -81,8 +81,8 @@ class TestGenerateScaffold:
         content = schemas_file.read_text()
         assert "class CreateProductRequest(BaseModel):" in content
         assert "class UpdateProductRequest(BaseModel):" in content
-        assert "class ProductResponse(BaseModel):" in content
         assert "class ListProductsResponse(BaseModel):" in content
+        assert "from models.product import Product" in content  # Import model for list response
 
         # Verify routes file created
         routes_file = temp_project / "routes" / "products.py"
@@ -133,7 +133,7 @@ class TestGenerateScaffold:
         # Check schemas/__init__.py was updated
         init_file = temp_project / "schemas" / "__init__.py"
         content = init_file.read_text()
-        assert "from schemas.product_schemas import CreateProductRequest, UpdateProductRequest, ProductResponse, ListProductsResponse" in content
+        assert "from schemas.product_schemas import CreateProductRequest, UpdateProductRequest, ListProductsResponse" in content
 
     def test_scaffold_command_mounts_router_in_app(self, temp_project):
         """Test that scaffold command mounts router in app.py."""
@@ -295,6 +295,49 @@ class TestGenerateScaffold:
             except py_compile.PyCompileError as e:
                 pytest.fail(f"Generated file {file_path} cannot be compiled: {e}")
 
+    def test_scaffold_with_field_arguments(self, temp_project):
+        """Test that scaffold command accepts field arguments."""
+        runner = CliRunner()
+        result = run_in_dir(temp_project, runner, [
+            'generate', 'scaffold', 'Product',
+            'name:str', 'price:float', 'stock:int'
+        ])
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        # Verify model has the specified fields
+        old_cwd = os.getcwd()
+        sys.path.insert(0, str(temp_project))
+        try:
+            os.chdir(temp_project)
+
+            from models.product import Product
+            from restmachine_orm import Model
+
+            assert issubclass(Product, Model)
+
+            # Check all fields exist with correct types
+            annotations = Product.__annotations__
+            assert 'id' in annotations
+            assert annotations['id'] == str  # UUID stored as str
+
+            assert 'name' in annotations
+            assert annotations['name'] == str
+
+            assert 'price' in annotations
+            assert annotations['price'] == float
+
+            assert 'stock' in annotations
+            assert annotations['stock'] == int
+
+        finally:
+            os.chdir(old_cwd)
+            sys.path.remove(str(temp_project))
+            modules_to_remove = [key for key in sys.modules.keys()
+                                if key.startswith(('models', 'schemas', 'routes'))]
+            for module in modules_to_remove:
+                del sys.modules[module]
+
     def test_generated_scaffold_is_functional(self, temp_project):
         """
         Test that generated scaffold is functionally correct.
@@ -378,6 +421,245 @@ class TestGenerateScaffold:
             # Clean up all imported modules from temp directory
             modules_to_remove = [key for key in sys.modules.keys()
                                 if key.startswith(('models', 'schemas', 'routes'))]
+            for module in modules_to_remove:
+                del sys.modules[module]
+
+
+class TestGenerateModel:
+    """Test generate model command."""
+
+    def test_model_command_creates_model_with_fields(self, temp_project):
+        """Test that model command creates model with specified fields."""
+        runner = CliRunner()
+        result = run_in_dir(temp_project, runner, [
+            'generate', 'model', 'User',
+            'name:str', 'email:str', 'age:int', 'is_active:bool'
+        ])
+
+        assert result.exit_code == 0, f"Command failed: {result.output}"
+
+        # Import and validate the model
+        old_cwd = os.getcwd()
+        sys.path.insert(0, str(temp_project))
+        try:
+            os.chdir(temp_project)
+
+            # Import the generated model
+            from models.user import User
+
+            # Verify class exists and inherits from Model
+            from restmachine_orm import Model
+            assert issubclass(User, Model), "User should inherit from Model"
+
+            # Check fields exist with correct types using type annotations
+            annotations = User.__annotations__
+            assert 'name' in annotations, "User should have 'name' field"
+            assert annotations['name'] == str, "name should be str type"
+
+            assert 'email' in annotations, "User should have 'email' field"
+            assert annotations['email'] == str, "email should be str type"
+
+            assert 'age' in annotations, "User should have 'age' field"
+            assert annotations['age'] == int, "age should be int type"
+
+            assert 'is_active' in annotations, "User should have 'is_active' field"
+            assert annotations['is_active'] == bool, "is_active should be bool type"
+
+        finally:
+            os.chdir(old_cwd)
+            sys.path.remove(str(temp_project))
+            # Clean up imports
+            modules_to_remove = [key for key in sys.modules.keys()
+                                if key.startswith('models')]
+            for module in modules_to_remove:
+                del sys.modules[module]
+
+    def test_model_command_with_uuid_field(self, temp_project):
+        """Test model generation with UUID field."""
+        runner = CliRunner()
+        result = run_in_dir(temp_project, runner, [
+            'generate', 'model', 'Product',
+            'id:uuid', 'name:str', 'price:float'
+        ])
+
+        assert result.exit_code == 0
+
+        # Import and validate the model
+        old_cwd = os.getcwd()
+        sys.path.insert(0, str(temp_project))
+        try:
+            os.chdir(temp_project)
+
+            from models.product import Product
+            from restmachine_orm import Model
+
+            assert issubclass(Product, Model)
+
+            # Check annotations
+            annotations = Product.__annotations__
+            assert 'id' in annotations
+            assert annotations['id'] == str  # UUID is stored as str
+
+            assert 'name' in annotations
+            assert annotations['name'] == str
+
+            assert 'price' in annotations
+            assert annotations['price'] == float
+
+            # Create an instance and verify id is auto-generated
+            product = Product(name="Test", price=9.99)
+            assert hasattr(product, 'id'), "Product should have auto-generated id"
+            assert isinstance(product.id, str), "id should be a string"
+            assert len(product.id) == 36, "id should be UUID format (36 chars with dashes)"
+
+        finally:
+            os.chdir(old_cwd)
+            sys.path.remove(str(temp_project))
+            modules_to_remove = [key for key in sys.modules.keys()
+                                if key.startswith('models')]
+            for module in modules_to_remove:
+                del sys.modules[module]
+
+    def test_model_command_with_datetime_field(self, temp_project):
+        """Test model generation with datetime field."""
+        runner = CliRunner()
+        result = run_in_dir(temp_project, runner, [
+            'generate', 'model', 'Event',
+            'title:str', 'start_time:datetime', 'end_time:datetime'
+        ])
+
+        assert result.exit_code == 0
+
+        # Import and validate the model
+        old_cwd = os.getcwd()
+        sys.path.insert(0, str(temp_project))
+        try:
+            os.chdir(temp_project)
+
+            from models.event import Event
+            from restmachine_orm import Model
+            from datetime import datetime
+
+            assert issubclass(Event, Model)
+
+            # Check annotations
+            annotations = Event.__annotations__
+            assert 'title' in annotations
+            assert annotations['title'] == str
+
+            assert 'start_time' in annotations
+            assert annotations['start_time'] == datetime
+
+            assert 'end_time' in annotations
+            assert annotations['end_time'] == datetime
+
+        finally:
+            os.chdir(old_cwd)
+            sys.path.remove(str(temp_project))
+            modules_to_remove = [key for key in sys.modules.keys()
+                                if key.startswith('models')]
+            for module in modules_to_remove:
+                del sys.modules[module]
+
+    def test_model_command_creates_fixture(self, temp_project):
+        """Test that model command creates fixture file."""
+        runner = CliRunner()
+        result = run_in_dir(temp_project, runner, [
+            'generate', 'model', 'User',
+            'name:str', 'age:int'
+        ])
+
+        assert result.exit_code == 0
+
+        # Just verify fixture file was created with basic structure
+        fixture_file = temp_project / "db" / "fixtures" / "user.yaml"
+        assert fixture_file.exists(), "Fixture file should be created"
+
+    def test_model_command_skip_fixtures(self, temp_project):
+        """Test model command with --skip-fixtures flag."""
+        runner = CliRunner()
+        result = run_in_dir(temp_project, runner, [
+            'generate', 'model', 'User',
+            'name:str', '--skip-fixtures'
+        ])
+
+        assert result.exit_code == 0
+
+        # Fixture should not exist
+        fixture_file = temp_project / "db" / "fixtures" / "user.yaml"
+        assert not fixture_file.exists()
+
+        # Model should still exist
+        assert (temp_project / "models" / "user.py").exists()
+
+    def test_model_command_updates_models_init(self, temp_project):
+        """Test that model command updates models/__init__.py."""
+        runner = CliRunner()
+        result = run_in_dir(temp_project, runner, [
+            'generate', 'model', 'User', 'name:str'
+        ])
+
+        assert result.exit_code == 0
+
+        # Check models/__init__.py was updated
+        init_file = temp_project / "models" / "__init__.py"
+        content = init_file.read_text()
+        assert "from models.user import User" in content
+
+    def test_model_command_invalid_field_format(self, temp_project):
+        """Test that model command rejects invalid field format."""
+        runner = CliRunner()
+        result = run_in_dir(temp_project, runner, [
+            'generate', 'model', 'User', 'invalid_field'
+        ])
+
+        assert result.exit_code != 0
+        assert "Invalid field specification" in result.output
+
+    def test_model_command_invalid_field_type(self, temp_project):
+        """Test that model command rejects unsupported types."""
+        runner = CliRunner()
+        result = run_in_dir(temp_project, runner, [
+            'generate', 'model', 'User', 'name:string'  # Wrong, should be 'str'
+        ])
+
+        assert result.exit_code != 0
+        assert "Unsupported type" in result.output
+
+    def test_model_command_handles_camelcase(self, temp_project):
+        """Test model with CamelCase input."""
+        runner = CliRunner()
+        result = run_in_dir(temp_project, runner, [
+            'generate', 'model', 'BlogPost', 'title:str'
+        ])
+
+        assert result.exit_code == 0
+
+        # File should use snake_case
+        assert (temp_project / "models" / "blog_post.py").exists()
+
+        # Import and verify class name is PascalCase
+        old_cwd = os.getcwd()
+        sys.path.insert(0, str(temp_project))
+        try:
+            os.chdir(temp_project)
+
+            from models.blog_post import BlogPost
+            from restmachine_orm import Model
+
+            assert issubclass(BlogPost, Model)
+            assert BlogPost.__name__ == "BlogPost"
+
+            # Check field
+            annotations = BlogPost.__annotations__
+            assert 'title' in annotations
+            assert annotations['title'] == str
+
+        finally:
+            os.chdir(old_cwd)
+            sys.path.remove(str(temp_project))
+            modules_to_remove = [key for key in sys.modules.keys()
+                                if key.startswith('models')]
             for module in modules_to_remove:
                 del sys.modules[module]
 
