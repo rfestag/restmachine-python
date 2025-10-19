@@ -54,6 +54,7 @@ def scaffold(name: str, skip_tests: bool, skip_fixtures: bool):
     resource_snake = inflection.underscore(name)
     resource_plural = inflection.pluralize(resource_snake)
     resource_singular = resource_snake
+    resource_name_plural = inflection.camelize(resource_plural)
 
     click.echo(f"Generating scaffold for {resource_name}...")
 
@@ -63,6 +64,7 @@ def scaffold(name: str, skip_tests: bool, skip_fixtures: bool):
         "resource_snake": resource_snake,
         "resource_plural": resource_plural,
         "resource_singular": resource_singular,
+        "resource_name_plural": resource_name_plural,
         "project_name": _get_project_name(),
     }
 
@@ -93,7 +95,7 @@ def scaffold(name: str, skip_tests: bool, skip_fixtures: bool):
 
     # 6. Update __init__.py files
     _update_models_init(resource_name, resource_snake)
-    _update_schemas_init(resource_name, resource_snake)
+    _update_schemas_init(resource_name, resource_snake, resource_name_plural)
 
     # 7. Auto-mount to app.py
     _auto_mount_router(context)
@@ -232,21 +234,38 @@ def _update_models_init(resource_name: str, resource_snake: str):
     import_line = f"from models.{resource_snake} import {resource_name}"
 
     if import_line not in content:
-        # Find the right place to insert (after other imports, before backend)
         lines = content.split('\n')
-        insert_index = 0
+        insert_index = len(lines)  # Default to end of file
 
-        # Find last import line
+        # Find where to insert the import
+        # Strategy: Insert AFTER the backend initialization to avoid circular imports
+        # The backend line typically looks like: backend = SomeBackend(...)
         for i, line in enumerate(lines):
-            if line.startswith('from models.') or line.startswith('import '):
+            stripped = line.strip()
+            # Look for backend initialization (assignment to 'backend')
+            if stripped.startswith('backend =') or stripped.startswith('backend='):
+                # Insert after this line
                 insert_index = i + 1
+                break
+        else:
+            # No backend found, look for the last import statement
+            for i, line in enumerate(lines):
+                stripped = line.strip()
+                if (stripped.startswith('from ') or stripped.startswith('import ')) and \
+                   not stripped.startswith('from models.'):
+                    insert_index = i + 1
+
+        # Skip blank lines and comments after the insertion point
+        while insert_index < len(lines) and \
+              (not lines[insert_index].strip() or lines[insert_index].strip().startswith('#')):
+            insert_index += 1
 
         # Insert new import
         lines.insert(insert_index, import_line)
         init_file.write_text('\n'.join(lines))
 
 
-def _update_schemas_init(resource_name: str, resource_snake: str):
+def _update_schemas_init(resource_name: str, resource_snake: str, resource_name_plural: str):
     """Update schemas/__init__.py to import new schemas."""
     init_file = Path("schemas/__init__.py")
 
@@ -256,7 +275,8 @@ def _update_schemas_init(resource_name: str, resource_snake: str):
     content = init_file.read_text()
 
     # Add imports if not already present
-    import_line = f"from schemas.{resource_snake}_schemas import {resource_name}Create, {resource_name}Update, {resource_name}Response, {resource_name}ListResponse"
+    # Using new naming convention: Create{Resource}Request, Update{Resource}Request, {Resource}Response, List{Resources}Response
+    import_line = f"from schemas.{resource_snake}_schemas import Create{resource_name}Request, Update{resource_name}Request, {resource_name}Response, List{resource_name_plural}Response"
 
     if import_line not in content:
         # Append to end

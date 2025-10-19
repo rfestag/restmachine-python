@@ -403,200 +403,92 @@ class RestApplication:
         return self._parse_body(request, route, "text/plain")
 
     def dependency(self, name: Optional[str] = None, scope: DependencyScope = "request"):
-        """Decorator to register a dependency provider.
-
-        Args:
-            name: Optional name for the dependency. If not provided, uses the function name.
-            scope: Dependency scope - "request" (default) or "session".
-                   - "request": Cached per request, cleared between requests
-                   - "session": Cached across all requests, never cleared automatically
-        """
-
-        def decorator(func: Callable):
-            dep_name = name or func.__name__
-            self._dependencies[dep_name] = Dependency(func, scope)
-            return func
-
-        return decorator
+        """Decorator to register a dependency provider on the root router."""
+        return self._root_router.dependency(name=name, scope=scope)
 
     # State machine callback decorators for dependencies
     def resource_exists(self, func: Callable, scope: DependencyScope = "request"):
-        """Decorator to wrap a dependency with resource existence checking.
-
-        Args:
-            scope: Dependency scope - "request" (default) or "session"
-        """
-        wrapper = DependencyWrapper(func, "resource_exists", func.__name__, scope)
-        self._dependencies[func.__name__] = wrapper
-        return func
+        """Decorator to wrap a dependency with resource existence checking on the root router."""
+        return self._root_router.resource_exists(func, scope)
 
     def resource_from_request(self, func: Callable, scope: DependencyScope = "request"):
-        """Decorator to wrap a dependency for creating resource from request (for POST).
-
-        Args:
-            scope: Dependency scope - "request" (default) or "session"
-        """
-        wrapper = DependencyWrapper(func, "resource_from_request", func.__name__, scope)
-        self._dependencies[func.__name__] = wrapper
-        return func
+        """Decorator to wrap a dependency for creating resource from request on the root router."""
+        return self._root_router.resource_from_request(func, scope)
 
     def forbidden(self, func: Callable, scope: DependencyScope = "request"):
-        """Decorator to wrap a dependency with forbidden checking.
-
-        Args:
-            scope: Dependency scope - "request" (default) or "session"
-        """
-        wrapper = DependencyWrapper(func, "forbidden", func.__name__, scope)
-        self._dependencies[func.__name__] = wrapper
-        return func
+        """Decorator to wrap a dependency with forbidden checking on the root router."""
+        return self._root_router.forbidden(func, scope)
 
     def authorized(self, func: Callable, scope: DependencyScope = "request"):
-        """Decorator to wrap a dependency with authorization checking.
-
-        Args:
-            scope: Dependency scope - "request" (default) or "session"
-        """
-        wrapper = DependencyWrapper(func, "authorized", func.__name__, scope)
-        self._dependencies[func.__name__] = wrapper
-        return func
+        """Decorator to wrap a dependency with authorization checking on the root router."""
+        return self._root_router.authorized(func, scope)
 
     def default_headers(self, func: Callable):
-        """Decorator to register a global headers manipulation function."""
-        wrapper = HeadersWrapper(func, func.__name__)
-        self._headers_dependencies[func.__name__] = wrapper
-        self._dependencies[func.__name__] = func
-        return func
+        """Decorator to register a global headers manipulation function on the root router."""
+        return self._root_router.default_headers(func)
 
     def generate_etag(self, func: Callable, scope: DependencyScope = "request"):
-        """Decorator to wrap a dependency with ETag generation for conditional requests.
-
-        Args:
-            scope: Dependency scope - "request" (default) or "session"
-        """
-        wrapper = DependencyWrapper(func, "generate_etag", func.__name__, scope)
-        self._dependencies[func.__name__] = wrapper
-        return func
+        """Decorator to wrap a dependency with ETag generation on the root router."""
+        return self._root_router.generate_etag(func, scope)
 
     def last_modified(self, func: Callable, scope: DependencyScope = "request"):
-        """Decorator to wrap a dependency with Last-Modified date for conditional requests.
-
-        Args:
-            scope: Dependency scope - "request" (default) or "session"
-        """
-        wrapper = DependencyWrapper(func, "last_modified", func.__name__, scope)
-        self._dependencies[func.__name__] = wrapper
-        return func
+        """Decorator to wrap a dependency with Last-Modified date on the root router."""
+        return self._root_router.last_modified(func, scope)
 
     # Content negotiation decorators
     def provides(self, content_type: str, scope: DependencyScope = "request", charset: Optional[str] = None):
-        """Decorator to register a content-type specific renderer for an endpoint.
-
-        Provides better API symmetry with accepts() for content negotiation.
-
-        NOTE: This still requires the decorator to be placed after the route decorator
-        to attach the renderer to the correct route.
-
-        Args:
-            content_type: The content type this renderer provides
-            scope: Dependency scope - "request" (default) or "session"
-            charset: Optional charset to include in Content-Type header (e.g., "utf-8")
-        """
-
-        def decorator(func: Callable):
-            # Find the most recently added route in the root router
-            if self._root_router._routes:
-                route = self._root_router._routes[-1]
-                handler_name = route.handler.__name__
-                wrapper = ContentNegotiationWrapper(func, content_type, handler_name, charset=charset)
-                route.add_content_renderer(content_type, wrapper)
-
-            # Also register this as a dependency so it can be injected
-            self._dependencies[func.__name__] = Dependency(func, scope)
-            return func
-
-        return decorator
+        """Decorator to register a content-type specific renderer on the root router."""
+        return self._root_router.provides(content_type, scope, charset)
 
     # Simplified validation decorator - just expects Pydantic model return
     def validates(self, func: Callable, scope: DependencyScope = "request"):
-        """Decorator to mark a function as returning a validated Pydantic model.
-
-        Args:
-            scope: Dependency scope - "request" (default) or "session"
-        """
-        if not PYDANTIC_AVAILABLE:
-            raise ImportError("Pydantic is required for validation features")
-
-        wrapper = ValidationWrapper(func, scope)
-        self._validation_dependencies[func.__name__] = wrapper
-        self._dependencies[func.__name__] = Dependency(func, scope)
-        return func
+        """Decorator to mark a function as returning a validated Pydantic model on the root router."""
+        return self._root_router.validates(func, scope=scope)
 
     def accepts(self, content_type: str, scope: DependencyScope = "request"):
-        """Decorator to register a global content-type specific body parser.
-
-        Args:
-            content_type: The content type this parser handles
-            scope: Dependency scope - "request" (default) or "session"
-        """
-
-        def decorator(func: Callable):
-            wrapper = AcceptsWrapper(func, content_type, func.__name__)
-            self._accepts_dependencies[content_type] = wrapper
-            self._dependencies[func.__name__] = Dependency(func, scope)
-            return func
-
-        return decorator
+        """Decorator to register a global content-type specific body parser on the root router."""
+        return self._root_router.accepts(content_type, scope)
 
     # Default state machine callbacks
     def default_service_available(self, func: Callable):
-        """Register a default service_available callback."""
-        self._default_callbacks["service_available"] = func
-        return func
+        """Register a default service_available callback on the root router."""
+        return self._root_router.default_service_available(func)
 
     def default_known_method(self, func: Callable):
-        """Register a default known_method callback."""
-        self._default_callbacks["known_method"] = func
-        return func
+        """Register a default known_method callback on the root router."""
+        return self._root_router.default_known_method(func)
 
     def default_uri_too_long(self, func: Callable):
-        """Register a default uri_too_long callback."""
-        self._default_callbacks["uri_too_long"] = func
-        return func
+        """Register a default uri_too_long callback on the root router."""
+        return self._root_router.default_uri_too_long(func)
 
     def default_method_allowed(self, func: Callable):
-        """Register a default method_allowed callback."""
-        self._default_callbacks["method_allowed"] = func
-        return func
+        """Register a default method_allowed callback on the root router."""
+        return self._root_router.default_method_allowed(func)
 
     def default_malformed_request(self, func: Callable):
-        """Register a default malformed_request callback."""
-        self._default_callbacks["malformed_request"] = func
-        return func
+        """Register a default malformed_request callback on the root router."""
+        return self._root_router.default_malformed_request(func)
 
     def default_authorized(self, func: Callable):
-        """Register a default authorized callback."""
-        self._default_callbacks["authorized"] = func
-        return func
+        """Register a default authorized callback on the root router."""
+        return self._root_router.default_authorized(func)
 
     def default_forbidden(self, func: Callable):
-        """Register a default forbidden callback."""
-        self._default_callbacks["forbidden"] = func
-        return func
+        """Register a default forbidden callback on the root router."""
+        return self._root_router.default_forbidden(func)
 
     def default_content_headers_valid(self, func: Callable):
-        """Register a default content_headers_valid callback."""
-        self._default_callbacks["content_headers_valid"] = func
-        return func
+        """Register a default content_headers_valid callback on the root router."""
+        return self._root_router.default_content_headers_valid(func)
 
     def default_resource_exists(self, func: Callable):
-        """Register a default resource_exists callback."""
-        self._default_callbacks["resource_exists"] = func
-        return func
+        """Register a default resource_exists callback on the root router."""
+        return self._root_router.default_resource_exists(func)
 
     def default_route_not_found(self, func: Callable):
-        """Register a default route_not_found callback."""
-        self._default_callbacks["route_not_found"] = func
-        return func
+        """Register a default route_not_found callback on the root router."""
+        return self._root_router.default_route_not_found(func)
 
     # Error handler decorators
     def handles_error(self, *status_codes: int):

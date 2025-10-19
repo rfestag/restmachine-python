@@ -5,113 +5,81 @@ Provides CRUD endpoints for {{ resource_plural }}.
 """
 {% set lb = '{' %}
 {% set rb = '}' %}
-import uuid
 from restmachine import Router
 from models.{{ resource_snake }} import {{ resource_name }}
 from schemas.{{ resource_snake }}_schemas import (
-    {{ resource_name }}Create,
-    {{ resource_name }}Update,
-    {{ resource_name }}Response,
-    {{ resource_name }}ListResponse
+    Create{{ resource_name }}Request,
+    Update{{ resource_name }}Request,
+    List{{ resource_name_plural }}Response
 )
 
 router = Router()
 
 
-# Resource loader - load {{ resource_singular }} from path parameters
-@router.dependency
-def {{ resource_singular }}(database, path_params):
-    """Load {{ resource_singular }} from path parameters.
+# Resource loader and GET endpoint - load {{ resource_singular }} from path parameters
+@router.resource_exists
+@router.get('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
+def {{ resource_singular }}(path_params):
+    """Load and return {{ resource_singular }}.
 
-    Returns None if {{ resource_singular }} not found.
+    This function serves dual purposes:
+    1. As a dependency for other routes (PUT, DELETE) to inject the resource
+    2. As the GET endpoint to retrieve a single {{ resource_singular }}
+
+    Returns None if {{ resource_singular }} not found (triggers 404).
     """
     {{ resource_singular }}_id = path_params.get('{{ resource_singular }}_id')
-    if not {{ resource_singular }}_id:
-        return None
-
-    return database.query({{ resource_name }}).get(id={{ resource_singular }}_id)
+    return {{ resource_name }}.find_by(id={{ resource_singular }}_id)
 
 
 # Validation dependencies
 @router.validates
-def validate_{{ resource_singular }}_create(json_body) -> {{ resource_name }}Create:
+def new_{{ resource_singular }}(json_body) -> Create{{ resource_name }}Request:
     """Validate {{ resource_singular }} creation request."""
-    return {{ resource_name }}Create.model_validate(json_body)
+    return Create{{ resource_name }}Request.model_validate(json_body)
 
 
 @router.validates
-def validate_{{ resource_singular }}_update(json_body) -> {{ resource_name }}Update:
+def {{ resource_singular }}_updates(json_body) -> Update{{ resource_name }}Request:
     """Validate {{ resource_singular }} update request."""
-    return {{ resource_name }}Update.model_validate(json_body)
-
-
-# Resource exists check for single-resource endpoints
-@router.resource_exists('{{ resource_singular }}')
-def {{ resource_singular }}_exists({{ resource_singular }}):
-    """Check if {{ resource_singular }} exists (used by GET, PUT, DELETE)."""
-    return {{ resource_singular }} is not None
+    return Update{{ resource_name }}Request.model_validate(json_body)
 
 
 # Routes (relative to mount point)
 @router.get('/')
-def list_{{ resource_plural }}(database, query_params):
+def list_{{ resource_plural }}(query_params) -> List{{ resource_name_plural }}Response:
     """List all {{ resource_plural }} with cursor-based pagination."""
     # Get pagination parameters
     limit = int(query_params.get('limit', 50))
     cursor = query_params.get('cursor')
-
-    # Query with pagination
-    query = database.query({{ resource_name }})
-    if cursor:
-        query = query.cursor(cursor)
-
-    # Get results with pagination cursor
-    {{ resource_plural }}, next_cursor = query.limit(limit).paginate()
+    
+    # TODO - user params to build where clause
+    results, next_cursor = {{ resource_name }}.where().cursor(cursor).limit(limit).paginate()
 
     # Build response
-    items = [{{ resource_name }}Response.model_validate(r.model_dump()).model_dump()
-             for r in {{ resource_plural }}]
+    {{ resource_plural }} = [{{ resource_name }}(**r) for r in results]
 
-    return {{ resource_name }}ListResponse(
-        items=items,
-        next_cursor=next_cursor.get('offset') if next_cursor else None,
-        has_more=next_cursor is not None
-    ).model_dump()
-
-
-@router.get('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
-def get_{{ resource_singular }}({{ resource_singular }}):
-    """Get a specific {{ resource_singular }}."""
-    return {{ resource_name }}Response.model_validate({{ resource_singular }}.model_dump()).model_dump()
+    return List{{ resource_name_plural }}Response(
+        items={{ resource_plural }},
+        cursor=next_cursor if next_cursor else None,
+    )
 
 
 @router.post('/')
-def create_{{ resource_singular }}(database, validate_{{ resource_singular }}_create: {{ resource_name }}Create):
+def create_{{ resource_singular }}(new_{{ resource_singular }}: Create{{ resource_name }}Request) -> {{ resource_name }}:
     """Create a new {{ resource_singular }}."""
     # TODO: Update with actual field mappings from validate_{{ resource_singular }}_create
-    {{ resource_singular }} = {{ resource_name }}(
-        id=str(uuid.uuid4()),
-        # TODO: Map fields from validate_{{ resource_singular }}_create
-        # Example:
-        # name=validate_{{ resource_singular }}_create.name,
-        # description=validate_{{ resource_singular }}_create.description,
-    )
-    {{ resource_singular }}.save()
-    return {{ resource_name }}Response.model_validate({{ resource_singular }}.model_dump()).model_dump(), 201
+    {{ resource_singular }} = {{ resource_name }}.create(**new_{{resource_singular}})
+    return {{ resource_singular }}, 201
 
 
 @router.put('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
-def update_{{ resource_singular }}({{ resource_singular }}, validate_{{ resource_singular }}_update: {{ resource_name }}Update):
+def update_{{ resource_singular }}({{ resource_singular }}: {{ resource_name }}, {{ resource_singular }}_updates: Update{{ resource_name }}Request) -> {{ resource_name }}:
     """Update a {{ resource_singular }}."""
-    # TODO: Update with actual field mappings from validate_{{ resource_singular }}_update
-    # Example:
-    # if validate_{{ resource_singular }}_update.name:
-    #     {{ resource_singular }}.name = validate_{{ resource_singular }}_update.name
-    # if validate_{{ resource_singular }}_update.description:
-    #     {{ resource_singular }}.description = validate_{{ resource_singular }}_update.description
-
-    {{ resource_singular }}.save()
-    return {{ resource_name }}Response.model_validate({{ resource_singular }}.model_dump()).model_dump()
+    updates = {{ resource_singular }}_update.model_dump(exclude_unset=True)
+    updated_model = {{ resource_singular }}.model_copy(updates=updates)
+    updated_model.save()
+    return updated_model
 
 
 @router.delete('/{{ lb }}{{ resource_singular }}_id{{ rb }}')

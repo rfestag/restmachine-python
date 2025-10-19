@@ -2,6 +2,7 @@
 {{ resource_name }} model for {{ project_name }}.
 """
 
+import uuid
 from typing import ClassVar
 from restmachine_orm import Model, Field
 from models import backend
@@ -20,5 +21,5 @@ class {{ resource_name }}(Model):
 
     model_backend: ClassVar = backend
 
-    id: str = Field(primary_key=True)
+    id: str = Field(primary_key=True, default_factory=lambda: str(uuid.uuid4()))
     # TODO: Add additional fields
