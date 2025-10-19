@@ -355,6 +355,169 @@ Verbose mode shows:
 - Full directory hierarchy being traversed
 - Each fixture file with its source directory
 - Record counts per model as they're created/updated
+- **Performance metrics**: Elapsed time and records processed per second
+- Detailed error messages with file paths when issues occur
+
+## Auto-Seeding for Demo Apps and Testing
+
+For demo applications and testing scenarios, RestMachine provides convenient helper functions that enable automatic fixture loading when your application starts up or when tests initialize.
+
+### Quick Start
+
+```python
+from restmachine_orm import Model, Field
+from restmachine_orm.backends.memory_helpers import create_demo_backend, seed_backend
+from typing import ClassVar
+
+# Create a backend configured for auto-seeding
+backend = create_demo_backend(
+    fixtures_dir="db/fixtures",
+    environment="demo"
+)
+
+# Define your models
+class User(Model):
+    model_backend: ClassVar = backend
+    id: str = Field(primary_key=True)
+    email: str
+    name: str
+
+class Product(Model):
+    model_backend: ClassVar = backend
+    id: str = Field(primary_key=True)
+    name: str
+    price: float
+
+# Seed all models in one line!
+records_loaded = seed_backend(backend, User, Product)
+print(f"Loaded {records_loaded} records")
+```
+
+### Demo App Startup Example
+
+Here's a complete example of setting up a demo app with auto-seeding:
+
+```python
+# app.py
+from restmachine import RestMachine
+from restmachine_orm.backends.memory_helpers import create_demo_backend, seed_backend
+from models import User, Product  # Your model definitions
+
+# Create the backend
+backend = create_demo_backend(environment="demo")
+
+# Create the app
+app = RestMachine()
+
+@app.before_startup
+async def seed_demo_data():
+    """Seed demo data on application startup."""
+    count = seed_backend(backend, User, Product)
+    print(f"Demo app loaded with {count} records")
+
+# Your routes and handlers...
+```
+
+### Testing with Shared InMemory Backend
+
+For pytest, use a session-scoped fixture to share data across tests:
+
+```python
+# conftest.py
+import pytest
+from restmachine_orm.backends.memory_helpers import create_demo_backend, seed_backend
+from models import User, Product
+
+@pytest.fixture(scope="session")
+def demo_backend():
+    """Create and seed a shared backend for all tests."""
+    backend = create_demo_backend(
+        fixtures_dir="tests/fixtures",
+        environment="test"
+    )
+    seed_backend(backend, User, Product)
+    return backend
+
+@pytest.fixture(autouse=True)
+def clear_backend(demo_backend):
+    """Clear backend before each test."""
+    yield
+    demo_backend.clear()  # Clean up after each test
+```
+
+### API Reference
+
+#### `create_demo_backend()`
+
+Creates an InMemoryBackend configured for auto-seeding.
+
+**Parameters:**
+- `fixtures_dir` (str | Path, default="db/fixtures"): Directory containing fixture files
+- `environment` (str | None): Environment name (e.g., "demo", "test"). If None, uses `RESTMACHINE_ENVIRONMENT` or defaults from hierarchy.yaml
+- `path` (str | None): Config path (e.g., "local", "aws/123456/us-east-1"). If None, uses `RESTMACHINE_CONFIG_PATH` or defaults from hierarchy.yaml
+
+**Returns:** InMemoryBackend instance with seed configuration attached
+
+**Example:**
+```python
+# Basic usage
+backend = create_demo_backend()
+
+# With specific environment
+backend = create_demo_backend(environment="demo")
+
+# With custom fixtures directory
+backend = create_demo_backend(
+    fixtures_dir="my_fixtures",
+    environment="local"
+)
+```
+
+#### `seed_backend()`
+
+Seeds an InMemoryBackend with fixtures for the given models.
+
+**Parameters:**
+- `backend` (InMemoryBackend): Backend created with `create_demo_backend()`
+- `*models` (Type[Model]): Model classes to seed (only these models will be loaded)
+
+**Returns:** int - Total number of records created/updated
+
+**Raises:** ValueError if backend was not created with `create_demo_backend()`
+
+**Example:**
+```python
+# Seed specific models
+count = seed_backend(backend, User, Product)
+
+# Seed single model
+count = seed_backend(backend, User)
+
+# No models = no-op
+count = seed_backend(backend)  # Returns 0
+```
+
+### Features
+
+- **Hierarchical Loading**: Uses the same hierarchical fixture loading as the CLI `seed` command
+- **Selective Seeding**: Only loads fixtures for models you specify
+- **Idempotent**: Respects `upsert_key` in fixture files for safe re-running
+- **Environment-Aware**: Loads environment-specific fixtures automatically
+- **Zero Configuration**: Works out of the box with sensible defaults
+
+### When to Use
+
+**✅ Good Use Cases:**
+- Demo applications that need sample data
+- Development environments with ephemeral data
+- Integration tests that need pre-populated data
+- Quick prototypes and examples
+- Documentation and tutorials
+
+**❌ Not Recommended For:**
+- Production applications (use persistent backends like DynamoDB)
+- Long-running processes (data is lost when process ends)
+- Multi-process applications (each process has separate memory)
 
 ## Best Practices
 
@@ -364,13 +527,14 @@ Verbose mode shows:
 4. **Test with `--dry-run`**: Preview what will be loaded before committing
 5. **Version control fixtures**: Treat fixtures as code - commit them to your repository
 6. **Separate by concern**: Use different files for different models or logical groups
+7. **Use auto-seeding for demos**: Leverage `create_demo_backend()` and `seed_backend()` for demo apps and testing
 
 ## Future Enhancements
 
 The following enhancements are planned for future releases:
 
 - Schema validation against ORM models
-- Performance optimizations for large datasets
+- Additional performance optimizations for large datasets (bulk operations, parallel loading)
 - Support for fixture dependencies and ordering
 - Rollback/undo capabilities
 - Fixture versioning and migration support

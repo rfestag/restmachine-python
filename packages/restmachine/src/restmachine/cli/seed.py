@@ -9,6 +9,7 @@ Usage:
 """
 
 import sys
+import time
 from pathlib import Path
 from typing import Optional, Any, Dict, Tuple
 import click
@@ -145,6 +146,8 @@ def _show_dry_run(loader: FixtureLoader, verbose: bool = False, clear: bool = Fa
         verbose: Show detailed loading information
         clear: Whether tables will be cleared before seeding
     """
+    start_time = time.time()
+
     click.echo(click.style("=== DRY RUN ===", fg="yellow", bold=True))
     click.echo()
 
@@ -196,6 +199,12 @@ def _show_dry_run(loader: FixtureLoader, verbose: bool = False, clear: bool = Fa
     click.echo()
     click.echo(click.style(f"Total: {total_records} records would be processed", fg="cyan", bold=True))
 
+    # Show timing statistics in verbose mode
+    if verbose:
+        elapsed = time.time() - start_time
+        click.echo()
+        click.echo(f"Completed in {elapsed:.3f}s")
+
 
 def _perform_seed(loader: FixtureLoader, project_dir: Path, verbose: bool = False, clear: bool = False):
     """
@@ -207,6 +216,8 @@ def _perform_seed(loader: FixtureLoader, project_dir: Path, verbose: bool = Fals
         verbose: Show detailed loading information
         clear: Clear/truncate tables before seeding
     """
+    start_time = time.time()
+
     if verbose:
         click.echo("Loading fixtures...")
 
@@ -244,10 +255,21 @@ def _perform_seed(loader: FixtureLoader, project_dir: Path, verbose: bool = Fals
             total_created += created
             total_updated += updated
 
+        elapsed = time.time() - start_time
+
         click.echo()
         click.echo(click.style("✓ Database seeded successfully!", fg="green", bold=True))
         click.echo(f"  Created: {total_created} records")
         click.echo(f"  Updated: {total_updated} records")
+
+        # Show timing info in verbose mode
+        if verbose:
+            click.echo()
+            if total_created + total_updated > 0:
+                records_per_sec = (total_created + total_updated) / elapsed
+                click.echo(f"Completed in {elapsed:.3f}s ({records_per_sec:.1f} records/sec)")
+            else:
+                click.echo(f"Completed in {elapsed:.3f}s")
 
     finally:
         # Clean up sys.path

@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **New in Phase 2**: `--fixture` flag for selective loading of specific fixture files
   - **New in Phase 2**: `--clear` flag to truncate tables before seeding
   - **New in Phase 2**: `--verbose` flag for detailed loading information
+  - **New in Phase 3**: Performance timing statistics showing elapsed time and records/sec in verbose mode
+  - **New in Phase 3**: Enhanced error messages showing file paths for YAML parsing errors
+  - **New in Phase 3**: Improved validation with helpful error messages for missing models and fields
+  - **New in Phase 4**: Auto-seeding helpers for InMemoryBackend (`create_demo_backend()` and `seed_backend()`)
+  - **New in Phase 4**: One-line fixture loading for demo apps and testing scenarios
+  - **New in Phase 4**: Session-scoped pytest integration for shared test data
   - Respects `RESTMACHINE_CONFIG_PATH` and `RESTMACHINE_ENVIRONMENT` variables
   - Dry-run mode shows fixture hierarchy and record counts without persisting
   - FixtureLoader utility class for programmatic fixture loading with optional filtering

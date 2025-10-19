@@ -22,7 +22,7 @@ def __getattr__(name):
             stacklevel=2,
         )
         try:
-            from restmachine_orm_dynamodb import DynamoDBBackend
+            from restmachine_orm_dynamodb import DynamoDBBackend  # type: ignore[import-untyped]
             return DynamoDBBackend
         except ImportError:
             raise ImportError(
