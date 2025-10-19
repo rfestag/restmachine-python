@@ -43,6 +43,9 @@ dev = [
     "radon>=6.0.0",
 ]
 
+[project.entry-points."restmachine.cli_extensions"]
+aws = "restmachine_aws.cli_plugin:AwsCliExtension"
+
 [project.urls]
 Homepage = "https://github.com/rfestag/restmachine-python"
 Repository = "https://github.com/rfestag/restmachine-python"

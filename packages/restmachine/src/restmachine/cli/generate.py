@@ -4,10 +4,11 @@ Command to generate RestMachine scaffolding.
 Usage:
     restmachine generate scaffold Product
     restmachine generate scaffold BlogPost --skip-tests
+    restmachine generate model User name:str email:str --backend aws
 """
 
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Tuple
 import click
 import inflection
 from jinja2 import Environment, PackageLoader, select_autoescape
@@ -54,6 +55,35 @@ FIELD_TYPE_MAP: Dict[str, Dict[str, Any]] = {
 }
 
 
+def _get_backend_and_types(backend_override: Optional[str] = None) -> Tuple[Optional[str], Dict[str, Dict[str, Any]]]:
+    """
+    Get backend name and available field types.
+
+    Args:
+        backend_override: Optional backend override from command line
+
+    Returns:
+        Tuple of (backend_name, available_types)
+    """
+    from restmachine.cli.plugin_manager import get_plugin_manager
+    from restmachine.cli.config import ProjectConfig
+
+    backend = backend_override
+
+    # If no override, try to load from project config
+    if not backend:
+        project_root = ProjectConfig.find_project_root()
+        if project_root:
+            config = ProjectConfig(project_root)
+            backend = config.get_backend()
+
+    # Get available types for this backend
+    plugin_manager = get_plugin_manager()
+    available_types = plugin_manager.get_available_types(backend)
+
+    return backend, available_types
+
+
 @click.group()
 def generate():
     """Generate code scaffolding."""
@@ -64,11 +94,16 @@ def generate():
 @click.argument("name")
 @click.argument("fields", nargs=-1)
 @click.option(
+    "--backend",
+    default=None,
+    help="Override backend for this model (uses project default if not specified)"
+)
+@click.option(
     "--skip-fixtures",
     is_flag=True,
     help="Skip fixture generation"
 )
-def model(name: str, fields: tuple[str, ...], skip_fixtures: bool):
+def model(name: str, fields: tuple[str, ...], backend: Optional[str], skip_fixtures: bool):
     """
     Generate a model with specified fields.
 
@@ -91,6 +126,9 @@ def model(name: str, fields: tuple[str, ...], skip_fixtures: bool):
         click.echo("Run this command from your project root (where app.py exists)", err=True)
         raise click.Abort()
 
+    # Get backend and available types
+    effective_backend, available_types = _get_backend_and_types(backend)
+
     # Generate name variations
     resource_name = inflection.camelize(name)
     resource_snake = inflection.underscore(name)
@@ -110,17 +148,32 @@ def model(name: str, fields: tuple[str, ...], skip_fixtures: bool):
 
         field_name, field_type = field_spec.split(":", 1)
 
-        # Validate field type
-        if field_type not in FIELD_TYPE_MAP:
-            valid_types = list(FIELD_TYPE_MAP.keys())
+        # Validate field type against available types (includes backend-specific types)
+        if field_type not in available_types:
+            valid_types = list(available_types.keys())
             click.echo(
-                click.style(f"Error: Unsupported type '{field_type}'. Supported types: {', '.join(valid_types)}", fg="red"),
+                click.style(f"Error: Unsupported type '{field_type}'", fg="red"),
                 err=True
             )
+            click.echo(f"Available types: {', '.join(sorted(valid_types))}", err=True)
+            if effective_backend:
+                click.echo(f"(Backend: {effective_backend})", err=True)
             raise click.Abort()
 
+        # Backend-specific validation
+        if effective_backend:
+            from restmachine.cli.plugin_manager import get_plugin_manager
+            plugin_manager = get_plugin_manager()
+            is_valid, error_msg = plugin_manager.validate_field(effective_backend, field_name, field_type)
+            if not is_valid:
+                click.echo(
+                    click.style(f"Error: {error_msg}", fg="red"),
+                    err=True
+                )
+                raise click.Abort()
+
         # Get type mapping info
-        type_info = FIELD_TYPE_MAP[field_type]
+        type_info = available_types[field_type]
 
         # Track which imports we need
         if type_info["needs_import"] == "uuid":
@@ -177,6 +230,11 @@ def model(name: str, fields: tuple[str, ...], skip_fixtures: bool):
 @click.argument("name")
 @click.argument("fields", nargs=-1)
 @click.option(
+    "--backend",
+    default=None,
+    help="Override backend for this scaffold (uses project default if not specified)"
+)
+@click.option(
     "--skip-tests",
     is_flag=True,
     help="Skip test generation"
@@ -186,7 +244,7 @@ def model(name: str, fields: tuple[str, ...], skip_fixtures: bool):
     is_flag=True,
     help="Skip fixture generation"
 )
-def scaffold(name: str, fields: tuple[str, ...], skip_tests: bool, skip_fixtures: bool):
+def scaffold(name: str, fields: tuple[str, ...], backend: Optional[str], skip_tests: bool, skip_fixtures: bool):
     """
     Generate a complete CRUD resource scaffold.
 
@@ -211,6 +269,9 @@ def scaffold(name: str, fields: tuple[str, ...], skip_tests: bool, skip_fixtures
         click.echo("Run this command from your project root (where app.py exists)", err=True)
         raise click.Abort()
 
+    # Get backend and available types
+    effective_backend, available_types = _get_backend_and_types(backend)
+
     # Generate name variations
     resource_name = inflection.camelize(name)
     resource_snake = inflection.underscore(name)
@@ -226,7 +287,7 @@ def scaffold(name: str, fields: tuple[str, ...], skip_tests: bool, skip_fixtures
     needs_datetime_import = False
 
     # Always add id:uuid as first field
-    uuid_type_info = FIELD_TYPE_MAP["uuid"]
+    uuid_type_info = available_types["uuid"]
     parsed_fields.append({
         "name": "id",
         "type": "uuid",
@@ -246,17 +307,32 @@ def scaffold(name: str, fields: tuple[str, ...], skip_tests: bool, skip_fixtures
 
         field_name, field_type = field_spec.split(":", 1)
 
-        # Validate field type
-        if field_type not in FIELD_TYPE_MAP:
-            valid_types = list(FIELD_TYPE_MAP.keys())
+        # Validate field type against available types (includes backend-specific types)
+        if field_type not in available_types:
+            valid_types = list(available_types.keys())
             click.echo(
-                click.style(f"Error: Unsupported type '{field_type}'. Supported types: {', '.join(valid_types)}", fg="red"),
+                click.style(f"Error: Unsupported type '{field_type}'", fg="red"),
                 err=True
             )
+            click.echo(f"Available types: {', '.join(sorted(valid_types))}", err=True)
+            if effective_backend:
+                click.echo(f"(Backend: {effective_backend})", err=True)
             raise click.Abort()
 
+        # Backend-specific validation
+        if effective_backend:
+            from restmachine.cli.plugin_manager import get_plugin_manager
+            plugin_manager = get_plugin_manager()
+            is_valid, error_msg = plugin_manager.validate_field(effective_backend, field_name, field_type)
+            if not is_valid:
+                click.echo(
+                    click.style(f"Error: {error_msg}", fg="red"),
+                    err=True
+                )
+                raise click.Abort()
+
         # Get type mapping info
-        type_info = FIELD_TYPE_MAP[field_type]
+        type_info = available_types[field_type]
 
         # Track which imports we need
         if type_info["needs_import"] == "datetime":

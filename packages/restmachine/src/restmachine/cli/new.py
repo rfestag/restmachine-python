@@ -15,6 +15,11 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 @click.command()
 @click.argument("name")
 @click.option(
+    "--backend",
+    default="memory",
+    help="Backend to use (memory, aws, postgresql, etc.)"
+)
+@click.option(
     "--minimal",
     is_flag=True,
     help="Create minimal project structure (no examples)"
@@ -25,7 +30,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
     default=None,
     help="Directory to create project in (default: ./NAME)"
 )
-def new_command(name: str, minimal: bool, directory: Optional[str]):
+def new_command(name: str, backend: str, minimal: bool, directory: Optional[str]):
     """
     Create a new RestMachine project.
 
@@ -37,7 +42,26 @@ def new_command(name: str, minimal: bool, directory: Optional[str]):
     - tests/          - Test suite
     - app.py          - Application definition
     - main.py         - Development server
+    - .restmachine.toml - Project configuration
     """
+    from restmachine.cli.plugin_manager import get_plugin_manager
+    from restmachine.cli.config import ProjectConfig
+
+    # Validate backend
+    plugin_manager = get_plugin_manager()
+    backend_plugin = None
+
+    if backend != "memory":
+        backend_plugin = plugin_manager.get_backend(backend)
+        if not backend_plugin:
+            available = ["memory"] + list(plugin_manager.list_backends().keys())
+            click.echo(
+                click.style(f"Error: Unknown backend '{backend}'", fg="red"),
+                err=True
+            )
+            click.echo(f"Available backends: {', '.join(available)}", err=True)
+            raise click.Abort()
+
     # Determine target directory
     if directory:
         project_dir = Path(directory) / name
@@ -49,14 +73,21 @@ def new_command(name: str, minimal: bool, directory: Optional[str]):
         click.echo(f"Error: Directory {project_dir} already exists", err=True)
         raise click.Abort()
 
+    backend_display = backend_plugin.get_display_name() if backend_plugin else "Memory (in-process)"
+
     click.echo(f"Creating new RestMachine project: {name}")
     click.echo(f"  Location: {project_dir}")
+    click.echo(f"  Backend: {backend_display}")
 
     # Create directory structure
     _create_directory_structure(project_dir, name, minimal)
 
     # Render templates
     _render_templates(project_dir, name, minimal)
+
+    # Create .restmachine.toml configuration
+    config = ProjectConfig.create_default(project_dir, name, backend)
+    config.save()
 
     click.echo()
     click.echo(click.style("✓ Project created successfully!", fg="green", bold=True))

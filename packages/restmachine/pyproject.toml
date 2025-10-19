@@ -32,6 +32,8 @@ dependencies = [
     "omegaconf>=2.3.0",  # For hierarchical configuration
     "click>=8.0.0",  # For CLI commands
     "inflection>=0.5.0",  # For Rails-style pluralization and string transformations
+    "tomli>=2.0.0; python_version < '3.11'",  # For reading TOML config (stdlib tomllib in 3.11+)
+    "tomli-w>=1.0.0",  # For writing TOML config
 ]
 
 [project.optional-dependencies]
