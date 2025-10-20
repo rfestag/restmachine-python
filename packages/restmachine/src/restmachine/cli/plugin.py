@@ -14,7 +14,6 @@ Two types of plugins:
 """
 
 from typing import Dict, Any, Optional
-from pathlib import Path
 from abc import ABC, abstractmethod
 import click
 

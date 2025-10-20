@@ -121,6 +121,16 @@ def pytest_collection_modifyitems(config, items):
                     item.add_marker(getattr(pytest.mark, marker_name))
 
 
+# Test isolation fixtures
+@pytest.fixture(autouse=True)
+def restore_working_directory():
+    """Ensure working directory is restored after each test."""
+    import os
+    original_cwd = os.getcwd()
+    yield
+    os.chdir(original_cwd)
+
+
 # CLI Testing DSL Fixtures
 @pytest.fixture
 def restmachine_app(tmp_path):

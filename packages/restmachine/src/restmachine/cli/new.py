@@ -16,8 +16,8 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 @click.argument("name")
 @click.option(
     "--backend",
-    default="memory",
-    help="Backend to use (memory, aws, postgresql, etc.)"
+    default="sqlite",
+    help="Backend to use (sqlite, dynamodb, postgresql, etc.)"
 )
 @click.option(
     "--minimal",
@@ -51,15 +51,18 @@ def new_command(name: str, backend: str, minimal: bool, directory: Optional[str]
     plugin_manager = get_plugin_manager()
     backend_plugin = None
 
-    if backend != "memory":
+    # Built-in backends don't need plugins
+    built_in_backends = {"memory", "sqlite"}
+
+    if backend not in built_in_backends:
         backend_plugin = plugin_manager.get_backend(backend)
         if not backend_plugin:
-            available = ["memory"] + list(plugin_manager.list_backends().keys())
+            available = list(built_in_backends) + list(plugin_manager.list_backends().keys())
             click.echo(
                 click.style(f"Error: Unknown backend '{backend}'", fg="red"),
                 err=True
             )
-            click.echo(f"Available backends: {', '.join(available)}", err=True)
+            click.echo(f"Available backends: {', '.join(sorted(available))}", err=True)
             raise click.Abort()
 
     # Determine target directory
@@ -73,7 +76,15 @@ def new_command(name: str, backend: str, minimal: bool, directory: Optional[str]
         click.echo(f"Error: Directory {project_dir} already exists", err=True)
         raise click.Abort()
 
-    backend_display = backend_plugin.get_display_name() if backend_plugin else "Memory (in-process)"
+    # Set display name for backend
+    if backend_plugin:
+        backend_display = backend_plugin.get_display_name()
+    elif backend == "memory":
+        backend_display = "Memory (in-process)"
+    elif backend == "sqlite":
+        backend_display = "SQLite (file-based)"
+    else:
+        backend_display = backend
 
     click.echo(f"Creating new RestMachine project: {name}")
     click.echo(f"  Location: {project_dir}")

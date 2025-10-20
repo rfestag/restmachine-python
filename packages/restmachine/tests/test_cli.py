@@ -282,3 +282,91 @@ def test_new_command_creates_sample_fixture(runner, temp_dir):
 
     # Should have either a sample fixture or .gitkeep files
     assert has_sample or has_gitkeep
+
+
+def test_new_command_default_backend(runner, temp_dir):
+    """Test that new command uses sqlite as default backend."""
+    project_name = 'myapp'
+    project_dir = temp_dir / project_name
+
+    result = runner.invoke(main, ['new', project_name, '--directory', str(temp_dir)])
+    assert result.exit_code == 0
+
+    # Check .restmachine.toml
+    config_file = project_dir / '.restmachine.toml'
+    assert config_file.exists()
+
+    content = config_file.read_text()
+    assert 'backend = "sqlite"' in content
+
+
+def test_new_command_custom_backend(runner, temp_dir):
+    """Test that new command accepts custom backend."""
+    project_name = 'myapp'
+    project_dir = temp_dir / project_name
+
+    result = runner.invoke(main, ['new', project_name, '--backend', 'memory', '--directory', str(temp_dir)])
+    assert result.exit_code == 0
+
+    # Check .restmachine.toml
+    config_file = project_dir / '.restmachine.toml'
+    content = config_file.read_text()
+    assert 'backend = "memory"' in content
+
+
+def test_new_command_creates_restmachine_toml(runner, temp_dir):
+    """Test that .restmachine.toml is created."""
+    project_name = 'myapp'
+    project_dir = temp_dir / project_name
+
+    result = runner.invoke(main, ['new', project_name, '--directory', str(temp_dir)])
+    assert result.exit_code == 0
+
+    config_file = project_dir / '.restmachine.toml'
+    assert config_file.exists()
+
+    # Verify TOML structure
+    content = config_file.read_text()
+    assert '[project]' in content
+    assert 'name = "myapp"' in content
+    assert 'backend = "sqlite"' in content
+
+
+def test_new_command_invalid_backend(runner, temp_dir):
+    """Test that new command rejects invalid backend."""
+    project_name = 'myapp'
+
+    result = runner.invoke(main, ['new', project_name, '--backend', 'nonexistent', '--directory', str(temp_dir)])
+    assert result.exit_code != 0
+    assert 'Unknown backend' in result.output or 'nonexistent' in result.output
+
+
+def test_new_command_backend_display_name(runner, temp_dir):
+    """Test that new command shows backend display name."""
+    project_name = 'myapp'
+
+    result = runner.invoke(main, ['new', project_name, '--backend', 'sqlite', '--directory', str(temp_dir)])
+    assert result.exit_code == 0
+    # Should show human-readable backend name
+    assert 'SQLite' in result.output or 'sqlite' in result.output
+
+
+def test_generate_command_help(runner):
+    """Test 'generate' command help."""
+    result = runner.invoke(main, ['generate', '--help'])
+    assert result.exit_code == 0
+    assert 'generate' in result.output.lower()
+
+
+def test_generate_scaffold_help(runner):
+    """Test 'generate scaffold' command help."""
+    result = runner.invoke(main, ['generate', 'scaffold', '--help'])
+    assert result.exit_code == 0
+    assert 'scaffold' in result.output.lower()
+
+
+def test_generate_model_help(runner):
+    """Test 'generate model' command help."""
+    result = runner.invoke(main, ['generate', 'model', '--help'])
+    assert result.exit_code == 0
+    assert 'model' in result.output.lower()

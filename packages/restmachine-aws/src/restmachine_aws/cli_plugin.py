@@ -55,13 +55,13 @@ class AwsCliExtension:
 
             # Create an args object similar to argparse.Namespace
             class Args:
-                pass
+                output: Optional[str]
 
             args = Args()
             args.output = output
 
             # Use the existing create_extension function
-            create_extension(args)
+            create_extension(args)  # type: ignore[arg-type]
 
         return temp_group
 

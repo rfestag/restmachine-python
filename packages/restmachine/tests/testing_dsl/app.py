@@ -72,7 +72,7 @@ backend = InMemoryBackend(InMemoryAdapter())
             self._in_context = False
 
     def cleanup(self) -> None:
-        """Clean up sys.path and imported modules."""
+        """Clean up sys.path, imported modules, and database files."""
         self._exit_context()
 
         # Clean up all imported modules from project
@@ -81,6 +81,23 @@ backend = InMemoryBackend(InMemoryAdapter())
         ]
         for module in modules_to_remove:
             del sys.modules[module]
+
+        # Clean up database files (.db, .sqlite, .sqlite3)
+        for db_file in self.project_dir.glob("*.db"):
+            try:
+                db_file.unlink()
+            except Exception:
+                pass
+        for db_file in self.project_dir.glob("*.sqlite"):
+            try:
+                db_file.unlink()
+            except Exception:
+                pass
+        for db_file in self.project_dir.glob("*.sqlite3"):
+            try:
+                db_file.unlink()
+            except Exception:
+                pass
 
     def _run_command(self, args: list[str]) -> CommandResult:
         """Run CLI command in project directory."""

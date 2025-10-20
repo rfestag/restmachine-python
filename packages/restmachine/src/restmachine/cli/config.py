@@ -27,21 +27,21 @@ class ProjectConfig:
         if self.config_path.exists():
             self._load()
 
-    def _load(self):
+    def _load(self) -> None:
         """Load configuration from file."""
         try:
-            import tomli
+            import tomli  # type: ignore[import-not-found]
         except ImportError:
             # Python 3.11+ has tomllib in stdlib
-            import tomllib as tomli
+            import tomllib as tomli  # type: ignore[import-not-found]
 
         with open(self.config_path, "rb") as f:
             self._config = tomli.load(f)
 
-    def save(self):
+    def save(self) -> None:
         """Save configuration to file."""
         try:
-            import tomli_w
+            import tomli_w  # type: ignore[import-not-found]
         except ImportError:
             raise ImportError(
                 "tomli-w is required to write configuration. "
@@ -58,7 +58,11 @@ class ProjectConfig:
         Returns:
             Project name or None if not set
         """
-        return self._config.get("project", {}).get("name")
+        project = self._config.get("project", {})
+        if isinstance(project, dict):
+            name = project.get("name")
+            return str(name) if name is not None else None
+        return None
 
     def set_project_name(self, name: str):
         """
@@ -78,7 +82,11 @@ class ProjectConfig:
         Returns:
             Backend name (e.g., 'memory', 'dynamodb') or None
         """
-        return self._config.get("project", {}).get("backend")
+        project = self._config.get("project", {})
+        if isinstance(project, dict):
+            backend = project.get("backend")
+            return str(backend) if backend is not None else None
+        return None
 
     def set_backend(self, backend: str, backend_config: Optional[Dict[str, Any]] = None):
         """
@@ -108,7 +116,11 @@ class ProjectConfig:
         Returns:
             Backend configuration dictionary
         """
-        return self._config.get("backend", {}).get(backend, {})
+        backend_section = self._config.get("backend", {})
+        if isinstance(backend_section, dict):
+            config = backend_section.get(backend, {})
+            return dict(config) if isinstance(config, dict) else {}
+        return {}
 
     def get_all_config(self) -> Dict[str, Any]:
         """
