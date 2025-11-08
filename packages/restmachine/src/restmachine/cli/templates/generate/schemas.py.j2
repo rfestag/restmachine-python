@@ -2,6 +2,7 @@
 {{ resource_name }} validation schemas for {{ project_name }}.
 """
 
+from typing import List, Optional
 from pydantic import BaseModel, Field
 from models.{{ resource_snake }} import {{ resource_name }}
 
@@ -11,7 +12,7 @@ class Create{{ resource_name }}Request(BaseModel):
     # TODO: Add creation fields
     # Example:
     # name: str = Field(min_length=1, max_length=100)
-    # description: str | None = None
+    # description: Optional[str] = None
     # price: float = Field(gt=0)
     pass
 
@@ -20,16 +21,16 @@ class Update{{ resource_name }}Request(BaseModel):
     """Schema for updating a {{ resource_singular }}."""
     # TODO: Add update fields (typically Optional versions of create fields)
     # Example:
-    # name: str | None = Field(None, min_length=1, max_length=100)
-    # description: str | None = None
-    # price: float | None = Field(None, gt=0)
+    # name: Optional[str] = Field(None, min_length=1, max_length=100)
+    # description: Optional[str] = None
+    # price: Optional[float] = Field(None, gt=0)
     pass
 
 
 class List{{ resource_name_plural }}Response(BaseModel):
     """Schema for paginated list of {{ resource_plural }} (LIST)."""
-    items: list[{{ resource_name }}]
-    cursor: str | None = Field(
+    items: List[{{ resource_name }}]
+    cursor: Optional[str] = Field(
         None,
         description="Cursor for fetching the next page of results"
     )

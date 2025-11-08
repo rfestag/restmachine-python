@@ -3,7 +3,7 @@
 """
 
 import uuid
-from typing import ClassVar
+from typing import ClassVar, Optional
 from restmachine_orm import Model, Field
 from models import backend
 
@@ -14,9 +14,9 @@ class {{ resource_name }}(Model):
 
     TODO: Add your fields here. Example:
         name: str
-        description: str | None = None
+        description: Optional[str] = None
         price: float
-        created_at: str | None = None
+        created_at: Optional[str] = None
     """
 
     model_backend: ClassVar = backend
