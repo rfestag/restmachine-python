@@ -48,7 +48,7 @@ def main():
     print(f"Reload: {args.reload}")
 
     uvicorn.run(
-        "app:app",  # Import string for reload to work
+        "app:asgi_app",  # Import string for reload to work
         host=args.host,
         port=args.port,
         reload=args.reload,

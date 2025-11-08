@@ -94,7 +94,7 @@ def new_command(name: str, backend: str, minimal: bool, directory: Optional[str]
     _create_directory_structure(project_dir, name, minimal)
 
     # Render templates
-    _render_templates(project_dir, name, minimal)
+    _render_templates(project_dir, name, minimal, backend)
 
     # Create .restmachine.toml configuration
     config = ProjectConfig.create_default(project_dir, name, backend)
@@ -107,8 +107,11 @@ def new_command(name: str, backend: str, minimal: bool, directory: Optional[str]
     click.echo(f"  cd {name}")
     click.echo("  python -m venv .venv")
     click.echo("  source .venv/bin/activate  # On Windows: .venv\\Scripts\\activate")
-    click.echo("  pip install -e .")
+    click.echo(f"  pip install restmachine restmachine-orm restmachine-orm-{backend} uvicorn[standard]")
     click.echo("  python main.py")
+    click.echo()
+    click.echo("Or run directly with uvicorn:")
+    click.echo(f"  uvicorn app:asgi_app --reload")
     click.echo()
 
 
@@ -142,7 +145,7 @@ def _create_directory_structure(project_dir: Path, name: str, minimal: bool):
     (project_dir / "db" / "fixtures" / "local" / "development" / ".gitkeep").write_text("")
 
 
-def _render_templates(project_dir: Path, name: str, minimal: bool):
+def _render_templates(project_dir: Path, name: str, minimal: bool, backend: str):
     """Render Jinja2 templates into the project directory."""
     # Set up Jinja2 environment
     env = Environment(
@@ -155,6 +158,7 @@ def _render_templates(project_dir: Path, name: str, minimal: bool):
     context = {
         "project_name": name,
         "minimal": minimal,
+        "backend": backend,
     }
 
     # Templates to render

@@ -1,0 +1,135 @@
+"""
+{{ resource_name }} controller for {{ project_name }}.
+{% if has_model %}
+Provides REST endpoints for {{ resource_plural }}.
+{% else %}
+Custom controller mounted at {{ mount_path }}.
+{% endif %}
+"""
+{% set lb = '{' %}
+{% set rb = '}' %}
+from typing import List, Optional
+from restmachine import Router
+{% if has_model %}
+from models.{{ resource_snake }} import {{ resource_name }}
+{% endif %}
+{% if generate_schemas and has_model %}
+from schemas.{{ resource_snake }}_schemas import (
+{%- for action in actions %}
+{%- if action.input_schema and action.input_schema not in schemas_imported %}
+    {{ action.input_schema }},
+{%- set _ = schemas_imported.append(action.input_schema) %}
+{%- endif %}
+{%- if action.output_schema and action.output_schema not in schemas_imported %}
+    {{ action.output_schema }},
+{%- set _ = schemas_imported.append(action.output_schema) %}
+{%- endif %}
+{%- endfor %}
+)
+{% endif %}
+
+router = Router()
+
+{% if has_model %}
+# Resource loader - loads {{ resource_singular }} from path parameters
+@router.resource_exists
+@router.get('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
+def {{ resource_singular }}(path_params) -> {{ resource_name }}:
+    """
+    Load and return {{ resource_singular }}.
+
+    This function serves dual purposes:
+    1. As a dependency for other routes (PUT, DELETE) to inject the resource
+    2. As the GET endpoint to retrieve a single {{ resource_singular }}
+
+    Returns None if {{ resource_singular }} not found (triggers 404).
+    """
+    {{ resource_singular }}_id = path_params.get('{{ resource_singular }}_id')
+    return {{ resource_name }}.find_by(id={{ resource_singular }}_id)
+
+{% endif %}
+{% for action in actions %}
+{% if action.name == "show" and has_model %}
+# show endpoint is handled by resource loader above
+{% else %}
+@router.{{ action.http_method }}('{{ action.path }}')
+def {{ action.name }}_{{ resource_singular if action.requires_resource else resource_plural }}(
+{%- set params = [] -%}
+{%- if action.requires_resource and has_model -%}
+{%- set _ = params.append(resource_singular + ': ' + resource_name) -%}
+{%- elif action.requires_resource and not has_model -%}
+{%- set _ = params.append('path_params') -%}
+{%- endif -%}
+{%- if action.input_schema and generate_schemas -%}
+{%- set _ = params.append('json_body') -%}
+{%- elif action.name == "list" and has_model -%}
+{%- set _ = params.append('query_params') -%}
+{%- elif not action.requires_resource and not has_model and action.http_method in ["post", "put", "patch"] -%}
+{%- set _ = params.append('json_body') -%}
+{%- endif -%}
+{{ params | join(', ') }}){% if action.output_schema and generate_schemas %} -> {{ action.output_schema }}{% endif %}:
+    """{{ action.description }}."""
+{% if has_model %}
+{% if action.name == "list" %}
+    # Get pagination parameters
+    limit = int(query_params.get('limit', 50))
+    cursor = query_params.get('cursor')
+
+    # TODO: Use query params to build where clause
+    results, next_cursor = {{ resource_name }}.where().cursor(cursor).limit(limit).paginate()
+
+    # Build response
+    {{ resource_plural }} = [{{ resource_name }}(**r) for r in results]
+
+    return {{ action.output_schema }}(
+        items={{ resource_plural }},
+        cursor=next_cursor if next_cursor else None,
+    )
+{% elif action.name == "create" %}
+{% if generate_schemas %}
+    # Validate input
+    data = {{ action.input_schema }}.model_validate(json_body)
+
+    # Create {{ resource_singular }}
+    {{ resource_singular }} = {{ resource_name }}.create(**data.model_dump())
+    return {{ resource_singular }}, 201
+{% else %}
+    # TODO: Add schema validation
+    # TODO: Implement create logic
+    {{ resource_singular }} = {{ resource_name }}.create(**json_body)
+    return {{ resource_singular }}, 201
+{% endif %}
+{% elif action.name == "update" %}
+{% if generate_schemas %}
+    # Validate input
+    data = {{ action.input_schema }}.model_validate(json_body)
+    updates = data.model_dump(exclude_unset=True)
+
+    # Update {{ resource_singular }}
+    updated = {{ resource_singular }}.model_copy(updates=updates)
+    updated.save()
+    return updated
+{% else %}
+    # TODO: Add schema validation
+    # TODO: Implement update logic
+    updated = {{ resource_singular }}.model_copy(updates=json_body)
+    updated.save()
+    return updated
+{% endif %}
+{% elif action.name == "delete" %}
+    {{ resource_singular }}.delete()
+    return None
+{% else %}
+    # TODO: Implement {{ action.name }} logic for {{ resource_singular }}
+    return {}
+{% endif %}
+{% else %}
+    # TODO: Implement {{ action.name }} logic
+{% if action.http_method in ["post", "put", "patch"] and not action.requires_resource %}
+    # json_body available for processing
+{% endif %}
+    return {}
+{% endif %}
+
+{% endif %}
+{% endfor %}

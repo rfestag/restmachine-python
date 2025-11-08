@@ -2,14 +2,21 @@
 {{ project_name }} models.
 
 Define your models here using restmachine-orm.
-
-Example:
-    from restmachine_orm import Model, field
-
-    class User(Model):
-        id: str = field(primary_key=True)
-        name: str
-        email: str
-
-For backend setup, see lib/dependencies.py.
 """
+{% if backend == "sqlite" -%}
+from restmachine_orm_sqlite import SqliteBackend
+
+# Initialize SQLite backend
+backend = SqliteBackend(database="{{ project_name }}.db")
+{%- elif backend == "dynamodb" or backend == "aws" -%}
+from restmachine_orm_dynamodb import DynamoDBBackend
+
+# Initialize DynamoDB backend
+# Note: Configure AWS credentials and region via environment variables
+backend = DynamoDBBackend(table_name="{{ project_name }}-table")
+{%- else -%}
+from restmachine_orm.backends.memory import InMemoryBackend
+
+# Initialize in-memory backend (for development/testing)
+backend = InMemoryBackend()
+{%- endif %}

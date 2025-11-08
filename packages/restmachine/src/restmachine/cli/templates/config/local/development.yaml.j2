@@ -12,8 +12,12 @@ server:
   workers: 1
 
 database:
-  backend: memory
+  backend: {{ backend }}
+{%- if backend == "sqlite" %}
+  database_file: {{ project_name }}.db
+{%- elif backend == "dynamodb" or backend == "aws" %}
   table_name: {{ project_name }}-dev-table
+{%- endif %}
 
 security:
   # Use environment variable for secret key in production

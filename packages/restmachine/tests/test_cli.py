@@ -370,3 +370,88 @@ def test_generate_model_help(runner):
     result = runner.invoke(main, ['generate', 'model', '--help'])
     assert result.exit_code == 0
     assert 'model' in result.output.lower()
+
+
+def test_end_to_end_new_and_scaffold_imports(runner, temp_dir):
+    """
+    End-to-end test: Create a new project, generate a scaffold, and verify it works.
+
+    This test validates the complete workflow:
+    1. Create a new project with 'restmachine new'
+    2. Generate a scaffold resource with fields
+    3. Verify all files are created correctly
+    4. Import the generated app and models successfully
+    5. Verify the app can be instantiated and models work
+    """
+    import sys
+    import json
+    from restmachine.testing import RestMachineDriver, RestApiDsl
+
+    project_name = 'test-blog'
+    project_dir = temp_dir / project_name
+
+    # Step 1: Create a new project
+    result = runner.invoke(main, [
+        'new', project_name,
+        '--backend', 'sqlite',
+        '--directory', str(temp_dir)
+    ])
+    assert result.exit_code == 0, f"Project creation failed: {result.output}"
+    assert project_dir.exists(), "Project directory was not created"
+
+    # Step 2: Generate a scaffold with fields
+    # Note: Schemas are generated as placeholders, which is fine for testing basic CRUD
+    import os
+    original_dir = os.getcwd()
+    try:
+        os.chdir(project_dir)
+        result = runner.invoke(main, [
+            'generate', 'scaffold', 'Post',
+            'title:str', 'content:str', 'author:str', 'published:bool'
+        ])
+        assert result.exit_code == 0, f"Scaffold generation failed: {result.output}"
+    finally:
+        os.chdir(original_dir)
+
+    # Step 3: Verify all files were created
+    assert (project_dir / 'models' / 'post.py').exists(), "Model file not created"
+    assert (project_dir / 'routes' / 'posts.py').exists(), "Routes file not created"
+    assert (project_dir / 'schemas' / 'post_schemas.py').exists(), "Schemas file not created"
+    assert (project_dir / 'db' / 'fixtures' / 'posts.yaml').exists(), "Fixture file not created"
+    assert (project_dir / 'tests' / 'integration' / 'test_posts_api.py').exists(), "Test file not created"
+
+    # Step 4: Verify generated code has valid Python syntax
+    sys.path.insert(0, str(project_dir))
+    try:
+        # Import the app module
+        import importlib
+        app_module = importlib.import_module('app')
+        app = app_module.app
+        assert app is not None, "App should be created"
+
+        # Import the Post model
+        models_module = importlib.import_module('models.post')
+        Post = models_module.Post
+        assert Post is not None, "Post model should exist"
+
+        # Verify model has the correct fields
+        post_fields = Post.model_fields
+        assert 'id' in post_fields, "Post should have 'id' field"
+        assert 'title' in post_fields, "Post should have 'title' field"
+        assert 'content' in post_fields, "Post should have 'content' field"
+        assert 'author' in post_fields, "Post should have 'author' field"
+        assert 'published' in post_fields, "Post should have 'published' field"
+
+        # Verify the router is mounted
+        routes_module = importlib.import_module('routes.posts')
+        assert hasattr(routes_module, 'router'), "Routes module should have router"
+
+        # Step 5: Verify app can be used
+        # This confirms the backend is initialized and models can be used
+        # (We don't test actual HTTP requests since schemas are placeholders)
+        assert Post.model_backend is not None, "Model backend should be initialized"
+
+    finally:
+        # Clean up sys.path
+        if str(project_dir) in sys.path:
+            sys.path.remove(str(project_dir))

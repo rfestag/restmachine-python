@@ -1,424 +1,430 @@
 # Quick Start
 
-This guide will walk you through creating your first RestMachine application and deploying it with various servers.
+This guide will walk you through creating your first RestMachine application using the CLI to scaffold a simple blog API.
 
-## Create Your First API
+## Create Your First Project
 
 ### 1. Install RestMachine
 
 ```bash
-pip install restmachine uvicorn[standard]
+pip install restmachine restmachine-orm-sqlite uvicorn[standard]
 ```
 
-### 2. Create `app.py`
+This installs:
 
-```python
-from restmachine import RestApplication
+- `restmachine` - Core framework and CLI
+- `restmachine-orm-sqlite` - SQLite backend for local development
+- `uvicorn` - ASGI server for running your API
 
-app = RestApplication()
+### 2. Create a New Project
 
-@app.get('/')
-def home():
-    return {"message": "Welcome to RestMachine!"}
-
-@app.get('/hello/{name}')
-def hello(path_params):
-    name = path_params['name']
-    return {"message": f"Hello, {name}!"}
-
-@app.post('/echo')
-def echo(json_body):
-    return {"you_sent": json_body}
+```bash
+restmachine new blog-api
+cd blog-api
 ```
 
-### 3. Test Locally
+This creates a complete project structure:
 
-You can test your application directly without a server:
-
-```python
-from restmachine import Request, HTTPMethod
-
-# Test GET
-request = Request(method=HTTPMethod.GET, path='/')
-response = app.execute(request)
-print(response.body)  # {"message": "Welcome to RestMachine!"}
-
-# Test with path params
-request = Request(method=HTTPMethod.GET, path='/hello/World')
-response = app.execute(request)
-print(response.body)  # {"message": "Hello, World!"}
+```
+blog-api/
+├── app.py              # Main application entry point
+├── config/             # Configuration files
+├── db/                 # Database fixtures and migrations
+├── lib/                # Shared utilities
+├── models/             # Data models
+├── routes/             # API route handlers
+├── schemas/            # Request/response schemas
+└── tests/              # Test files
 ```
 
-## Deploy with ASGI Servers
+### 3. Generate a Blog Post Resource
 
-RestMachine includes built-in ASGI support for production deployment.
+Use the scaffold generator to create a complete CRUD API for blog posts:
 
-### Option 1: Uvicorn (Recommended)
+```bash
+restmachine generate scaffold Post title:str content:str author:str published:bool
+```
 
-**Add ASGI adapter to `app.py`:**
+This single command generates:
+
+- ✓ Model (`models/post.py`) with the specified fields
+- ✓ CRUD routes (`routes/posts.py`) - list, create, show, update, delete
+- ✓ Request/response schemas (`schemas/post_schemas.py`)
+- ✓ Integration tests (`tests/integration/test_posts_api.py`)
+- ✓ Fixture file (`db/fixtures/base/posts.yaml`) with example data
+
+The generated model looks like:
 
 ```python
-from restmachine import RestApplication, ASGIAdapter
+# models/post.py
+from restmachine_orm import Model
+from pydantic import Field
 
-app = RestApplication()
+class Post(Model):
+    id: str = Field(primary_key=True, default_factory=lambda: str(uuid.uuid4()))
+    title: str
+    content: str
+    author: str
+    published: bool
+```
 
-@app.get('/')
-def home():
-    return {"message": "Welcome to RestMachine!"}
+And the routes include:
 
-# Create ASGI application
+```python
+# routes/posts.py
+from restmachine import Router
+
+router = Router()
+
+@router.get('/')
+def list_posts():
+    """List all posts."""
+    posts = Post.all()
+    return {"posts": [post.model_dump() for post in posts]}
+
+@router.post('/')
+def create_post(create_post_request: CreatePostRequest):
+    """Create a new post."""
+    post = Post.create(**create_post_request.model_dump())
+    return post.model_dump(), 201
+
+@router.get('/{id}')
+def show_post(post: Post):
+    """Get a specific post."""
+    return post.model_dump()
+
+@router.put('/{id}')
+def update_post(post: Post, update_post_request: UpdatePostRequest):
+    """Update a post."""
+    post.update(**update_post_request.model_dump(exclude_unset=True))
+    return post.model_dump()
+
+@router.delete('/{id}')
+def delete_post(post: Post):
+    """Delete a post."""
+    post.delete()
+    return None, 204
+```
+
+### 4. Run Your API
+
+Start the development server:
+
+```bash
+uvicorn app:asgi_app --reload
+```
+
+Your API is now running at `http://localhost:8000` with these endpoints:
+
+- `GET /posts` - List all posts
+- `POST /posts` - Create a new post
+- `GET /posts/{id}` - Get a specific post
+- `PUT /posts/{id}` - Update a post
+- `DELETE /posts/{id}` - Delete a post
+
+### 5. Test Your API
+
+**Create a post:**
+
+```bash
+curl -X POST http://localhost:8000/posts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "My First Blog Post",
+    "content": "Hello, RestMachine!",
+    "author": "Alice",
+    "published": true
+  }'
+```
+
+**List all posts:**
+
+```bash
+curl http://localhost:8000/posts
+```
+
+**Get a specific post:**
+
+```bash
+curl http://localhost:8000/posts/{id}
+```
+
+## Add a Health Check Endpoint
+
+Now let's add a custom endpoint using the controller generator.
+
+### 1. Generate a Health Check Controller
+
+```bash
+restmachine generate controller health --actions status:get:/
+```
+
+This creates:
+
+- ✓ Controller file (`routes/health.py`)
+- ✓ Router mounted at `/health`
+- ✓ Custom action `status` at `GET /health/`
+
+### 2. Customize the Health Check
+
+Edit `routes/health.py` to add a real health check:
+
+```python
+from restmachine import Router
+
+router = Router()
+
+@router.get('/')
+def status():
+    """Health check endpoint."""
+    return {
+        "status": "healthy",
+        "service": "blog-api",
+        "version": "1.0.0"
+    }
+```
+
+### 3. Test the Health Check
+
+```bash
+curl http://localhost:8000/health/
+# {"status": "healthy", "service": "blog-api", "version": "1.0.0"}
+```
+
+## Add Database Seeding
+
+RestMachine includes a fixture system for seeding your database with test data.
+
+### 1. Create a Fixture File
+
+The scaffold generator already created `db/fixtures/base/posts.yaml`:
+
+```yaml
+model: Post
+upsert_key: id
+records:
+  - id: "550e8400-e29b-41d4-a716-446655440000"
+    title: "Getting Started with RestMachine"
+    content: "RestMachine makes building REST APIs easy!"
+    author: "RestMachine Team"
+    published: true
+```
+
+### 2. Seed the Database
+
+```bash
+restmachine seed
+```
+
+This loads all fixtures from `db/fixtures/` into your database. Now when you run:
+
+```bash
+curl http://localhost:8000/posts
+```
+
+You'll see the seeded post!
+
+## Run the Test Suite
+
+The scaffold generator created comprehensive integration tests:
+
+```bash
+pytest tests/integration/test_posts_api.py -v
+```
+
+You should see tests for:
+
+- ✓ Listing posts
+- ✓ Creating posts
+- ✓ Getting individual posts
+- ✓ Updating posts
+- ✓ Deleting posts
+
+## Deploy to Production
+
+### Option 1: Deploy with ASGI Server
+
+Your project already includes an ASGI adapter in `app.py`:
+
+```python
+from restmachine import ASGIAdapter
 asgi_app = ASGIAdapter(app)
 ```
 
-**Run with Uvicorn:**
+Deploy with Uvicorn in production:
 
 ```bash
-# Development (with auto-reload)
-uvicorn app:asgi_app --reload --host 0.0.0.0 --port 8000
+# Single worker
+uvicorn app:asgi_app --host 0.0.0.0 --port 8000
 
-# Production
+# Multiple workers
 uvicorn app:asgi_app --host 0.0.0.0 --port 8000 --workers 4
 ```
 
-**Test it:**
-
-```bash
-curl http://localhost:8000/
-# {"message": "Welcome to RestMachine!"}
-
-curl http://localhost:8000/hello/RestMachine
-# {"message": "Hello, RestMachine!"}
-```
-
-### Option 2: Hypercorn (HTTP/2 Support)
-
-**Install:**
-
-```bash
-pip install hypercorn
-```
-
-**Run with Hypercorn:**
-
-```bash
-# Development
-hypercorn app:asgi_app --reload --bind 0.0.0.0:8000
-
-# Production with HTTP/2
-hypercorn app:asgi_app --bind 0.0.0.0:8000 --workers 4
-```
-
-### Option 3: Gunicorn + Uvicorn Workers
-
-For production deployments with process management:
-
-```bash
-pip install gunicorn uvicorn[standard]
-```
+Or with Gunicorn + Uvicorn workers:
 
 ```bash
 gunicorn app:asgi_app \
   -w 4 \
   -k uvicorn.workers.UvicornWorker \
-  --bind 0.0.0.0:8000 \
-  --access-logfile - \
-  --error-logfile -
+  --bind 0.0.0.0:8000
 ```
 
-## Deploy to AWS Lambda
+### Option 2: Deploy to AWS Lambda
 
-RestMachine provides first-class support for AWS Lambda deployment.
-
-### 1. Install AWS Package
+Install the AWS adapter:
 
 ```bash
 pip install restmachine-aws
 ```
 
-### 2. Create `lambda_handler.py`
+Create a Lambda handler:
 
 ```python
-from restmachine import RestApplication
+# lambda_handler.py
 from restmachine_aws import AwsApiGatewayAdapter
+from app import app
 
-app = RestApplication()
-
-@app.get('/')
-def home():
-    return {"message": "Welcome to RestMachine on Lambda!"}
-
-@app.get('/hello/{name}')
-def hello(path_params):
-    name = path_params['name']
-    return {"message": f"Hello, {name}!"}
-
-# Create AWS Lambda adapter
 adapter = AwsApiGatewayAdapter(app)
 
 def lambda_handler(event, context):
     return adapter.handle_event(event, context)
 ```
 
-### 3. Package for Deployment
-
-Create a deployment package:
+Package and deploy:
 
 ```bash
-# Create a virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+# Package dependencies
+pip install --target ./package restmachine restmachine-aws restmachine-orm-sqlite
+cd package && zip -r ../lambda_function.zip . && cd ..
+zip lambda_function.zip lambda_handler.py app.py -r models/ routes/ schemas/
 
-# Install dependencies
-pip install restmachine restmachine-aws
-
-# Package the code
-mkdir package
-pip install --target ./package restmachine restmachine-aws
-cd package
-zip -r ../lambda_function.zip .
-cd ..
-zip lambda_function.zip lambda_handler.py
-```
-
-### 4. Deploy to AWS Lambda
-
-Using AWS CLI:
-
-```bash
-# Create Lambda function
+# Deploy to Lambda
 aws lambda create-function \
-  --function-name restmachine-api \
+  --function-name blog-api \
   --runtime python3.11 \
   --role arn:aws:iam::YOUR_ACCOUNT:role/lambda-execution-role \
   --handler lambda_handler.lambda_handler \
   --zip-file fileb://lambda_function.zip \
-  --timeout 30 \
-  --memory-size 512
+  --timeout 30
 ```
 
-### 5. Connect to API Gateway
+See the [AWS Lambda Deployment Guide](../guide/deployment-lambda.md) for detailed instructions.
 
-**Create API Gateway REST API:**
+## CLI Command Reference
+
+Here are the key CLI commands you'll use:
+
+### Project Scaffolding
 
 ```bash
-aws apigatewayv2 create-api \
-  --name restmachine-api \
-  --protocol-type HTTP \
-  --target arn:aws:lambda:REGION:ACCOUNT:function:restmachine-api
+# Create a new project
+restmachine new <project-name>
+
+# Create minimal project (no examples)
+restmachine new <project-name> --minimal
 ```
 
-**Or create Function URL (simpler):**
+### Code Generation
 
 ```bash
-aws lambda create-function-url-config \
-  --function-name restmachine-api \
-  --auth-type NONE
+# Generate complete CRUD resource (model + controller + schemas + tests)
+restmachine generate scaffold <Name> field:type field:type ...
+
+# Generate just a model
+restmachine generate model <Name> field:type field:type ...
+
+# Generate controller with specific actions
+restmachine generate controller <name> --actions list,create,show
+
+# Generate controller with custom action
+restmachine generate controller <name> --actions activate:post:/{id}/activate
 ```
 
-### Supported Event Sources
+### Available Field Types
 
-The AWS adapter automatically detects and handles:
+- `str` - String field
+- `int` - Integer field
+- `float` - Float field
+- `bool` - Boolean field
+- `datetime` - DateTime field (auto-imports datetime)
+- `uuid` - UUID field (auto-imports uuid, uses as primary key)
 
-| Event Source | Format | Notes |
-|-------------|--------|-------|
-| **API Gateway REST API** | v1 (1.0) | Traditional REST APIs |
-| **API Gateway HTTP API** | v2 (2.0) | Lower latency, cheaper |
-| **Application Load Balancer** | ALB | Multi-value headers, mTLS |
-| **Lambda Function URLs** | v2 | Simplest setup |
+Example:
 
-## Add Startup & Shutdown Handlers
-
-RestMachine supports lifecycle hooks for resource management:
-
-```python
-from restmachine import RestApplication, ASGIAdapter
-
-app = RestApplication()
-
-# Startup handler (runs once when app starts)
-@app.on_startup
-def database():
-    print("Opening database connection...")
-    return create_db_connection()
-
-# Use dependency injection
-@app.get('/users')
-def list_users(database):  # 'database' injected from startup
-    return database.query("SELECT * FROM users")
-
-# Shutdown handler (runs when app stops)
-@app.on_shutdown
-def close_database(database):  # Can also inject dependencies
-    print("Closing database connection...")
-    database.close()
-
-asgi_app = ASGIAdapter(app)
+```bash
+restmachine generate scaffold User \
+  name:str \
+  email:str \
+  age:int \
+  is_active:bool \
+  created_at:datetime
 ```
 
-**ASGI Deployment:** Startup/shutdown handlers work automatically.
+### Database Operations
 
-**AWS Lambda:** Startup handlers run during cold start. For shutdown handlers, see [Lambda Extensions](../restmachine-aws/guides/lambda-extensions.md).
+```bash
+# Seed database with fixtures
+restmachine seed
 
-## Generate OpenAPI Documentation
+# Seed specific fixture file
+restmachine seed --fixture posts.yaml
 
-RestMachine automatically generates OpenAPI 3.0 specifications from your code:
+# Dry run (show what would be loaded)
+restmachine seed --dry-run
 
-```python
-from restmachine import RestApplication
-from pydantic import BaseModel, EmailStr
-
-app = RestApplication()
-
-class UserCreate(BaseModel):
-    name: str
-    email: EmailStr
-
-@app.validates
-def user_create(json_body) -> UserCreate:
-    return UserCreate.model_validate(json_body)
-
-@app.post('/users')
-def create_user(user_create: UserCreate):
-    """Create a new user account."""
-    return {"created": user_create.model_dump()}, 201
-
-# Generate OpenAPI spec
-openapi_json = app.generate_openapi_json(
-    title="My API",
-    version="1.0.0",
-    description="My awesome API"
-)
-
-# Or save to file
-app.save_openapi_json(
-    filename="openapi.json",
-    docs_dir="docs"
-)
+# Clear tables before seeding
+restmachine seed --clear
 ```
 
-### Add Interactive Documentation
+### Backend Management
 
-Serve Swagger UI for interactive API documentation:
+```bash
+# List available backends
+restmachine list backends
 
-```python
-@app.get('/openapi.json')
-def openapi_spec():
-    """OpenAPI specification endpoint."""
-    import json
-    return json.loads(app.generate_openapi_json(
-        title="My API",
-        version="1.0.0"
-    ))
+# Create project with specific backend
+restmachine new myapp --backend sqlite
 
-@app.get('/docs')
-def swagger_ui():
-    """Interactive API documentation."""
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>API Documentation</title>
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css">
-    </head>
-    <body>
-        <div id="swagger-ui"></div>
-        <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-        <script>
-            SwaggerUIBundle({
-                url: '/openapi.json',
-                dom_id: '#swagger-ui',
-            });
-        </script>
-    </body>
-    </html>
-    """
+# Generate model with backend override
+restmachine generate model User name:str --backend aws
 ```
-
-Visit `http://localhost:8000/docs` to see your interactive API documentation.
-
-See the [OpenAPI Guide](../guide/openapi.md) for advanced features including client SDK generation.
-
-## Observability & Metrics
-
-RestMachine includes built-in metrics collection to help you monitor your application's performance.
-
-### Default Behavior
-
-**AWS Lambda**: Metrics are automatically enabled and published to CloudWatch Logs in EMF (Embedded Metric Format). No configuration required!
-
-```python
-from restmachine_aws import AwsApiGatewayAdapter
-
-# Metrics automatically enabled for CloudWatch
-adapter = AwsApiGatewayAdapter(app)
-```
-
-**ASGI/Other Platforms**: Metrics collection is available but requires a custom publisher. See the [Metrics documentation](../metrics.md) for details.
-
-### Adding Custom Metrics
-
-Inject the `metrics` dependency to track business metrics:
-
-```python
-@app.get('/orders')
-def list_orders(metrics):
-    # Track request count
-    metrics.add_metric("orders.listed", 1, unit="Count")
-
-    # Track timing
-    metrics.start_timer("db.query")
-    orders = db.query("SELECT * FROM orders")
-    metrics.stop_timer("db.query")
-
-    return {"orders": orders}
-```
-
-### What Gets Logged
-
-All requests automatically include:
-- Total request time
-- Application execution time
-- Response conversion time
-- HTTP method and path
-- Status code
-
-For more details:
-- **[Core Metrics Guide](../metrics.md)** - Platform-agnostic metrics features
-- **[AWS CloudWatch Metrics](../restmachine-aws/guides/metrics.md)** - CloudWatch EMF configuration
 
 ## Next Steps
 
-Now that you have a running application:
+Now that you have a working blog API:
 
-- **[Basic Application →](../guide/basic-application.md)** - Learn fundamental concepts
-- **[Dependency Injection →](../guide/dependency-injection.md)** - Master DI patterns
-- **[Request Validation →](../guide/validation.md)** - Add Pydantic validation
-- **[Deployment Guide →](../guide/deployment/uvicorn.md)** - Production deployment strategies
+- **[Models & ORM →](../../restmachine-orm/docs/api/models.md)** - Learn about database operations and queries
+- **[Dependency Injection →](../guide/dependency-injection.md)** - Master DI patterns for cleaner code
+- **[Request Validation →](../guide/validation.md)** - Add Pydantic validation to your schemas
+- **[Testing Guide →](../guide/testing.md)** - Write comprehensive tests for your API
+- **[Database Seeding →](../guides/database-seeding.md)** - Advanced fixture loading strategies
+- **[OpenAPI Documentation →](../guide/openapi.md)** - Auto-generate API documentation
 
 ## Common Issues
 
-??? question "Import Error: No module named 'restmachine'"
-    Make sure you've installed RestMachine:
+??? question "Command not found: restmachine"
+    Make sure RestMachine is installed in your current environment:
     ```bash
     pip install restmachine
     ```
+    If using a virtual environment, ensure it's activated.
 
-??? question "ASGI server not working"
-    Ensure you've created the ASGI adapter:
-    ```python
-    asgi_app = ASGIAdapter(app)
-    ```
-    And you're running the correct module: `uvicorn app:asgi_app`
-
-??? question "Lambda function timing out"
-    Increase the timeout in your Lambda configuration:
+??? question "No backends available"
+    Install a backend package:
     ```bash
-    aws lambda update-function-configuration \
-      --function-name restmachine-api \
-      --timeout 30
+    pip install restmachine-orm-sqlite  # For SQLite
+    pip install restmachine-orm-dynamodb  # For DynamoDB
     ```
 
-??? question "404 Not Found for all routes"
-    Check that your API Gateway integration is configured correctly to proxy all requests to Lambda:
-    - Use `{proxy+}` as the resource path
-    - Enable "Lambda Proxy Integration"
+??? question "Generated code has import errors"
+    Make sure you've installed the required backend:
+    ```bash
+    pip install restmachine-orm-sqlite
+    ```
+
+??? question "Seed command fails"
+    Ensure your models are properly registered in `models/__init__.py` and your backend is initialized in `app.py`.
+
+??? question "Tests are failing"
+    Make sure the test database is set up. The generated tests use an in-memory backend by default. Check `tests/conftest.py` for configuration.

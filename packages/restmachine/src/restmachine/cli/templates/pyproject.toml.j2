@@ -10,6 +10,13 @@ requires-python = ">=3.9"
 dependencies = [
     "restmachine",
     "restmachine-orm",
+{%- if backend == "sqlite" %}
+    "restmachine-orm-sqlite",
+{%- elif backend == "dynamodb" %}
+    "restmachine-orm-dynamodb",
+{%- elif backend == "aws" %}
+    "restmachine-orm-dynamodb",
+{%- endif %}
     "uvicorn[standard]>=0.20.0",
     "python-dotenv>=1.0.0",
     "pydantic[email]>=2.0.0",
@@ -30,7 +37,7 @@ dev = [
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["{{ project_name }}*", "models*", "schemas*", "controllers*", "config*", "lib*"]
+include = ["{{ project_name }}*", "models*", "schemas*", "routes*", "config*", "lib*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

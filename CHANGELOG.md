@@ -8,6 +8,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **CLI Plugin System**: Entry point-based plugin architecture for extensibility
+  - Two plugin types: Database backends (`restmachine.backends`) and CLI extensions (`restmachine.cli_extensions`)
+  - Automatic plugin discovery via Python entry points (setuptools)
+  - `PluginManager` class for centralized plugin management
+  - `DatabaseBackendPlugin` base class for implementing ORM backends
+  - `CliExtensionPlugin` base class for implementing infrastructure/deployment tools
+  - Plugins registered in `pyproject.toml` under `[project.entry-points]`
+  - Safe plugin loading with isolated error handling (bad plugins don't break CLI)
+  - `restmachine list backends` command to see all available backends
+  - Backend-specific field type extensions and validation
+  - Python 3.9+ compatibility with importlib.metadata entry points API
+- **SQLite Backend Package** (`restmachine-orm-sqlite`): File-based database for local development
+  - Zero configuration - uses Python's built-in sqlite3 module
+  - File-based persistence - easy to inspect with standard SQLite tools
+  - Document-store style - stores models as JSON documents with metadata
+  - Table auto-creation on first use with proper schema
+  - Support for all standard CRUD operations (create, get, query, update, delete)
+  - Query support with filtering, ordering, pagination, and field selection
+  - SQL injection protection with parameterized queries
+  - Identifier validation to prevent injection attacks
+  - Perfect for development, testing, and small deployments
+  - Default backend for `restmachine new` projects
+  - CLI plugin integration for seamless project generation
+  - Comprehensive test coverage (537 tests)
+- **Versioned Models**: Schema evolution with automatic upgrades
+  - `VersionedModel` base class for temporal/versioned data models
+  - `@versioned_model(name, latest=False)` decorator for version registration
+  - Pydantic discriminated unions for automatic deserialization to correct version
+  - `model_version` field automatically added as discriminator
+  - `upgrade()` method for migrating between versions
+  - `get_latest_model(name)` function to retrieve current version class
+  - Automatic upgrade pipeline: V1 → V2 → V3 (transitive upgrades)
+  - Seamless integration with existing ORM operations (get, query, save)
+  - Version tracking persisted in database records
+  - Full backward compatibility with unversioned models
+  - Comprehensive test coverage for multi-version scenarios
+  - Example: Medical records with evolving HIPAA requirements
+- **Pluggable Backend Architecture**: Swappable ORM backends with type system
+  - Backend discovery via entry points - no hardcoded backend list
+  - Project-level backend configuration in `restmachine.toml`
+  - `ProjectConfig` class for reading project settings
+  - `find_project_root()` utility for locating project directory
+  - Backend selection in `restmachine new --backend <name>` command
+  - Backend override in `restmachine generate model --backend <name>` command
+  - Type validation ensuring field types are supported by selected backend
+  - Helpful error messages showing available types for backend
+  - Seamless switching between backends (SQLite, DynamoDB, AWS, Memory)
+  - Backend-specific configuration and initialization
+- **Backend Type System**: Field type mapping and validation
+  - `get_available_types()` method on backend plugins
+  - Base type system with `str`, `int`, `float`, `bool`, `datetime`, `uuid`
+  - Backend-specific type extensions (e.g., DynamoDB adds `set`, `binary`)
+  - Type metadata including Python type, field definition, imports needed
+  - Fixture example generation for each type
+  - Type validation during code generation
+  - Clear error messages for unsupported types
+  - Enables backend-specific optimizations (e.g., DynamoDB sets)
+- **DSL for Model Generation**: Concise field type syntax
+  - Field specification: `name:type` (e.g., `name:str`, `age:int`)
+  - Multiple fields in one command: `restmachine generate model User name:str email:str age:int`
+  - Automatic import generation (`datetime`, `uuid`) based on field types
+  - Backend-aware type validation
+  - Fixture generation with type-appropriate examples
+  - Clean model templates with proper Pydantic field definitions
+  - Integration with `restmachine generate scaffold` for complete CRUD
+- **Controller Generation**: Flexible route generation with action selection
+  - `restmachine generate controller <name>` for creating route handlers
+  - Action selection via `--actions` flag (e.g., `--actions list,create,show`)
+  - Standard CRUD actions: `list`, `create`, `show`, `update`, `delete`
+  - Custom actions with method/path specification (e.g., `activate:post:/activate`)
+  - Automatic schema generation for request/response models
+  - Integration test generation for all actions
+  - Router pattern used throughout generated code
+  - `--skip-schemas` flag to generate routes without schemas
+  - `--skip-tests` flag to skip test file generation
+  - Automatic import management and router mounting
+- **Scaffold Generation**: Complete CRUD resource generation
+  - `restmachine generate scaffold <name> field:type ...` for full stack generation
+  - Generates model with specified fields using DSL syntax
+  - Generates complete CRUD controller (list, create, show, update, delete)
+  - Generates request/response schemas (Create, Update, List, Detail)
+  - Generates integration tests for all endpoints
+  - Generates fixture file with example data
+  - Automatic import updates in `models/__init__.py` and `schemas/__init__.py`
+  - Router mounting with pluralized resource path
+  - `--skip-tests` flag to skip test generation
+  - `--skip-fixtures` flag to skip fixture generation
+  - Backend-aware field type validation and generation
+  - One command to create a complete, working API resource
 - **Hierarchical Fixture Seeding**: Database seeding with environment-aware fixture loading
   - New `restmachine seed` command for loading fixtures into database
   - Hierarchical fixture loading following same pattern as configuration system
@@ -324,6 +413,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - See `docs/MIGRATION_TO_PYPROJECT.md` for details
 
 ### Fixed
+- **Code Generation Type Safety**: Fixed type checking error in scaffold generation
+  - Fixed Path to string conversion when extending controller file lists (packages/restmachine/src/restmachine/cli/generate.py:766)
+  - Changed `generated_files.extend(controller_files)` to `generated_files.extend(str(p) for p in controller_files)`
+  - All mypy type checks now pass with `--check-untyped-defs` enabled
 - **RestMachine ORM OR Query Evaluation**: Fixed bug in InMemory backend where OR filters matched all records
   - Corrected logic for groups containing only OR filters to require at least one match
   - Added special handling for all-OR groups vs mixed AND/OR groups
@@ -352,6 +445,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - All security scans now pass
 
 ### Security
+- **SQLite SQL Injection Protection**: Comprehensive protection against SQL injection attacks
+  - All queries use parameterized statements - no string interpolation
+  - Table and column names validated against strict regex pattern
+  - Identifier validation prevents injection via table/column names
+  - Comprehensive security tests with malicious input scenarios
+  - Bandit security scanning passes all checks
 - **Template XSS Protection**: Jinja2 templates have autoescape enabled by default
   - Prevents XSS attacks in template rendering
   - `unsafe` parameter available for trusted content only

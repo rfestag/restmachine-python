@@ -8,11 +8,178 @@ Usage:
 """
 
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List
+from dataclasses import dataclass
 import click
 import inflection
 from jinja2 import Environment, PackageLoader, select_autoescape
 
+
+# ============================================================================
+# Controller Action Specification
+# ============================================================================
+
+@dataclass
+class ActionSpec:
+    """Complete specification for a controller action."""
+    name: str                      # e.g., "list", "create", "activate"
+    http_method: str               # "get", "post", "put", "delete", "patch"
+    path: str                      # "/", "/{id}", "/{id}/activate"
+    input_schema: Optional[str]    # "CreateProductRequest", None
+    output_schema: Optional[str]   # "Product", "ListProductsResponse", None
+    requires_resource: bool        # True for show/update/delete (needs /{id})
+    description: str               # Docstring for the action
+
+
+# Standard CRUD actions with well-known HTTP methods
+STANDARD_CRUD_METHODS = {
+    "create": "post",
+    "update": "put",
+    "delete": "delete",
+    # list, show, index, etc. default to GET
+}
+
+
+def _parse_action(action_str: str) -> Tuple[str, str]:
+    """
+    Parse action string like 'activate:post' or 'list'.
+
+    Returns:
+        Tuple of (action_name, http_method)
+
+    Examples:
+        "list" → ("list", "get")
+        "create" → ("create", "post")
+        "activate:post" → ("activate", "post")
+        "approve" → ("approve", "get")  # Defaults to GET
+    """
+    if ":" in action_str:
+        name, method = action_str.split(":", 1)
+        method = method.lower()
+
+        # Validate method
+        valid_methods = ["get", "post", "put", "patch", "delete"]
+        if method not in valid_methods:
+            raise click.BadParameter(
+                f"Invalid HTTP method '{method}' for action '{name}'. "
+                f"Must be one of: {', '.join(valid_methods)}"
+            )
+
+        return name, method
+    else:
+        name = action_str
+        # Use standard CRUD method or default to GET
+        method = STANDARD_CRUD_METHODS.get(name, "get")
+        return name, method
+
+
+def _build_action_spec(name: str, method: str, resource_name: str,
+                       resource_singular: str, has_model: bool) -> ActionSpec:
+    """
+    Build an ActionSpec with smart defaults based on action name and method.
+
+    Args:
+        name: Action name (e.g., "list", "create", "activate")
+        method: HTTP method (e.g., "get", "post")
+        resource_name: PascalCase resource name (e.g., "Product")
+        resource_singular: Singular snake_case (e.g., "product")
+        has_model: Whether a model exists for this resource
+
+    Returns:
+        ActionSpec with appropriate defaults
+    """
+    # Determine if this is a standard CRUD action
+    is_member_action = name in ["show", "update", "delete"]
+    is_collection_action = name in ["list", "create"]
+    is_standard_crud = is_member_action or is_collection_action
+
+    # Build path (using resource_singular for ID parameter name)
+    id_param = f"{{{resource_singular}_id}}"
+
+    if name == "list":
+        path = "/"
+        requires_resource = False
+    elif name == "show":
+        path = f"/{id_param}"
+        requires_resource = True
+    elif name == "create":
+        path = "/"
+        requires_resource = False
+    elif name == "update":
+        path = f"/{id_param}"
+        requires_resource = True
+    elif name == "delete":
+        path = f"/{id_param}"
+        requires_resource = True
+    else:
+        # Custom action - if it modifies a specific resource, use /{id}/action
+        # Otherwise use /action
+        if method in ["put", "patch", "delete"]:
+            path = f"/{id_param}/{name}"
+            requires_resource = True
+        else:
+            path = f"/{name}"
+            requires_resource = False
+
+    # Build schemas (only if has_model)
+    input_schema = None
+    output_schema = None
+
+    if has_model:
+        if name == "list":
+            output_schema = f"List{inflection.pluralize(resource_name)}Response"
+        elif name == "show":
+            output_schema = resource_name
+        elif name == "create":
+            input_schema = f"Create{resource_name}Request"
+            output_schema = resource_name
+        elif name == "update":
+            input_schema = f"Update{resource_name}Request"
+            output_schema = resource_name
+        # delete has no schemas
+
+    # Build description
+    if is_standard_crud:
+        descriptions = {
+            "list": f"List all {inflection.pluralize(resource_singular)}",
+            "show": f"Get a single {resource_singular}",
+            "create": f"Create a new {resource_singular}",
+            "update": f"Update a {resource_singular}",
+            "delete": f"Delete a {resource_singular}",
+        }
+        description = descriptions[name]
+    else:
+        description = f"{name.title()} action"
+
+    return ActionSpec(
+        name=name,
+        http_method=method,
+        path=path,
+        input_schema=input_schema,
+        output_schema=output_schema,
+        requires_resource=requires_resource,
+        description=description,
+    )
+
+
+def _build_crud_actions(resource_name: str, resource_singular: str) -> List[ActionSpec]:
+    """
+    Build standard REST CRUD actions for a resource.
+
+    Returns list of ActionSpecs for: list, show, create, update, delete
+    """
+    actions = []
+    for action_name in ["list", "show", "create", "update", "delete"]:
+        method = STANDARD_CRUD_METHODS.get(action_name, "get")
+        spec = _build_action_spec(action_name, method, resource_name,
+                                   resource_singular, has_model=True)
+        actions.append(spec)
+    return actions
+
+
+# ============================================================================
+# Field Type Mapping (for model generation)
+# ============================================================================
 
 # Type mapping for field generation
 FIELD_TYPE_MAP: Dict[str, Dict[str, Any]] = {
@@ -83,6 +250,111 @@ def _get_backend_and_types(backend_override: Optional[str] = None) -> Tuple[Opti
 
     return backend, available_types
 
+
+# ============================================================================
+# Controller Context Preparation
+# ============================================================================
+
+def _path_to_resource_name(path: str) -> str:
+    """
+    Convert mount path to resource name for class/function naming.
+
+    Examples:
+        /health → Health
+        /api/v1/metrics → ApiV1Metrics
+        /admin/users → AdminUsers
+    """
+    # Remove leading slash and convert to PascalCase
+    clean_path = path.lstrip('/')
+    # Replace slashes with underscores, then split and capitalize
+    parts = clean_path.replace('/', '_').split('_')
+    return ''.join(word.capitalize() for word in parts if word)
+
+
+def _path_to_file_name(path: str) -> str:
+    """
+    Convert mount path to file name.
+
+    Examples:
+        /health → health
+        /api/v1/metrics → api_v1_metrics
+        /admin/users → admin_users
+    """
+    # Remove leading slash and replace remaining slashes with underscores
+    clean_path = path.lstrip('/').replace('/', '_')
+    return clean_path
+
+
+def _prepare_controller_context(name: str, actions: Optional[Tuple[str, ...]] = None) -> dict:
+    """
+    Prepare context for controller generation.
+
+    Interprets the 'name' parameter as either:
+    - A model name (e.g., "Product") if it doesn't start with /
+    - A mount path (e.g., "/health") if it starts with /
+
+    Args:
+        name: Either a model name or a mount path starting with /
+        actions: Optional tuple of action specifications
+
+    Returns:
+        Dictionary with context for template rendering
+    """
+    if name.startswith('/'):
+        # Path-based controller
+        mount_path = name
+        resource_name = _path_to_resource_name(name)
+        resource_snake = inflection.underscore(resource_name)
+        resource_singular = inflection.singularize(resource_snake)
+        resource_plural = inflection.pluralize(resource_snake)
+        file_name = _path_to_file_name(name)
+        has_model = False
+        context_type = "path"
+
+    else:
+        # Model-based controller
+        resource_name = inflection.camelize(name)
+        resource_snake = inflection.underscore(resource_name)
+        resource_singular = inflection.singularize(resource_snake)
+        resource_plural = inflection.pluralize(resource_snake)
+        mount_path = f"/{resource_plural}"
+        file_name = resource_plural
+        context_type = "model"
+
+        # Check if model exists
+        model_file = Path(f"models/{resource_snake}.py")
+        has_model = model_file.exists()
+
+    # Parse actions
+    action_specs: List[ActionSpec] = []
+    if actions:
+        # User specified actions - parse them
+        for action_str in actions:
+            action_name, method = _parse_action(action_str)
+            spec = _build_action_spec(action_name, method, resource_name,
+                                       resource_singular, has_model)
+            action_specs.append(spec)
+    elif has_model:
+        # No actions specified but model exists - full CRUD
+        action_specs = _build_crud_actions(resource_name, resource_singular)
+
+    return {
+        "type": context_type,
+        "mount_path": mount_path,
+        "resource_name": resource_name,
+        "resource_snake": resource_snake,
+        "resource_singular": resource_singular,
+        "resource_plural": resource_plural,
+        "file_name": file_name,
+        "has_model": has_model,
+        "actions": action_specs,
+        "project_name": Path.cwd().name,
+    }
+
+
+# ============================================================================
+# CLI Commands
+# ============================================================================
 
 @click.group()
 def generate():
@@ -223,6 +495,107 @@ def model(name: str, fields: tuple[str, ...], backend: Optional[str], skip_fixtu
     click.echo("  2. Add any additional fields or methods as needed")
     if not skip_fixtures:
         click.echo(f"  3. Customize fixture data in db/fixtures/{resource_snake}.yaml")
+    click.echo()
+
+
+@generate.command()
+@click.argument("name")
+@click.argument("actions", nargs=-1)
+@click.option(
+    "--with-schemas",
+    is_flag=True,
+    help="Generate schema files (only applies if model exists)"
+)
+@click.option(
+    "--skip-tests",
+    is_flag=True,
+    help="Skip test generation"
+)
+def controller(name: str, actions: Tuple[str, ...], with_schemas: bool, skip_tests: bool):
+    """
+    Generate a controller with specified actions.
+
+    NAME can be either:
+      - A model name (e.g., "Product", "User")
+        → Mounts at pluralized path (/products, /users)
+        → Uses REST conventions if model exists
+
+      - A mount path starting with / (e.g., "/health", "/api/v1/metrics")
+        → Mounts at exact path specified
+        → No model assumptions
+
+    Examples:
+        # Model-based (REST conventions)
+        restmachine generate controller Product
+        restmachine generate controller Product list create
+
+        # Path-based (custom endpoints)
+        restmachine generate controller /health check status
+        restmachine generate controller /api/v1/metrics collect:post report:get
+    """
+    if not _is_restmachine_project():
+        click.echo(
+            click.style("Error: Not in a RestMachine project directory", fg="red"),
+            err=True
+        )
+        click.echo("Run this command from your project root (where app.py exists)", err=True)
+        raise click.Abort()
+
+    # Prepare context
+    context = _prepare_controller_context(name, actions)
+
+    # Display what we're doing
+    click.echo(f"Generating controller: {context['resource_name']}")
+    click.echo(f"  Mount path: {context['mount_path']}")
+    click.echo(f"  File: routes/{context['file_name']}.py")
+
+    # Warn if model doesn't exist (for model-based controllers)
+    if context['type'] == 'model' and not context['has_model']:
+        click.echo(click.style(
+            f"  ⚠ Warning: Model {context['resource_name']} not found at models/{context['resource_snake']}.py",
+            fg="yellow"
+        ))
+        click.echo("  Generating controller with placeholder CRUD actions")
+
+    # Show actions
+    if context['actions']:
+        action_names = [f"{a.name}:{a.http_method.upper()}" for a in context['actions']]
+        click.echo(f"  Actions: {', '.join(action_names)}")
+    else:
+        click.echo("  Actions: None (empty controller)")
+
+    # Generate files
+    files = _generate_controller_files(
+        context,
+        skip_schemas=not with_schemas,
+        skip_tests=skip_tests
+    )
+
+    # Success message
+    click.echo()
+    for file_path in files:
+        click.echo(click.style(f"  ✓ Created {file_path}", fg="green"))
+    click.echo(click.style(f"  ✓ Mounted router at {context['mount_path']}", fg="green"))
+
+    # Helpful next steps if model missing
+    if context['type'] == 'model' and not context['has_model']:
+        click.echo()
+        click.echo(click.style("Next steps:", bold=True))
+        click.echo(f"  1. Review generated controller at routes/{context['file_name']}.py")
+        click.echo("  2. Create the model:")
+        click.echo(click.style(
+            f"     restmachine generate model {context['resource_name']} <fields>",
+            fg="cyan"
+        ))
+        click.echo(f"     Example: restmachine generate model {context['resource_name']} name:str price:float")
+        click.echo("\n  💡 Or use scaffold to create both at once:")
+        click.echo(click.style(
+            f"     restmachine generate scaffold {context['resource_name']} <fields>",
+            fg="cyan"
+        ))
+
+    click.echo()
+    click.echo(click.style("✓ Controller generated successfully!", fg="green", bold=True))
     click.echo()
 
 
@@ -374,30 +747,23 @@ def scaffold(name: str, fields: tuple[str, ...], backend: Optional[str], skip_te
     model_file = _generate_model_only(model_context)
     generated_files.append(model_file)
 
-    # 2. Schemas
-    schemas_file = _generate_schemas(context)
-    generated_files.append(schemas_file)
-
-    # 3. Routes
-    routes_file = _generate_routes(context)
-    generated_files.append(routes_file)
-
-    # 4. Fixture (if not skipped)
+    # 2. Fixture (if not skipped)
     if not skip_fixtures:
         fixture_file = _generate_fixture(context)
         generated_files.append(fixture_file)
 
-    # 5. Tests (if not skipped)
-    if not skip_tests:
-        test_file = _generate_integration_test(context)
-        generated_files.append(test_file)
-
-    # 6. Update __init__.py files
+    # 3. Update models/__init__.py
     _update_models_init(resource_name, resource_snake)
-    _update_schemas_init(resource_name, resource_snake, resource_name_plural)
 
-    # 7. Auto-mount to app.py
-    _auto_mount_router(context)
+    # 4. Controller (schemas, routes, tests) - using controller generator
+    # Prepare controller context with full CRUD actions
+    controller_context = _prepare_controller_context(name, None)
+    controller_files = _generate_controller_files(
+        controller_context,
+        skip_schemas=False,  # Scaffold always generates schemas
+        skip_tests=skip_tests
+    )
+    generated_files.extend(str(p) for p in controller_files)
 
     # Show success
     click.echo()
@@ -406,19 +772,18 @@ def scaffold(name: str, fields: tuple[str, ...], backend: Optional[str], skip_te
 
     click.echo(click.style("  ✓ Updated models/__init__.py", fg="green"))
     click.echo(click.style("  ✓ Updated schemas/__init__.py", fg="green"))
-    click.echo(click.style("  ✓ Mounted router in app.py", fg="green"))
+    click.echo(click.style(f"  ✓ Mounted router at /{resource_plural}", fg="green"))
 
     click.echo()
     click.echo(click.style("✓ Scaffold generated successfully!", fg="green", bold=True))
     click.echo()
     click.echo("Next steps:")
-    click.echo(f"  1. Add fields to models/{resource_snake}.py")
-    click.echo(f"  2. Update schemas in schemas/{resource_snake}_schemas.py")
+    click.echo("  1. Review generated files in models/, schemas/, and routes/")
+    click.echo(f"  2. Add additional fields to models/{resource_snake}.py if needed")
     if not skip_fixtures:
         click.echo(f"  3. Customize db/fixtures/{resource_plural}.yaml")
     if not skip_tests:
-        click.echo(f"  4. Implement tests in tests/integration/test_{resource_plural}_api.py")
-    click.echo(f"  5. Run tests: pytest tests/integration/test_{resource_plural}_api.py")
+        click.echo(f"  4. Run tests: pytest tests/integration/test_{resource_plural}_api.py")
     click.echo()
 
 
@@ -432,6 +797,96 @@ def _is_restmachine_project() -> bool:
 def _get_project_name() -> str:
     """Get project name from current directory."""
     return Path.cwd().name
+
+
+def _generate_controller_files(context: dict, skip_schemas: bool = False,
+                                skip_tests: bool = False) -> List[Path]:
+    """
+    Generate controller-related files.
+
+    This is the internal API used by both the controller and scaffold commands.
+
+    Args:
+        context: Controller context from _prepare_controller_context()
+        skip_schemas: If True, don't generate schema files
+        skip_tests: If True, don't generate test files
+
+    Returns:
+        List of Path objects for created files
+    """
+    files = []
+    env = Environment(
+        loader=PackageLoader("restmachine.cli", "templates"),
+        autoescape=select_autoescape(),
+        keep_trailing_newline=True,
+    )
+
+    # Add helper for schema tracking in template
+    context['generate_schemas'] = not skip_schemas and context['has_model']
+    context['schemas_imported'] = []  # Track imported schemas to avoid duplicates
+
+    # 1. Controller/Routes file
+    template = env.get_template("generate/controller.py.j2")
+    content = template.render(context)
+
+    output_path = Path(f"routes/{context['file_name']}.py")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(content)
+    files.append(output_path)
+
+    # 2. Schemas file (if has model and not skipped)
+    if context['has_model'] and not skip_schemas:
+        # Generate placeholder schemas with the standard CRUD schemas
+        schema_context = {
+            "resource_name": context["resource_name"],
+            "resource_snake": context["resource_snake"],
+            "resource_singular": context["resource_singular"],
+            "resource_plural": context["resource_plural"],
+            "resource_name_plural": inflection.camelize(context["resource_plural"]),
+            "project_name": context["project_name"],
+        }
+
+        template = env.get_template("generate/schemas.py.j2")
+        content = template.render(schema_context)
+
+        output_path = Path(f"schemas/{context['resource_snake']}_schemas.py")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(content)
+        files.append(output_path)
+
+        # Update schemas/__init__.py
+        _update_schemas_init(
+            context["resource_name"],
+            context["resource_snake"],
+            inflection.camelize(context["resource_plural"])
+        )
+
+    # 3. Test file (if not skipped)
+    if not skip_tests and context['actions']:
+        test_context = {
+            "resource_name": context["resource_name"],
+            "resource_snake": context["resource_snake"],
+            "resource_singular": context["resource_singular"],
+            "resource_plural": context["resource_plural"],
+            "resource_name_plural": inflection.camelize(context["resource_plural"]),
+            "project_name": context["project_name"],
+        }
+
+        template = env.get_template("generate/integration_test.py.j2")
+        content = template.render(test_context)
+
+        output_path = Path(f"tests/integration/test_{context['file_name']}_api.py")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text(content)
+        files.append(output_path)
+
+    # 4. Auto-mount router in app.py
+    _auto_mount_router({
+        "resource_plural": context["file_name"],
+        "mount_path": context["mount_path"],
+    })
+
+    return files
 
 
 def _generate_schemas(context: dict) -> str:
@@ -577,11 +1032,16 @@ def _auto_mount_router(context: dict):
 
     content = app_file.read_text()
 
+    # Determine file name and mount path
+    # Support both old format (resource_plural) and new format (file_name + mount_path)
+    file_name = context.get('file_name', context.get('resource_plural'))
+    mount_path = context.get('mount_path', f"/{context.get('resource_plural')}")
+
     # Import statement
-    import_line = f"from routes.{context['resource_plural']} import router as {context['resource_plural']}_router"
+    import_line = f"from routes.{file_name} import router as {file_name}_router"
 
     # Mount statement
-    mount_line = f"app.mount('/{context['resource_plural']}', {context['resource_plural']}_router)"
+    mount_line = f"app.mount('{mount_path}', {file_name}_router)"
 
     # Check if already mounted
     if mount_line in content:
