@@ -2,6 +2,7 @@
 Tests for versioned model support.
 """
 
+from typing import Optional
 import pytest
 from restmachine_orm import (
     VersionedModel,
@@ -412,7 +413,7 @@ class TestEdgeCases:
             model_backend = backend
             id: str
             name: str
-            age: int | None = None
+            age: Optional[int] = None
             active: bool = True
 
         v1 = OptionalV1(id="1", name="Alice")
