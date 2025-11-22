@@ -11,22 +11,22 @@ copyright: Copyright &copy; 2025 Ryan Festag
 
 theme:
   name: material
-  logo: images/logo.svg  # Add your logo here
-  favicon: images/favicon.ico  # Optional: add a favicon too
+  logo: images/logo-header.svg  # Bold version for header
+  favicon: images/favicon.ico
   palette:
     # Light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     # Dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: indigo
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
