@@ -541,7 +541,7 @@ serve(
     app,
     server="uvicorn",
     host="0.0.0.0",
-    port=8000,
+    port=3000,
     namespace="MyApp/API",  # Passed to ASGIAdapter
     service_name="api-server"
 )

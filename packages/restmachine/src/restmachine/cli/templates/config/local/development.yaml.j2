@@ -8,7 +8,7 @@ app:
 
 server:
   host: 127.0.0.1
-  port: 8000
+  port: 3000
   workers: 1
 
 database:
@@ -25,9 +25,7 @@ security:
   cors_enabled: true
   cors_origins:
     - http://localhost:3000
-    - http://localhost:8000
     - http://127.0.0.1:3000
-    - http://127.0.0.1:8000
 
 features:
   rate_limiting: false

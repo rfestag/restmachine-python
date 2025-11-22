@@ -114,7 +114,7 @@ Start the development server:
 uvicorn app:asgi_app --reload
 ```
 
-Your API is now running at `http://localhost:8000` with these endpoints:
+Your API is now running at `http://localhost:3000` with these endpoints:
 
 - `GET /posts` - List all posts
 - `POST /posts` - Create a new post
@@ -127,7 +127,7 @@ Your API is now running at `http://localhost:8000` with these endpoints:
 **Create a post:**
 
 ```bash
-curl -X POST http://localhost:8000/posts \
+curl -X POST http://localhost:3000/posts \
   -H "Content-Type: application/json" \
   -d '{
     "title": "My First Blog Post",
@@ -140,13 +140,13 @@ curl -X POST http://localhost:8000/posts \
 **List all posts:**
 
 ```bash
-curl http://localhost:8000/posts
+curl http://localhost:3000/posts
 ```
 
 **Get a specific post:**
 
 ```bash
-curl http://localhost:8000/posts/{id}
+curl http://localhost:3000/posts/{id}
 ```
 
 ## Add a Health Check Endpoint
@@ -187,7 +187,7 @@ def status():
 ### 3. Test the Health Check
 
 ```bash
-curl http://localhost:8000/health/
+curl http://localhost:3000/health/
 # {"status": "healthy", "service": "blog-api", "version": "1.0.0"}
 ```
 
@@ -219,7 +219,7 @@ restmachine seed
 This loads all fixtures from `db/fixtures/` into your database. Now when you run:
 
 ```bash
-curl http://localhost:8000/posts
+curl http://localhost:3000/posts
 ```
 
 You'll see the seeded post!
@@ -255,10 +255,10 @@ Deploy with Uvicorn in production:
 
 ```bash
 # Single worker
-uvicorn app:asgi_app --host 0.0.0.0 --port 8000
+uvicorn app:asgi_app --host 0.0.0.0 --port 3000
 
 # Multiple workers
-uvicorn app:asgi_app --host 0.0.0.0 --port 8000 --workers 4
+uvicorn app:asgi_app --host 0.0.0.0 --port 3000 --workers 4
 ```
 
 Or with Gunicorn + Uvicorn workers:
@@ -267,7 +267,7 @@ Or with Gunicorn + Uvicorn workers:
 gunicorn app:asgi_app \
   -w 4 \
   -k uvicorn.workers.UvicornWorker \
-  --bind 0.0.0.0:8000
+  --bind 0.0.0.0:3000
 ```
 
 ### Option 2: Deploy to AWS Lambda

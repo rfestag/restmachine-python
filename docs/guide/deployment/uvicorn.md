@@ -39,7 +39,7 @@ def home():
     return {"message": "Hello World"}
 
 if __name__ == "__main__":
-    serve(app, server="uvicorn", host="0.0.0.0", port=8000)
+    serve(app, server="uvicorn", host="0.0.0.0", port=3000)
 ```
 
 Run the application:
@@ -64,7 +64,7 @@ def home():
     return {"message": "Hello World"}
 
 if __name__ == "__main__":
-    driver = UvicornDriver(app, host="0.0.0.0", port=8000)
+    driver = UvicornDriver(app, host="0.0.0.0", port=3000)
     driver.run()
 ```
 
@@ -89,7 +89,7 @@ asgi_app = ASGIAdapter(app)
 Run with Uvicorn from the command line:
 
 ```bash
-uvicorn app:asgi_app --host 0.0.0.0 --port 8000
+uvicorn app:asgi_app --host 0.0.0.0 --port 3000
 ```
 
 ## Configuration Options
@@ -105,7 +105,7 @@ serve(
     app,
     server="uvicorn",
     host="0.0.0.0",           # Bind to all interfaces
-    port=8000,                # Port to listen on
+    port=3000,                # Port to listen on
     log_level="info",         # Logging level
 )
 ```
@@ -121,7 +121,7 @@ serve(
     reload=True,              # Auto-reload on code changes
     log_level="debug",        # Verbose logging
     host="127.0.0.1",         # Local only
-    port=8000
+    port=3000
 )
 ```
 
@@ -140,7 +140,7 @@ serve(
     app,
     server="uvicorn",
     host="0.0.0.0",
-    port=8000,
+    port=3000,
     workers=4,                # Number of worker processes
     log_level="warning",      # Less verbose logging
 )
@@ -149,7 +149,7 @@ serve(
 Or from command line:
 
 ```bash
-uvicorn app:asgi_app --host 0.0.0.0 --port 8000 --workers 4
+uvicorn app:asgi_app --host 0.0.0.0 --port 3000 --workers 4
 ```
 
 ## SSL/HTTPS Support
@@ -272,7 +272,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=/var/www/myapp
 Environment="PATH=/var/www/myapp/venv/bin"
-ExecStart=/var/www/myapp/venv/bin/uvicorn app:asgi_app --host 0.0.0.0 --port 8000 --workers 4
+ExecStart=/var/www/myapp/venv/bin/uvicorn app:asgi_app --host 0.0.0.0 --port 3000 --workers 4
 
 [Install]
 WantedBy=multi-user.target
@@ -294,7 +294,7 @@ Use Nginx as a reverse proxy:
 
 ```nginx
 upstream restmachine {
-    server 127.0.0.1:8000;
+    server 127.0.0.1:3000;
 }
 
 server {
@@ -351,10 +351,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Expose port
-EXPOSE 8000
+EXPOSE 3000
 
 # Run with Uvicorn
-CMD ["uvicorn", "app:asgi_app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["uvicorn", "app:asgi_app", "--host", "0.0.0.0", "--port", "3000", "--workers", "4"]
 ```
 
 **requirements.txt:**
@@ -367,7 +367,7 @@ Build and run:
 
 ```bash
 docker build -t myapp .
-docker run -p 8000:8000 myapp
+docker run -p 3000:3000 myapp
 ```
 
 ### Docker Compose
@@ -381,7 +381,7 @@ services:
   app:
     build: .
     ports:
-      - "8000:8000"
+      - "3000:3000"
     environment:
       - LOG_LEVEL=info
       - WORKERS=4
@@ -452,7 +452,7 @@ if __name__ == "__main__":
 
     # Get configuration from environment
     host = os.getenv("HOST", "0.0.0.0")
-    port = int(os.getenv("PORT", "8000"))
+    port = int(os.getenv("PORT", "3000"))
     workers = int(os.getenv("WORKERS", "4"))
     log_level = os.getenv("LOG_LEVEL", "info")
 
@@ -476,7 +476,7 @@ Run in production:
 ```bash
 export WORKERS=8
 export LOG_LEVEL=warning
-uvicorn app:asgi_app --host 0.0.0.0 --port 8000 --workers 8
+uvicorn app:asgi_app --host 0.0.0.0 --port 3000 --workers 8
 ```
 
 ## Performance Tuning
@@ -547,7 +547,7 @@ def readiness_check(database):
 livenessProbe:
   httpGet:
     path: /health
-    port: 8000
+    port: 3000
   initialDelaySeconds: 10
   periodSeconds: 30
 ```
@@ -558,7 +558,7 @@ livenessProbe:
 readinessProbe:
   httpGet:
     path: /ready
-    port: 8000
+    port: 3000
   initialDelaySeconds: 5
   periodSeconds: 10
 ```
@@ -568,8 +568,8 @@ readinessProbe:
 ### Port Already in Use
 
 ```bash
-# Find process using port 8000
-lsof -i :8000
+# Find process using port 3000
+lsof -i :3000
 
 # Kill the process
 kill -9 <PID>
@@ -611,7 +611,7 @@ uvicorn app:asgi_app --log-level debug --reload
 import os
 
 host = os.getenv("HOST", "0.0.0.0")
-port = int(os.getenv("PORT", "8000"))
+port = int(os.getenv("PORT", "3000"))
 workers = int(os.getenv("WORKERS", "4"))
 ```
 

@@ -405,7 +405,7 @@ def swagger_ui():
     """
 ```
 
-Access Swagger UI at `http://localhost:8000/docs`.
+Access Swagger UI at `http://localhost:3000/docs`.
 
 ### Using ReDoc
 

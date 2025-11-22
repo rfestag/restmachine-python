@@ -11,6 +11,8 @@ copyright: Copyright &copy; 2025 Ryan Festag
 
 theme:
   name: material
+  logo: images/logo.svg  # Add your logo here
+  favicon: images/favicon.ico  # Optional: add a favicon too
   palette:
     # Light mode
     - media: "(prefers-color-scheme: light)"

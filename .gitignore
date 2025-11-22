@@ -147,3 +147,6 @@ bandit-report.json
 pip-audit-report.md
 pip-audit-report.json
 semgrep-report.json
+
+# Sqlite DB
+*.db

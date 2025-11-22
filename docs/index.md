@@ -1,12 +1,20 @@
-# RestMachine
+<div style="display: flex; align-items: center; gap: 2rem; padding: 1.5rem 0;">
+  <img src="images/logo.svg" alt="RestMachine Logo" style="width: 120px; height: auto; flex-shrink: 0;">
+  <div>
+    <h1 style="margin: 0; font-size: 2.5rem;">RestMachine</h1>
+    <p style="font-size: 1.1rem; color: #666; margin: 0.5rem 0 0 0;">
+      A lightweight REST framework with pytest-style dependency injection and webmachine-inspired state machine
+    </p>
+  </div>
+</div>
 
-*A lightweight REST framework with pytest-style dependency injection and webmachine-inspired state machine*
-
-[![Build Status](https://github.com/rfestag/restmachine-python/workflows/CI/badge.svg)](https://github.com/rfestag/restmachine-python/actions)
-[![Coverage](https://raw.githubusercontent.com/rfestag/restmachine-python/main/coverage-badge.svg)](https://github.com/rfestag/restmachine-python/actions)
-[![Code Quality](https://raw.githubusercontent.com/rfestag/restmachine-python/main/complexity-badge.svg)](https://github.com/rfestag/restmachine-python/actions)
-[![Python Versions](https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue)](https://github.com/rfestag/restmachine-python)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<p style="text-align: center; margin-bottom: 2rem;">
+<a href="https://github.com/rfestag/restmachine-python/actions"><img src="https://github.com/rfestag/restmachine-python/workflows/CI/badge.svg" alt="Build Status"></a>
+<a href="https://github.com/rfestag/restmachine-python/actions"><img src="https://raw.githubusercontent.com/rfestag/restmachine-python/main/coverage-badge.svg" alt="Coverage"></a>
+<a href="https://github.com/rfestag/restmachine-python/actions"><img src="https://raw.githubusercontent.com/rfestag/restmachine-python/main/complexity-badge.svg" alt="Code Quality"></a>
+<a href="https://github.com/rfestag/restmachine-python"><img src="https://img.shields.io/badge/python-3.9%20%7C%203.10%20%7C%203.11%20%7C%203.12%20%7C%203.13-blue" alt="Python Versions"></a>
+<a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
 
 ## Overview
 

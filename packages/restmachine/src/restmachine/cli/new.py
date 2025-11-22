@@ -111,7 +111,7 @@ def new_command(name: str, backend: str, minimal: bool, directory: Optional[str]
     click.echo("  python main.py")
     click.echo()
     click.echo("Or run directly with uvicorn:")
-    click.echo(f"  uvicorn app:asgi_app --reload")
+    click.echo("  uvicorn app:asgi_app --reload --port 3000")
     click.echo()
 
 

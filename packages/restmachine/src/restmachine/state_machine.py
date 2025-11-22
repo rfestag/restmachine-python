@@ -744,6 +744,28 @@ class RequestStateMachine:
         if not PYDANTIC_AVAILABLE or not self.ctx.route_handler:
             return result
 
+        # Handle tuple returns (data, status_code)
+        # When a handler returns a tuple, only validate the first element
+        if isinstance(result, tuple) and len(result) >= 2:
+            data, status_code, *rest = result
+            # Validate just the data part
+            validated_data = self._validate_single_value(data)
+            # Return the tuple with validated data
+            return (validated_data, status_code, *rest)
+
+        return_annotation = self.ctx.route_handler.handler_signature.return_annotation
+
+        # Skip validation for types that don't need it
+        if self._should_skip_pydantic_validation(return_annotation):
+            return None if return_annotation is type(None) else result
+
+        return self._validate_single_value(result)
+
+    def _validate_single_value(self, result: Any) -> Any:
+        """Validate a single value (not a tuple) against return type annotation."""
+        if not self.ctx.route_handler:
+            return result
+
         return_annotation = self.ctx.route_handler.handler_signature.return_annotation
 
         # Skip validation for types that don't need it
@@ -814,22 +836,41 @@ class RequestStateMachine:
 
     def _render_result(self, result: Any, headers: MultiValueHeaders) -> Response:
         """Render the result using appropriate renderer."""
+        # Extract status code from tuple returns (data, status_code) or (data, status_code, headers)
+        status_code = HTTPStatus.OK
+        data = result
+        extra_headers = None
+
+        if isinstance(result, tuple) and len(result) >= 2:
+            if len(result) == 2:
+                data, status_code = result
+            elif len(result) == 3:
+                data, status_code, extra_headers = result
+            else:
+                # More than 3 elements - take first 3
+                data, status_code, extra_headers, *_ = result
+
+            # Merge extra headers if provided
+            if extra_headers and isinstance(extra_headers, dict):
+                for key, value in extra_headers.items():
+                    headers[key] = value
+
         # Check for route-specific renderer
         if self._has_route_specific_renderer():
-            return self._render_with_route_specific_renderer(result, headers)
+            return self._render_with_route_specific_renderer(data, headers, status_code)
 
         # Handle Response objects
-        if isinstance(result, Response):
-            return self._finalize_response_object(result, headers)
+        if isinstance(data, Response):
+            return self._finalize_response_object(data, headers)
 
         # Handle Path objects - wrap in Response to preserve Path type
         from pathlib import Path
-        if isinstance(result, Path):
-            response = Response(HTTPStatus.OK, result)
+        if isinstance(data, Path):
+            response = Response(status_code, data)
             return self._finalize_response_object(response, headers)
 
         # Use global renderer
-        return self._render_with_global_renderer(result, headers)
+        return self._render_with_global_renderer(data, headers, status_code)
 
     def _has_route_specific_renderer(self) -> bool:
         """Check if route has a specific renderer for chosen media type."""
@@ -839,7 +880,7 @@ class RequestStateMachine:
             return False
         return self.ctx.chosen_renderer.media_type in self.ctx.route_handler.content_renderers
 
-    def _render_with_route_specific_renderer(self, result: Any, headers: MultiValueHeaders) -> Response:
+    def _render_with_route_specific_renderer(self, result: Any, headers: MultiValueHeaders, status_code: int = HTTPStatus.OK) -> Response:
         """Render using route-specific content renderer."""
         # These checks are guaranteed by _has_route_specific_renderer
         if not self.ctx.route_handler or not self.ctx.chosen_renderer:
@@ -869,19 +910,19 @@ class RequestStateMachine:
 
         # Renderer returned string/other
         response = Response(
-            HTTPStatus.OK,
+            status_code,
             str(rendered_result),
             content_type=full_content_type,
             pre_calculated_headers=headers,
         )
         return self._finalize_response_object(response, headers)
 
-    def _render_with_global_renderer(self, result: Any, headers: MultiValueHeaders) -> Response:
+    def _render_with_global_renderer(self, result: Any, headers: MultiValueHeaders, status_code: int = HTTPStatus.OK) -> Response:
         """Render using global content renderer."""
         if self.ctx.chosen_renderer:
             rendered_body = self.ctx.chosen_renderer.render(result, self.ctx.request)
             response = Response(
-                HTTPStatus.OK,
+                status_code,
                 rendered_body,
                 content_type=self.ctx.chosen_renderer.media_type,
                 pre_calculated_headers=headers,
@@ -889,7 +930,7 @@ class RequestStateMachine:
         else:
             # Fallback to plain text
             response = Response(
-                HTTPStatus.OK,
+                status_code,
                 str(result),
                 content_type="text/plain",
                 pre_calculated_headers=headers,

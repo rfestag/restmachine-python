@@ -1,14 +1,16 @@
 """
 {{ resource_name }} model for {{ project_name }}.
 """
-{% if needs_uuid_import %}
+{%- if needs_uuid_import %}
 import uuid
-{% endif %}
-{% if needs_datetime_import %}
+{%- endif %}
+{%- if needs_datetime_import %}
 from datetime import datetime
-{% endif %}
+{%- endif %}
 from typing import ClassVar
+
 from restmachine_orm import Model, Field
+
 from models import backend
 
 

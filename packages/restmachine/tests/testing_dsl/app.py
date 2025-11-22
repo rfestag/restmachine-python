@@ -180,7 +180,16 @@ backend = InMemoryBackend(InMemoryAdapter())
         module_name = inflection.underscore(name)
         class_name = inflection.camelize(name)
 
-        module = importlib.import_module(f"models.{module_name}")
+        full_module_name = f"models.{module_name}"
+
+        # Remove cached module if it exists to ensure fresh import from current project
+        if full_module_name in sys.modules:
+            del sys.modules[full_module_name]
+
+        # Also invalidate caches to ensure fresh import
+        importlib.invalidate_caches()
+
+        module = importlib.import_module(full_module_name)
         return getattr(module, class_name)
 
     def import_schema(self, name: str) -> type:

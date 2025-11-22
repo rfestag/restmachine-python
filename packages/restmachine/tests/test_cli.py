@@ -455,3 +455,11 @@ def test_end_to_end_new_and_scaffold_imports(runner, temp_dir):
         # Clean up sys.path
         if str(project_dir) in sys.path:
             sys.path.remove(str(project_dir))
+
+        # Clean up imported modules to prevent test pollution
+        modules_to_remove = [
+            key for key in list(sys.modules.keys())
+            if key.startswith(('models', 'schemas', 'routes', 'app'))
+        ]
+        for module in modules_to_remove:
+            del sys.modules[module]

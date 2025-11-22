@@ -123,7 +123,7 @@ Optimize Uvicorn for production:
 # Production configuration
 uvicorn app:asgi_app \
   --host 0.0.0.0 \
-  --port 8000 \
+  --port 3000 \
   --workers 4 \
   --loop uvloop \
   --http httptools \
@@ -139,7 +139,7 @@ Python configuration:
 # uvicorn_config.py
 import multiprocessing
 
-bind = "0.0.0.0:8000"
+bind = "0.0.0.0:3000"
 workers = multiprocessing.cpu_count() * 2 + 1
 worker_class = "uvicorn.workers.UvicornWorker"
 loop = "uvloop"
@@ -162,7 +162,7 @@ Optimize Hypercorn for high performance:
 
 ```toml
 # hypercorn_config.toml
-bind = ["0.0.0.0:8000"]
+bind = ["0.0.0.0:3000"]
 workers = 4
 worker_class = "uvloop"
 keep_alive = 5

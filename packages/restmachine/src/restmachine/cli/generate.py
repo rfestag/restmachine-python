@@ -758,6 +758,9 @@ def scaffold(name: str, fields: tuple[str, ...], backend: Optional[str], skip_te
     # 4. Controller (schemas, routes, tests) - using controller generator
     # Prepare controller context with full CRUD actions
     controller_context = _prepare_controller_context(name, None)
+    # Add field information for schema generation
+    controller_context['fields'] = parsed_fields
+    controller_context['needs_datetime_import'] = needs_datetime_import
     controller_files = _generate_controller_files(
         controller_context,
         skip_schemas=False,  # Scaffold always generates schemas
@@ -844,6 +847,8 @@ def _generate_controller_files(context: dict, skip_schemas: bool = False,
             "resource_plural": context["resource_plural"],
             "resource_name_plural": inflection.camelize(context["resource_plural"]),
             "project_name": context["project_name"],
+            "fields": context.get("fields"),  # Include fields if available (from scaffold)
+            "needs_datetime_import": context.get("needs_datetime_import", False),
         }
 
         template = env.get_template("generate/schemas.py.j2")

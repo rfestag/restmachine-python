@@ -485,7 +485,7 @@ app.cors(origins=["https://app.example.com"])
 Test preflight request:
 
 ```bash
-curl -X OPTIONS http://localhost:8000/api/users \
+curl -X OPTIONS http://localhost:3000/api/users \
   -H "Origin: https://app.example.com" \
   -H "Access-Control-Request-Method: POST" \
   -H "Access-Control-Request-Headers: Content-Type" \
@@ -495,7 +495,7 @@ curl -X OPTIONS http://localhost:8000/api/users \
 Test actual request:
 
 ```bash
-curl -X POST http://localhost:8000/api/users \
+curl -X POST http://localhost:3000/api/users \
   -H "Origin: https://app.example.com" \
   -H "Content-Type: application/json" \
   -d '{"name": "Alice"}' \

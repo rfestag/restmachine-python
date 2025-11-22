@@ -39,7 +39,7 @@ def home():
     return {"message": "Hello World"}
 
 if __name__ == "__main__":
-    serve(app, server="hypercorn", host="0.0.0.0", port=8000)
+    serve(app, server="hypercorn", host="0.0.0.0", port=3000)
 ```
 
 Run the application:
@@ -64,7 +64,7 @@ def home():
     return {"message": "Hello World"}
 
 if __name__ == "__main__":
-    driver = HypercornDriver(app, host="0.0.0.0", port=8000)
+    driver = HypercornDriver(app, host="0.0.0.0", port=3000)
     driver.run()
 ```
 
@@ -89,7 +89,7 @@ asgi_app = ASGIAdapter(app)
 Run with Hypercorn:
 
 ```bash
-hypercorn app:asgi_app --bind 0.0.0.0:8000
+hypercorn app:asgi_app --bind 0.0.0.0:3000
 ```
 
 ## HTTP Protocol Support
@@ -103,7 +103,7 @@ serve(
     app,
     server="hypercorn",
     host="0.0.0.0",
-    port=8000,
+    port=3000,
     http_version="http1"  # Default
 )
 ```
@@ -111,7 +111,7 @@ serve(
 Command line:
 
 ```bash
-hypercorn app:asgi_app --bind 0.0.0.0:8000
+hypercorn app:asgi_app --bind 0.0.0.0:3000
 ```
 
 ### HTTP/2
@@ -187,7 +187,7 @@ serve(
     app,
     server="hypercorn",
     host="0.0.0.0",
-    port=8000,
+    port=3000,
     log_level="info",
 )
 ```
@@ -199,7 +199,7 @@ serve(
     app,
     server="hypercorn",
     host="0.0.0.0",
-    port=8000,
+    port=3000,
     workers=4,              # Number of worker processes
     log_level="warning",    # Less verbose logging
     access_log=True,        # Enable access logging
@@ -210,7 +210,7 @@ Command line:
 
 ```bash
 hypercorn app:asgi_app \
-  --bind 0.0.0.0:8000 \
+  --bind 0.0.0.0:3000 \
   --workers 4 \
   --log-level warning \
   --access-log -
@@ -342,7 +342,7 @@ User=www-data
 Group=www-data
 WorkingDirectory=/var/www/myapp
 Environment="PATH=/var/www/myapp/venv/bin"
-ExecStart=/var/www/myapp/venv/bin/hypercorn app:asgi_app --bind 0.0.0.0:8000 --workers 4
+ExecStart=/var/www/myapp/venv/bin/hypercorn app:asgi_app --bind 0.0.0.0:3000 --workers 4
 
 [Install]
 WantedBy=multi-user.target
@@ -374,7 +374,7 @@ Use Nginx as a reverse proxy with HTTP/2:
 
 ```nginx
 upstream hypercorn {
-    server 127.0.0.1:8000;
+    server 127.0.0.1:3000;
 }
 
 server {

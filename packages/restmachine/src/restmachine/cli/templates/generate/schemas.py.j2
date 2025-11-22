@@ -1,11 +1,34 @@
 """
 {{ resource_name }} validation schemas for {{ project_name }}.
 """
-
 from typing import List, Optional
+{%- if needs_datetime_import %}
+from datetime import datetime
+{%- endif %}
+
 from pydantic import BaseModel, Field
+
 from models.{{ resource_snake }} import {{ resource_name }}
 
+{% if fields -%}
+
+class Create{{ resource_name }}Request(BaseModel):
+    """Schema for creating a {{ resource_singular }}."""
+{%- for field in fields %}
+{%- if field.name != 'id' %}
+    {{ field.name }}: {{ field.python_type }}
+{%- endif %}
+{%- endfor %}
+
+
+class Update{{ resource_name }}Request(BaseModel):
+    """Schema for updating a {{ resource_singular }}."""
+{%- for field in fields %}
+{%- if field.name != 'id' %}
+    {{ field.name }}: Optional[{{ field.python_type }}] = None
+{%- endif %}
+{%- endfor %}
+{%- else %}
 
 class Create{{ resource_name }}Request(BaseModel):
     """Schema for creating a {{ resource_singular }}."""
@@ -25,6 +48,7 @@ class Update{{ resource_name }}Request(BaseModel):
     # description: Optional[str] = None
     # price: Optional[float] = Field(None, gt=0)
     pass
+{%- endif %}
 
 
 class List{{ resource_name_plural }}Response(BaseModel):
