@@ -1,0 +1,31 @@
+<svg viewBox="45 40 110 120" xmlns="http://www.w3.org/2000/svg">
+  <!-- Simplified, bold version for header display -->
+
+  <!-- Main hexagon - very bold stroke -->
+  <polygon points="100,50 143.301,75 143.301,125 100,150 56.699,125 56.699,75"
+           stroke="#ffffff" stroke-width="8" fill="none"/>
+
+  <!-- Connection lines from vertices to center - bold -->
+  <g stroke="#ffffff" stroke-width="4" opacity="0.7">
+    <line x1="100" y1="50" x2="100" y2="100"/>
+    <line x1="143.301" y1="75" x2="100" y2="100"/>
+    <line x1="143.301" y1="125" x2="100" y2="100"/>
+    <line x1="100" y1="150" x2="100" y2="100"/>
+    <line x1="56.699" y1="125" x2="100" y2="100"/>
+    <line x1="56.699" y1="75" x2="100" y2="100"/>
+  </g>
+
+  <!-- Inner hexagon - filled - rotated -->
+  <polygon points="112.99,100 106.495,110.897 93.505,110.897 87.01,100 93.505,89.103 106.495,89.103"
+           fill="#ffffff"/>
+
+  <!-- Vertex state nodes - simplified, just solid circles -->
+  <g fill="#ffffff">
+    <circle cx="100" cy="50" r="8"/>
+    <circle cx="143.301" cy="75" r="8"/>
+    <circle cx="143.301" cy="125" r="8"/>
+    <circle cx="100" cy="150" r="8"/>
+    <circle cx="56.699" cy="125" r="8"/>
+    <circle cx="56.699" cy="75" r="8"/>
+  </g>
+</svg>

@@ -1,3 +1,23 @@
+/* Custom theme colors to match RestMachine logo */
+:root {
+  --md-primary-fg-color: #354f7a;
+  --md-primary-fg-color--light: #526fa0;
+  --md-primary-fg-color--dark: #243754;
+  --md-primary-bg-color: #ffffff;
+  --md-primary-bg-color--light: #f5f5f5;
+  --md-accent-fg-color: #354f7a;
+  --md-accent-fg-color--transparent: rgba(53, 79, 122, 0.1);
+}
+
+/* Dark mode adjustments */
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #526fa0;
+  --md-primary-fg-color--light: #7da3d1;
+  --md-primary-fg-color--dark: #354f7a;
+  --md-accent-fg-color: #526fa0;
+  --md-accent-fg-color--transparent: rgba(82, 111, 160, 0.1);
+}
+
 /* Mermaid diagram fullscreen support */
 .mermaid-fullscreen-wrapper {
     position: relative;
