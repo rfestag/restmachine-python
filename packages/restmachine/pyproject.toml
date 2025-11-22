@@ -91,7 +91,7 @@ markers = [
     "asyncio: Async test functions (handled by pytest-anyio)",
 ]
 
-[tool.pytest.benchmark]
+[tool.pytest-benchmark]
 # Store separate baselines for each driver in performance/baselines/
 min_rounds = 5
 max_time = 1.0
