@@ -20,14 +20,6 @@ router = Router()
 @router.resource_exists
 @router.get('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
 def {{ resource_singular }}(path_params) -> {{ resource_name }}:
-    """Load and return {{ resource_singular }}.
-
-    This function serves dual purposes:
-    1. As a dependency for other routes (PUT, DELETE) to inject the resource
-    2. As the GET endpoint to retrieve a single {{ resource_singular }}
-
-    Returns None if {{ resource_singular }} not found (triggers 404).
-    """
     {{ resource_singular }}_id = path_params.get('{{ resource_singular }}_id')
     return {{ resource_name }}.find_by(id={{ resource_singular }}_id)
 
@@ -35,13 +27,11 @@ def {{ resource_singular }}(path_params) -> {{ resource_name }}:
 # Validation dependencies
 @router.validates
 def new_{{ resource_singular }}(json_body) -> Create{{ resource_name }}Request:
-    """Validate {{ resource_singular }} creation request."""
     return Create{{ resource_name }}Request.model_validate(json_body)
 
 
 @router.validates
 def {{ resource_singular }}_updates(json_body) -> Update{{ resource_name }}Request:
-    """Validate {{ resource_singular }} update request."""
     return Update{{ resource_name }}Request.model_validate(json_body)
 
 

@@ -131,34 +131,35 @@ extra:
 nav:
   - Home: index.md
 
-  - Getting Started:
-    - Overview: getting-started/overview.md
-    - Installation: getting-started/installation.md
-    - Quick Start: getting-started/quickstart.md
+  - Tutorial:
+    - Setup & First Project: tutorial/01-setup.md
+    - Creating Models: tutorial/02-models.md
+    - Model Relationships: tutorial/03-relationships.md
+    - Advanced HTTP Features: tutorial/04-advanced-http.md
+    - Adding a Frontend: tutorial/05-frontend.md
+    - Deployment: tutorial/06-deployment.md
 
-  - User Guide:
-    - Concepts: guide/concepts.md
-    - Usage: guide/usage.md
-    - Request Validation: guide/validation.md
-    - Authentication & Authorization: guide/authentication.md
+  - Topics:
+    - Authentication: guide/authentication.md
     - Content Negotiation: guide/content-negotiation.md
-    - Conditional Requests (ETags): guide/etags.md
-    - CORS (Cross-Origin Sharing): guide/cors.md
-    - Content Security Policy (CSP): guide/csp.md
-    - OpenAPI (Swagger) Generation: guide/openapi.md
-    - Metrics & Observability: metrics.md
-    - Testing Your Application: guide/testing.md
+    - CORS: guide/cors.md
+    - CSP (Security Policy): guide/csp.md
     - Deployment:
       - ASGI Servers: guide/deployment-asgi.md
+      - Uvicorn: guide/deployment/uvicorn.md
+      - Hypercorn: guide/deployment/hypercorn.md
       - AWS Lambda: guide/deployment-lambda.md
-
-  - Advanced Features:
-    - State Machine Callbacks: advanced/state-machine.md
-    - Startup & Shutdown Handlers: advanced/lifecycle.md
-    - TLS/mTLS Support: advanced/tls.md
-    - Template Rendering: advanced/templates.md
-    - Multi-Value Headers: advanced/headers.md
+    - ETags (Conditional Requests): guide/etags.md
+    - Headers (Multi-Value): advanced/headers.md
+    - Lifecycle (Startup/Shutdown): advanced/lifecycle.md
+    - Metrics & Observability: metrics.md
+    - OpenAPI Generation: guide/openapi.md
     - Performance Optimization: advanced/performance.md
+    - State Machine: advanced/state-machine.md
+    - Templates: advanced/templates.md
+    - Testing: guide/testing.md
+    - TLS/mTLS: advanced/tls.md
+    - Validation: guide/validation.md
 
   - Packages:
     - AWS (restmachine-aws): '!include ./packages/restmachine-aws/mkdocs.yml'

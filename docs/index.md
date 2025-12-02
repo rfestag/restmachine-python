@@ -18,16 +18,43 @@
 
 ## Overview
 
-RestMachine is a modern Python REST framework that makes building APIs straightforward:
+RestMachine is a modern Python web framework that makes building production-ready APIs straightforward. Like Rails or Django, RestMachine includes everything you need - from code generation and ORM to deployment - but keeps it simple and Pythonic.
 
-- **Easy to learn** - Familiar Flask-like decorators and intuitive patterns
-- **Share resources cleanly** - Pass database connections, configs, and services to handlers without globals
-- **HTTP done right** - Automatic content negotiation, proper status codes, and standards compliance
-- **Flexible validation** - Use Pydantic when you need it, skip it when you don't
-- **Deploy anywhere** - Same code runs on Uvicorn, Hypercorn, or AWS Lambda
-- **Start simple** - Zero required dependencies, add features as you need them
+## Why RestMachine?
 
-## Quick Example
+- **Get started quickly** - Use the CLI to scaffold out your application.
+- **Focus on results, not boilerplate** - Unique dependency injection system and decorators allow you to focus more on what your application does, leaving details like content negotiaion, proper status codes, and ETags to the framework. 
+- **Deploy anywhere** - The same application can run serverless in AWS Lambda or within your favorit ASGI server.
+
+<div style="text-align: center; margin: 2rem 0;">
+  <a href="tutorial/01-setup/" style="display: inline-block; padding: 0.75rem 2rem; background: #354f7a; color: white; text-decoration: none; border-radius: 0.25rem; font-weight: bold; margin: 0.5rem;">Start the Tutorial</a>
+  <a href="api/application/" style="display: inline-block; padding: 0.75rem 2rem; border: 2px solid #354f7a; color: #354f7a; text-decoration: none; border-radius: 0.25rem; font-weight: bold; margin: 0.5rem;">API Reference</a>
+</div>
+
+### Get started quickly with the CLI
+
+Scaffold out your application quickly and easily, and start serving it immediately :
+
+```bash
+# Create a new project
+restmachine new blog-api
+
+# Generate a complete CRUD resource (model, routes, schemas, tests, fixtures)
+restmachine generate scaffold Post title:str content:str author:str published:bool
+
+# Run your API
+uvicorn app:asgi_app --reload
+```
+
+That's it! You now have a full REST API with:
+
+✅ Database models and migrations <br/>
+✅ CRUD endpoints with proper HTTP semantics <br/>
+✅ Request/response validation <br/>
+✅ Seed data fixtures <br/>
+✅ Integration tests <br/>
+
+### Easily define HTTP endpoints
 
 ```python
 from restmachine import RestApplication, Request
@@ -44,48 +71,36 @@ from restmachine import ASGIAdapter
 asgi_app = ASGIAdapter(app)
 ```
 
-Deploy with any ASGI server:
+### Decorators Define Semanatics
 
-```bash
-uvicorn app:asgi_app --reload
-```
+Rather than forcing you to understand the complexities of HTTP sematnics, RestMachine allows you to define certain "facts"
+about your application through the use of decorators. Want to indicate that, whenever a certain function is called, your
+endpoint will return a `404 Not Found` (such as when you look up a user from a database)? Simply decorate the lookup
+with `resource_exists`. 
 
-Or deploy to AWS Lambda:
-
-```python
-from restmachine_aws import AwsApiGatewayAdapter
-
-adapter = AwsApiGatewayAdapter(app)
-
-def lambda_handler(event, context):
-    return adapter.handle_event(event, context)
-```
-
-## Key Features
-
-### Share Resources Easily
-
-Pass database connections, configs, and services to your handlers automatically:
+The best part is, using these decorators defines re-usable depenencies that can later be used by your various endpoints.
+Many decorators exist that your application can leverage to affect semantics or simply re-use throughout.
 
 ```python
+# Register a dependency that will be run once at startup and memoized
 @app.on_startup
 def database():
     """Initialize database connection at startup."""
     return create_db_connection()
 
+# RestMachine will detect your database dependency and pass it in. The path_params is a built-in dependency you can just use
 @app.resource_exists
 def user(database, path_params):
     user_id = path_params['user_id']
     return database.get_user(user_id)  # Returns None if not found
 
+# When your user hits this endpoint, the user dependency will be called (cached per-request)
 @app.get('/users/{user_id}')
 def get_user(user):
-    return user  # 404 handled automatically if None
+    return user  # Because user uses the resource_exists decorator, this will automatically handle 404 for you.
 ```
 
-### Request Validation
-
-Optional Pydantic integration for type-safe validation:
+Decorators can even be used to define other useful HTTP sematnics, such as request validation and content negotiation
 
 ```python
 from pydantic import BaseModel
@@ -102,27 +117,39 @@ def user_create(request: Request) -> UserCreate:
 @app.post('/users')
 def create_user(user_create: UserCreate):
     return {"created": user_create.model_dump()}
-```
-
-### Serve Multiple Formats
-
-Automatically serve JSON, XML, or custom formats based on what clients request:
-
-```python
-@app.get('/data')
-def get_data():
-    return {"message": "Hello", "timestamp": "2024-01-01"}
 
 @app.provides("text/html")
-def render_html(get_data):
+def render_html(create_user):
     data = get_data
-    return f"<h1>{data['message']}</h1><p>Time: {data['timestamp']}</p>"
+    return f"<h1>Sucessfully Created User</h1><p>Name: {create_user.name}</p><p>Email: {create_user.email}</p>"
 
 @app.provides("text/xml")
-def render_xml(get_data):
+def render_xml(create_user):
     data = get_data
-    return f"<result><message>{data['message']}</message></result>"
+    return f"<user><name>{create_user.name}</name><email>{create_user.email}</email></user>"
 ```
+
+### Write Once, Run Anywhere
+
+When you build applications, you often may not know the most cost efficient way to run it. Instead of re-writing your code
+to run in on bare metal, a container, or serverless, RestMachine lets you write your application code once and chose the
+appropriate driver to run it anywhere!
+
+```bash
+uvicorn app:asgi_app --reload
+```
+
+Or AWS Lambda via API Gateway:
+
+```python
+from restmachine_aws import AwsApiGatewayAdapter
+
+adapter = AwsApiGatewayAdapter(app)
+
+def lambda_handler(event, context):
+    return adapter.handle_event(event, context)
+```
+
 
 ### Automatic OpenAPI Documentation
 
@@ -138,62 +165,6 @@ openapi_json = app.generate_openapi_json(
 # Or save to file for Swagger UI, client SDK generation, etc.
 app.save_openapi_json(filename="openapi.json")
 ```
-
-### Manage Resources Cleanly
-
-Set up and tear down resources like database connections automatically:
-
-```python
-@app.on_startup
-def database():
-    print("Opening database connection...")
-    return create_db_connection()
-
-@app.on_shutdown
-def close_database(database):
-    print("Closing database connection...")
-    database.close()
-```
-
-## Installation
-
-=== "Basic"
-    ```bash
-    pip install restmachine
-    ```
-
-=== "With Validation"
-    ```bash
-    pip install restmachine[validation]
-    ```
-
-=== "With AWS Lambda"
-    ```bash
-    pip install restmachine restmachine-aws
-    ```
-
-## Next Steps
-
-- **[Getting Started →](getting-started/overview.md)** - Learn the basics
-- **[Quick Start →](getting-started/quickstart.md)** - Build your first API
-- **[User Guide →](guide/basic-application.md)** - Comprehensive tutorials
-- **[API Reference →](api/application.md)** - Detailed API documentation
-
-## Why RestMachine?
-
-**RestMachine makes building REST APIs easier** by handling the tricky parts of HTTP for you:
-
-- **Easy to learn** - If you know Flask or FastAPI, you already know RestMachine. Familiar decorator syntax, intuitive patterns.
-
-- **Smart HTTP handling** - RestMachine understands HTTP semantics and automatically handles content negotiation, conditional requests (ETags), and proper status codes. You focus on your business logic.
-
-- **Clean, testable code** - Share resources like database connections across handlers without global state. pytest-style dependency injection makes testing straightforward.
-
-- **Deploy anywhere** - Start developing locally with any ASGI server (Uvicorn, Hypercorn), then deploy to AWS Lambda with zero code changes. Same application code, different deployment targets.
-
-- **Start simple, grow gradually** - Begin with just Python 3.9+, no required dependencies. Add validation (Pydantic), template rendering (Jinja2), or other features only when you need them.
-
-- **Transparent behavior** - The state machine surfaces HTTP request details (content types, cache headers, auth status) as simple facts you can inspect and extend. No hidden magic, just clear control flow.
 
 ## Community & Support
 

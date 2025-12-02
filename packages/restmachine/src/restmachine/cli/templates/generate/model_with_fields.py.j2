@@ -1,6 +1,3 @@
-"""
-{{ resource_name }} model for {{ project_name }}.
-"""
 {%- if needs_uuid_import %}
 import uuid
 {%- endif %}
@@ -15,8 +12,6 @@ from models import backend
 
 
 class {{ resource_name }}(Model):
-    """{{ resource_name }} model."""
-
     model_backend: ClassVar = backend
 {%- for field in fields %}
     {{ field.field_def }}

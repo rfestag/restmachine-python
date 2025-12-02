@@ -266,6 +266,10 @@ class Router:
                 if callback_name not in self.app._callbacks:
                     self.app._callbacks[callback_name] = callback
 
+            # Resolve state callbacks for routes that were registered before mount
+            for route in router._routes:
+                route.resolve_state_callbacks(self.app)
+
         self._mounted_routers.append((prefix, router))
 
         # Add all mounted routes to the tree immediately

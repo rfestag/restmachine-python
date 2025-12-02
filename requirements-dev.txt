@@ -1,6 +1,14 @@
 # Development dependencies
-# All dependency versions are defined in pyproject.toml [project.optional-dependencies]
-# This file provides a convenient way to install all dev dependencies at once
+# Install all packages in editable mode for development
+# Each package's dependencies are defined in their respective pyproject.toml files
 
--e .[dev,validation,server]
+-e packages/restmachine[dev,validation,server]
+-e packages/restmachine-aws[dev]
+-e packages/restmachine-orm[dev]
+-e packages/restmachine-orm-dynamodb[dev]
+-e packages/restmachine-orm-sqlite[dev]
+-e packages/restmachine-orm-testing[dev]
+-e packages/restmachine-web[dev]
+
+# Development tools
 tox

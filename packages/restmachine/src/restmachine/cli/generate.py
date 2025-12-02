@@ -758,8 +758,8 @@ def scaffold(name: str, fields: tuple[str, ...], backend: Optional[str], skip_te
     # 4. Controller (schemas, routes, tests) - using controller generator
     # Prepare controller context with full CRUD actions
     controller_context = _prepare_controller_context(name, None)
-    # Add field information for schema generation
-    controller_context['fields'] = parsed_fields
+    # Add field information for schema generation (exclude auto-generated id field)
+    controller_context['fields'] = [f for f in parsed_fields if f['name'] != 'id']
     controller_context['needs_datetime_import'] = needs_datetime_import
     controller_files = _generate_controller_files(
         controller_context,

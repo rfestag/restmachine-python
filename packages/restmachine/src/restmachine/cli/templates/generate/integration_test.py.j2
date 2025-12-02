@@ -11,43 +11,43 @@ class Test{{ resource_name }}CRUD:
 
     def test_list_{{ resource_plural }}_returns_paginated_response(self, client):
         """Test listing {{ resource_plural }} returns proper pagination structure."""
-        response = client.get('/{{ resource_plural }}')
+        response = client.get_resource('/{{ resource_plural }}')
         assert response.status_code == 200
 
-        data = response.json()
+        data = response.get_json_body()
         assert 'items' in data
-        assert 'next_cursor' in data
-        assert 'has_more' in data
+        assert 'cursor' in data
         assert isinstance(data['items'], list)
 
     def test_list_{{ resource_plural }}_with_limit(self, client):
         """Test pagination limit parameter."""
-        response = client.get('/{{ resource_plural }}?limit=10')
+        response = client.search_resources('/{{ resource_plural }}', {'limit': '10'})
         assert response.status_code == 200
 
-        data = response.json()
+        data = response.get_json_body()
         assert len(data['items']) <= 10
 
     def test_list_{{ resource_plural }}_with_cursor(self, client):
         """Test cursor-based pagination."""
         # Get first page
-        response = client.get('/{{ resource_plural }}?limit=5')
-        data = response.json()
+        response = client.search_resources('/{{ resource_plural }}', {'limit': '5'})
+        data = response.get_json_body()
 
-        if data['has_more']:
+        # cursor is None when no more data
+        if data['cursor'] is not None:
             # Get second page
-            response2 = client.get(f'/{{ resource_plural }}?cursor={data["next_cursor"]}')
+            response2 = client.search_resources('/{{ resource_plural }}', {'cursor': data['cursor']})
             assert response2.status_code == 200
 
     def test_get_{{ resource_singular }}_returns_single_resource(self, client):
         """Test getting a single {{ resource_singular }}."""
         # TODO: Create a {{ resource_singular }} first, then test retrieval
         # Example:
-        # create_response = client.post('/{{ resource_plural }}', json={...})
-        # {{ resource_singular }}_id = create_response.json()['id']
-        # response = client.get(f'/{{ resource_plural }}/{{ lb }}{{ resource_singular }}_id{{ rb }}')
+        # create_response = client.create_resource('/{{ resource_plural }}', {...})
+        # {{ resource_singular }}_id = create_response.get_json_body()['id']
+        # response = client.get_resource(f'/{{ resource_plural }}/{{ lb }}{{ resource_singular }}_id{{ rb }}')
         # assert response.status_code == 200
-        # data = response.json()
+        # data = response.get_json_body()
         # assert 'id' in data
         pass
 
@@ -57,9 +57,9 @@ class Test{{ resource_name }}CRUD:
         # payload = {
         #     # Add creation fields
         # }
-        # response = client.post('/{{ resource_plural }}', json=payload)
+        # response = client.create_resource('/{{ resource_plural }}', payload)
         # assert response.status_code == 201
-        # data = response.json()
+        # data = response.get_json_body()
         # assert 'id' in data
         # assert data['field_name'] == payload['field_name']
         pass
@@ -67,45 +67,44 @@ class Test{{ resource_name }}CRUD:
     def test_update_{{ resource_singular }}_returns_updated_resource(self, client):
         """Test updating a {{ resource_singular }} returns updated resource."""
         # TODO: Create a {{ resource_singular }} first, then update it
-        # create_response = client.post('/{{ resource_plural }}', json={...})
-        # {{ resource_singular }}_id = create_response.json()['id']
+        # create_response = client.create_resource('/{{ resource_plural }}', {...})
+        # {{ resource_singular }}_id = create_response.get_json_body()['id']
         #
         # payload = {
         #     # Add update fields
         # }
-        # response = client.put(f'/{{ resource_plural }}/{{ lb }}{{ resource_singular }}_id{{ rb }}', json=payload)
+        # response = client.update_resource(f'/{{ resource_plural }}/{{ lb }}{{ resource_singular }}_id{{ rb }}', payload)
         # assert response.status_code == 200
         pass
 
     def test_delete_{{ resource_singular }}_returns_204(self, client):
         """Test deleting a {{ resource_singular }} returns 204."""
         # TODO: Create a {{ resource_singular }} first, then delete it
-        # create_response = client.post('/{{ resource_plural }}', json={...})
-        # {{ resource_singular }}_id = create_response.json()['id']
+        # create_response = client.create_resource('/{{ resource_plural }}', {...})
+        # {{ resource_singular }}_id = create_response.get_json_body()['id']
         #
-        # response = client.delete(f'/{{ resource_plural }}/{{ lb }}{{ resource_singular }}_id{{ rb }}')
+        # response = client.delete_resource(f'/{{ resource_plural }}/{{ lb }}{{ resource_singular }}_id{{ rb }}')
         # assert response.status_code == 204
-        # assert response.content == b'' or len(response.content) == 0
         #
         # # Verify it's deleted
-        # get_response = client.get(f'/{{ resource_plural }}/{{ lb }}{{ resource_singular }}_id{{ rb }}')
+        # get_response = client.get_resource(f'/{{ resource_plural }}/{{ lb }}{{ resource_singular }}_id{{ rb }}')
         # assert get_response.status_code == 404
         pass
 
     def test_get_nonexistent_{{ resource_singular }}_returns_404(self, client):
         """Test 404 for nonexistent {{ resource_singular }}."""
-        response = client.get('/{{ resource_plural }}/nonexistent-id')
+        response = client.get_resource('/{{ resource_plural }}/nonexistent-id')
         assert response.status_code == 404
 
     def test_update_nonexistent_{{ resource_singular }}_returns_404(self, client):
         """Test 404 when updating nonexistent {{ resource_singular }}."""
         # TODO: Add update payload
         # payload = {}
-        # response = client.put('/{{ resource_plural }}/nonexistent-id', json=payload)
+        # response = client.update_resource('/{{ resource_plural }}/nonexistent-id', payload)
         # assert response.status_code == 404
         pass
 
     def test_delete_nonexistent_{{ resource_singular }}_returns_404(self, client):
         """Test 404 when deleting nonexistent {{ resource_singular }}."""
-        response = client.delete('/{{ resource_plural }}/nonexistent-id')
+        response = client.delete_resource('/{{ resource_plural }}/nonexistent-id')
         assert response.status_code == 404

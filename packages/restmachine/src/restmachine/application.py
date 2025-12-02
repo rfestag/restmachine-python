@@ -140,6 +140,14 @@ class RouteHandler:
             'generate_etag', 'last_modified'
         }
 
+        # Case 0: Check if the handler itself is registered as a state callback
+        # This handles cases like @router.resource_exists @router.get('/{id}') def post():
+        handler_name = self.handler.__name__
+        if handler_name in app._dependencies:
+            dep = app._dependencies[handler_name]
+            if isinstance(dep, DependencyWrapper) and dep.state_name in state_callback_types:
+                self.state_callbacks[dep.state_name] = dep.func
+
         # Analyze each parameter of the handler
         for param_name in self.param_info.keys():
             # Check if this parameter is directly wrapped with a state callback

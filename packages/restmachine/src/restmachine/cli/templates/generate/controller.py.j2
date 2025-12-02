@@ -1,24 +1,11 @@
-"""
-{{ resource_name }} controller for {{ project_name }}.
-{%- if has_model %}
-
-Provides REST endpoints for {{ resource_plural }}.
-{%- else %}
-
-Custom controller mounted at {{ mount_path }}.
-{%- endif %}
-"""
 {%- set lb = '{' %}
 {%- set rb = '}' %}
 from typing import List, Optional
-
 from restmachine import Router
 {%- if has_model %}
-
 from models.{{ resource_snake }} import {{ resource_name }}
 {%- endif %}
 {%- if generate_schemas and has_model %}
-
 from schemas.{{ resource_snake }}_schemas import (
 {%- for action in actions %}
 {%- if action.input_schema and action.input_schema not in schemas_imported %}
@@ -42,15 +29,6 @@ router = Router()
 @router.resource_exists
 @router.get('/{{ lb }}{{ resource_singular }}_id{{ rb }}')
 def {{ resource_singular }}(path_params) -> {{ resource_name }}:
-    """
-    Load and return {{ resource_singular }}.
-
-    This function serves dual purposes:
-    1. As a dependency for other routes (PUT, DELETE) to inject the resource
-    2. As the GET endpoint to retrieve a single {{ resource_singular }}
-
-    Returns None if {{ resource_singular }} not found (triggers 404).
-    """
     {{ resource_singular }}_id = path_params.get('{{ resource_singular }}_id')
     return {{ resource_name }}.find_by(id={{ resource_singular }}_id)
 {%- endif %}
